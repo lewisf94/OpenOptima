@@ -12,6 +12,11 @@ built entirely on open-source CAD, meshing and finite element tools.
               └─────────────────────────────────────────┘  + your preferences
 ```
 
+> **New here?** Start with the
+> [plain-English guide](docs/plain-english-guide.md) — the whole project
+> explained without jargon, including what every term means and how to read the
+> results.
+
 > **Status: alpha.** The pipeline is verified against beam theory and a full
 > optimisation runs end to end, but this is early software. Read
 > [`docs/engineering-assumptions.md`](docs/engineering-assumptions.md) before
@@ -144,6 +149,7 @@ See [`docs/verification-plan.md`](docs/verification-plan.md).
 
 | | |
 |---|---|
+| [**Plain-English guide**](docs/plain-english-guide.md) | **start here** — no jargon, explains every term |
 | [Architecture](docs/architecture.md) | how the pieces fit and why |
 | [Engineering assumptions](docs/engineering-assumptions.md) | **read before trusting a number** |
 | [Verification plan](docs/verification-plan.md) | benchmarks and tolerances |
