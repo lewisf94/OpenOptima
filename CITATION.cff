@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: "OpenOptima: open-source parametric design optimisation"
+message: "If you use this software in published work, please cite it."
+type: software
+authors:
+  - name: "OpenOptima contributors"
+version: 0.1.0
+license: GPL-3.0-or-later
+repository-code: "https://github.com/lewisf94/OpenOptima"
+abstract: >-
+  An engineering optimisation platform that couples parametric CAD geometry,
+  automatic meshing and open-source finite element analysis to design of
+  experiments and multi-objective optimisation. Regions are identified by
+  geometric signature rather than face index so that boundary conditions survive
+  geometry rebuilds, and infeasible designs are distinguished from
+  infrastructure failures so that solver errors cannot bias the search.
+keywords:
+  - design optimisation
+  - finite element analysis
+  - design of experiments
+  - multi-objective optimisation
+  - CalculiX
+  - gmsh

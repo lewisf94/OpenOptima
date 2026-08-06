@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Study output
+openoptima_work/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Solver and CAD leftovers
+*.frd
+*.dat
+*.sta
+*.cvg
+*.12d
+spooles.out
+*.msh
+*.brep

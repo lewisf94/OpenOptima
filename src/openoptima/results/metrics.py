@@ -1,0 +1,191 @@
+"""Turning solver fields into the scalar metrics an optimiser can act on.
+
+The stress measure deserves the attention it gets here.  Raw peak von Mises
+stress is a seductive but poor optimisation target: at a re-entrant corner or a
+point support the true elastic stress is unbounded, so the "peak" simply grows
+with every mesh refinement.  An optimiser handed that number learns to chase
+mesh artefacts rather than design quality, and a mesh-convergence study of the
+winning design then contradicts the optimisation that produced it.
+
+So the default is a high percentile of the nodal field with user-nominated
+singular regions excluded, and the raw peak is *always* reported alongside so
+nothing is hidden.  ``docs/engineering-assumptions.md`` states this in the terms
+a reviewer needs.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from ..domain.model import AnalysisModel, Material, StressEvaluation
+from ..domain.regions import RegionMap
+from ..domain.results import LoadCaseResult
+from ..meshing.base import MeshData
+from ..solvers.base import AnalysisResults, LoadCaseFields
+
+
+@dataclass(frozen=True)
+class StressResult:
+    value: float
+    raw_max: float
+    measure_name: str
+    excluded_nodes: int
+
+
+def excluded_node_mask(
+    mesh: MeshData,
+    regions: RegionMap,
+    evaluation: StressEvaluation,
+    node_tags: np.ndarray,
+) -> np.ndarray:
+    """Boolean mask of nodes to drop from the stress measure.
+
+    Nodes on an excluded region are always dropped.  If ``exclusion_radius`` is
+    set, nodes within that distance of one are dropped too — a singularity
+    contaminates a small neighbourhood, not just the node itself.
+    """
+    mask = np.zeros(len(node_tags), dtype=bool)
+    if not evaluation.excluded_regions:
+        return mask
+
+    tag_to_row = {int(tag): row for row, tag in enumerate(node_tags)}
+    excluded_tags: set[int] = set()
+    for region_name in evaluation.excluded_regions:
+        if region_name in mesh.surface_nodes:
+            excluded_tags.update(int(t) for t in mesh.surface_nodes[region_name])
+        elif region_name in regions:
+            continue
+
+    for tag in excluded_tags:
+        row = tag_to_row.get(tag)
+        if row is not None:
+            mask[row] = True
+
+    if evaluation.exclusion_radius > 0 and excluded_tags:
+        seed_rows = [tag_to_row[t] for t in excluded_tags if t in tag_to_row]
+        if seed_rows:
+            seeds = mesh.coordinates[[mesh.index_of(int(node_tags[r])) for r in seed_rows]]
+            points = mesh.coordinates[[mesh.index_of(int(tag)) for tag in node_tags]]
+            radius = evaluation.exclusion_radius
+            for seed in seeds:
+                distances = np.linalg.norm(points - seed, axis=1)
+                mask |= distances <= radius
+    return mask
+
+
+def evaluate_stress(
+    field: np.ndarray,
+    evaluation: StressEvaluation,
+    mask: np.ndarray | None = None,
+) -> StressResult:
+    """Reduce a nodal von Mises field to one number, per the configured measure."""
+    raw_max = float(np.max(field)) if field.size else 0.0
+
+    working = field
+    excluded = 0
+    if mask is not None and mask.any():
+        working = field[~mask]
+        excluded = int(mask.sum())
+    if working.size == 0:
+        working = field
+
+    measure = evaluation.measure
+    if measure == "raw_max":
+        value = float(np.max(working))
+        name = "raw maximum"
+    elif measure == "percentile":
+        value = float(np.percentile(working, evaluation.percentile))
+        name = f"p{evaluation.percentile:g} percentile"
+    elif measure == "pnorm":
+        exponent = evaluation.pnorm_exponent
+        scale = float(np.max(working)) or 1.0
+        normalised = working / scale
+        value = float(scale * (np.sum(normalised**exponent) / working.size) ** (1.0 / exponent))
+        name = f"p-norm (p={exponent:g})"
+    elif measure == "region_max":
+        value = float(np.max(working))
+        name = "maximum outside excluded regions"
+    else:  # pragma: no cover - schema restricts this
+        raise ValueError(f"unknown stress measure {measure!r}")
+
+    return StressResult(value=value, raw_max=raw_max, measure_name=name, excluded_nodes=excluded)
+
+
+def mass_kg(volume_mm3: float, material: Material) -> float:
+    """Mass in kg from a volume in mm^3 and a density in t/mm^3."""
+    return volume_mm3 * material.density * 1.0e3
+
+
+def load_case_metrics(
+    fields: LoadCaseFields,
+    mesh: MeshData,
+    regions: RegionMap,
+    evaluation: StressEvaluation,
+) -> LoadCaseResult:
+    magnitude = fields.displacement_magnitude
+    peak_index = int(np.argmax(magnitude)) if magnitude.size else 0
+    mask = excluded_node_mask(mesh, regions, evaluation, fields.node_tags)
+    stress = evaluate_stress(fields.von_mises, evaluation, mask)
+
+    return LoadCaseResult(
+        load_case_id=fields.load_case_id,
+        displacement_max=float(magnitude[peak_index]) if magnitude.size else 0.0,
+        displacement_node=int(fields.node_tags[peak_index]) if magnitude.size else None,
+        stress_measure=stress.value,
+        stress_raw_max=stress.raw_max,
+        stress_measure_name=stress.measure_name,
+        reaction_force=fields.reaction_force,
+    )
+
+
+def collect_metrics(
+    results: AnalysisResults,
+    model: AnalysisModel,
+    mesh: MeshData,
+    regions: RegionMap,
+    volume_mm3: float,
+) -> tuple[dict[str, float], tuple[LoadCaseResult, ...]]:
+    """Produce the metric dictionary the objectives and constraints refer to.
+
+    Multi-case metrics are **envelopes**, never averages: the governing case is
+    the one that matters, and averaging a failing case against a passing one
+    hides the failure.
+    """
+    per_case = tuple(
+        load_case_metrics(fields, mesh, regions, model.stress_evaluation)
+        for fields in results.load_cases
+    )
+
+    mass = mass_kg(volume_mm3, model.material)
+    allowable = model.material.allowable_stress
+
+    worst_stress = max((case.stress_measure for case in per_case), default=0.0)
+    worst_raw = max((case.stress_raw_max for case in per_case), default=0.0)
+    worst_displacement = max((case.displacement_max for case in per_case), default=0.0)
+    factor_of_safety = allowable / worst_stress if worst_stress > 0 else float("inf")
+
+    metrics: dict[str, float] = {
+        "mass_kg": mass,
+        "volume_mm3": volume_mm3,
+        "displacement_max_mm": worst_displacement,
+        "stress_max_mpa": worst_stress,
+        "stress_raw_max_mpa": worst_raw,
+        "factor_of_safety": factor_of_safety,
+        "stiffness_n_per_mm": 0.0,
+    }
+
+    total_load = 0.0
+    for case in per_case:
+        total_load = max(total_load, float(np.linalg.norm(case.reaction_force)))
+    if worst_displacement > 0 and total_load > 0:
+        metrics["stiffness_n_per_mm"] = total_load / worst_displacement
+
+    for case in per_case:
+        metrics[f"displacement_max_mm.{case.load_case_id}"] = case.displacement_max
+        metrics[f"stress_max_mpa.{case.load_case_id}"] = case.stress_measure
+        if case.stress_measure > 0:
+            metrics[f"factor_of_safety.{case.load_case_id}"] = allowable / case.stress_measure
+
+    return metrics, per_case

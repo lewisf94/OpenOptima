@@ -1,0 +1,196 @@
+# OpenOptima example: minimum-mass L bracket
+#
+# Bolted to a wall at x=0, carrying a downward load at the end of the
+# horizontal arm. The optimiser may change the two plate thicknesses and the
+# internal fillet radius; it must keep a factor of safety of 2 and hold tip
+# deflection under 1 mm.
+#
+# Run it:
+#   openoptima doctor  examples/l_bracket/project.yaml
+#   openoptima evaluate examples/l_bracket/project.yaml
+#   openoptima doe      examples/l_bracket/project.yaml --evaluations 24
+#   openoptima optimise examples/l_bracket/project.yaml
+#   openoptima report   examples/l_bracket/project.yaml
+
+schema_version: 1
+name: L-bracket minimum mass
+description: >
+  Aluminium bracket sized for a 2.5 kN downward end load. Demonstrates
+  semantic region selection, a multi-objective run and preference-based
+  ranking of the Pareto front.
+
+unit_system: mm_N_MPa_t
+
+geometry:
+  provider: occ
+  template: l_bracket
+  parameters:
+    length: 120.0
+    height: 90.0
+    width: 60.0
+    bolt_diameter: 9.0
+    bolt_inset: 15.0
+  variables:
+    - id: thickness_h
+      label: Horizontal plate thickness
+      type: continuous
+      minimum: 5.0
+      maximum: 20.0
+      default: 10.0
+      unit: mm
+    - id: thickness_v
+      label: Vertical plate thickness
+      type: continuous
+      minimum: 5.0
+      maximum: 20.0
+      default: 10.0
+      unit: mm
+    - id: fillet_radius
+      label: Internal fillet radius
+      type: continuous
+      minimum: 3.0
+      maximum: 25.0
+      default: 8.0
+      unit: mm
+
+# Regions are found by geometry, never by face number, so they survive every
+# rebuild. Each selector must identify its face unambiguously across the whole
+# design range -- `openoptima doctor` checks exactly that.
+regions:
+  - name: mounting_face
+    description: Flat face bolted to the wall
+    selector:
+      surface_type: plane
+      normal: [-1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      prefer_largest: true
+
+  - name: load_face
+    description: End face of the horizontal arm where the load is applied
+    selector:
+      surface_type: plane
+      normal: [1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      within_box: { xmin: 119.0, ymin: -1.0, zmin: -1.0, xmax: 121.0, ymax: 61.0, zmax: 91.0 }
+
+  - name: fillet_surface
+    description: Internal corner fillet — refined, and excluded from the stress measure
+    selector:
+      surface_type: cylinder
+      within_box: { xmin: -1.0, ymin: -1.0, zmin: -1.0, xmax: 46.0, ymax: 61.0, zmax: 46.0 }
+
+  - name: bolt_holes
+    description: Both bolt hole bores
+    selector:
+      surface_type: cylinder
+      mode: all
+      within_box: { xmin: -1.0, ymin: -1.0, zmin: 50.0, xmax: 46.0, ymax: 61.0, zmax: 91.0 }
+
+material:
+  name: Aluminium 6082-T6
+  elastic_modulus_mpa: 70000.0
+  poisson_ratio: 0.33
+  density_kg_m3: 2700.0
+  # Allowable stress is a design decision, not a material property. State the
+  # basis so a reviewer can check it.
+  allowable_stress_mpa: 160.0
+  allowable_stress_basis: "0.2% proof stress 260 MPa with a 1.6 design factor"
+
+load_cases:
+  - id: vertical_end_load
+    description: 2.5 kN downward at the end of the horizontal arm
+    boundary_conditions:
+      - region: mounting_face
+        kind: fixed
+        dofs: [1, 2, 3]
+    loads:
+      - kind: force
+        region: load_face
+        vector: [0.0, 0.0, -2500.0]
+
+mesh:
+  global_size: 6.0
+  minimum_size: 1.5
+  element_order: 2
+  algorithm: delaunay
+  curvature_refinement: true
+  curvature_elements: 12.0
+  local_refinements:
+    - region: fillet_surface
+      size: 2.0
+      distance: 12.0
+  min_scaled_jacobian: 0.05
+  volume_tolerance: 0.02
+
+# The fixed face is a stress singularity: the elastic peak there grows without
+# bound as the mesh is refined. Optimising the raw peak would chase mesh
+# artefacts, so use a high percentile with the singular region removed. The raw
+# peak is still reported on every result.
+stress_evaluation:
+  measure: percentile
+  percentile: 99.0
+  excluded_regions: [mounting_face]
+
+solver:
+  name: calculix
+  timeout_seconds: 900
+  threads: 1
+
+objectives:
+  - metric: mass_kg
+    direction: minimise
+    label: Mass
+  - metric: displacement_max_mm
+    direction: minimise
+    label: Tip deflection
+
+constraints:
+  - metric: factor_of_safety
+    operator: greater_than_or_equal
+    value: 2.0
+    label: Factor of safety
+  - metric: displacement_max_mm
+    operator: less_than_or_equal
+    value: 1.0
+    label: Tip deflection
+
+# How the user values the trade-off. These rank the Pareto front; they never
+# replace it.
+preferences:
+  targets:
+    - metric: mass_kg
+      operator: less_than_or_equal
+      value: 0.55
+    - metric: factor_of_safety
+      operator: greater_than_or_equal
+      value: 2.6
+  desirability:
+    - metric: mass_kg
+      direction: minimise
+      ideal: 0.45     # below this, further lightness is not worth chasing
+      acceptable: 0.70
+      weight: 1.0
+    - metric: factor_of_safety
+      direction: maximise
+      ideal: 3.0      # above this, extra strength buys nothing
+      acceptable: 2.0
+      weight: 1.0
+  trade_rules:
+    # "I will pay 25 g for each 0.1 of factor of safety."
+    - give_metric: mass_kg
+      give_amount: 0.025
+      gain_metric: factor_of_safety
+      gain_amount: 0.1
+
+optimisation:
+  initial_sampling:
+    method: sobol
+    evaluations: 16
+    seed: 1
+  algorithm:
+    name: nsga2
+    population_size: 16
+    evaluation_budget: 64
+    seed: 1
+  parallel_jobs: 0   # 0 = choose from the machine's core count
+  max_retries: 1

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff mypy types-PyYAML
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pip install -e ".[optimise]"
+      - run: mypy src
+        continue-on-error: true
+
+  unit:
+    name: Unit tests (no CAE tools)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglu1-mesa
+          pip install -e ".[dev,optimise]"
+      - name: Unit tests
+        run: pytest tests/unit -v
+
+  integration:
+    name: Integration and verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CAE tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y calculix-ccx libglu1-mesa
+          ccx -v || true
+      - name: Install
+        run: pip install -e ".[dev,optimise]"
+      - name: Check the example project
+        run: openoptima doctor examples/l_bracket/project.yaml
+      - name: Integration tests
+        run: pytest tests/integration -v --timeout 1800
+      - name: Verification benchmarks
+        run: pytest tests/verification -v --timeout 1800
+      - name: Short optimisation smoke test
+        run: |
+          openoptima optimise examples/l_bracket/project.yaml \
+            --budget 16 --population 8 --discard-artifacts --quiet
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: study-output
+          path: examples/l_bracket/openoptima_work/reports/
+          if-no-files-found: ignore
