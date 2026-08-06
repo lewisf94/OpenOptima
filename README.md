@@ -1,8 +1,10 @@
 # OpenOptima
 
-Open-source parametric design optimisation. Define a part, say what it must
-survive and what you want to minimise, and get back the trade-off surface —
-built entirely on open-source CAD, meshing and finite element tools.
+OpenOptima is open-source software for parametric design optimisation —
+trying many versions of a part's shape and keeping the best ones. You
+describe the part, say what it must survive, and say what you want to
+minimise. OpenOptima returns the trade-off between those goals. It uses only
+open-source tools for the shape, the mesh, and the structural calculation.
 
 ```
               ┌─────────────────────────────────────────┐
@@ -12,46 +14,64 @@ built entirely on open-source CAD, meshing and finite element tools.
               └─────────────────────────────────────────┘  + your preferences
 ```
 
-> **New here?** Start with the
-> [plain-English guide](docs/plain-english-guide.md) — the whole project
-> explained without jargon, including what every term means and how to read the
+> **New to OpenOptima?** Read the
+> [plain-English guide](docs/plain-english-guide.md) first. It explains the
+> whole project without jargon: what every term means, and how to read your
 > results.
 
-> **Status: alpha.** The pipeline is verified against beam theory and a full
-> optimisation runs end to end, but this is early software. Read
-> [`docs/engineering-assumptions.md`](docs/engineering-assumptions.md) before
-> sizing anything real from its output. It performs **linear static analysis
-> only**, plus optional linear buckling — no fatigue, contact or plasticity.
+> **Status: alpha.** This is early software. The calculation pipeline is
+> verified against beam theory, and a full optimisation run works end to
+> end. Read [`docs/engineering-assumptions.md`](docs/engineering-assumptions.md)
+> before you size a real part from its output. OpenOptima performs
+> **linear static analysis only**, with optional linear buckling. It does
+> not cover fatigue, contact, or plasticity.
 
 ## What it does
 
-- **Parametric geometry** from built-in templates or your own CadQuery model
-- **Automatic meshing** with size fields, quality gates and a retry ladder
-- **Finite element analysis** via CalculiX, with automatic equilibrium checking
-- **Linear buckling** as a constraint, verified to 0.11% against Euler — and it
-  refuses to report a result it cannot trust rather than giving you an
-  optimistic one
-- **Design of experiments** (Sobol / Latin hypercube) with sensitivity ranking
-- **Multi-objective optimisation** (NSGA-II) producing a real Pareto front
-- **Decision support** — knee point, marginal exchange rates, and a preference
-  model that understands "I'll pay 25 g for each 0.1 of factor of safety"
-- **Full provenance** — every run keeps its geometry, mesh, deck, solver output
-  and a manifest of tool versions
+- **Parametric geometry**, from a built-in template or your own CadQuery model
+- **Automatic meshing**, with quality checks and an automatic coarser retry
+  when meshing fails
+- **Structural calculation (FEA)** using CalculiX, with an automatic check
+  that the reaction force matches the applied load
+- **Linear buckling** as a limit you can set, verified to within 0.11% of
+  Euler's column formula. OpenOptima refuses to report a buckling result it
+  cannot trust, instead of an optimistic one
+- **Design of experiments (DOE)**, using Sobol or Latin hypercube sampling,
+  with sensitivity ranking
+- **Multi-objective optimisation** (NSGA-II), which produces a real Pareto
+  front — not a single blended score
+- **Decision support** — the knee point, marginal exchange rates, and a
+  preference model that understands "I will pay 25 g for each 0.1 of factor
+  of safety"
+- **A full record of every run** (its geometry, mesh, solver deck, solver
+  output, and every tool version used) — engineers call this provenance
 
 ## Install
 
 ### Windows — the app
 
-Download the installer, run it, and open OpenOptima from the Start menu. It
-opens in your browser as a step-by-step app: choose a part, check the setup, run
-it, read the trade-off. No terminal, no Python.
+To install:
 
-Build it yourself with `packaging\build_windows.ps1` — see
-[`packaging/README.md`](packaging/README.md).
+1. Download the installer.
+2. Run the installer.
+3. Open OpenOptima from the Start menu.
+
+OpenOptima opens in your browser as a step-by-step app. Inside the app:
+
+1. Choose a part.
+2. Check the setup.
+3. Run it.
+4. Read the results.
+
+You do not need a terminal or a Python installation.
+
+To build the installer yourself, run `packaging\build_windows.ps1`. See
+[`packaging/README.md`](packaging/README.md) for the steps.
 
 ### Everything else — pip
 
-Two runtime dependencies: a Python wheel and a solver binary.
+OpenOptima needs two runtime components: a Python package and a solver
+program.
 
 ```bash
 # CalculiX
@@ -62,11 +82,12 @@ brew install calculix                  # macOS
 pip install -e ".[optimise]"
 ```
 
-`gmsh` comes from PyPI and bundles its own OpenCASCADE kernel — no separate CAD
-install. CadQuery is optional (`pip install -e ".[cadquery]"`) and only needed
-if you want to author geometry with its API instead of a built-in template.
+Gmsh comes from PyPI and includes its own OpenCASCADE geometry engine, so
+you do not need a separate CAD installation. CadQuery is optional
+(`pip install -e ".[cadquery]"`). Install it only if you want to write
+geometry in CadQuery's own code, instead of using a built-in template.
 
-Verify:
+Check the install:
 
 ```bash
 openoptima doctor examples/l_bracket/project.yaml
@@ -74,13 +95,13 @@ openoptima doctor examples/l_bracket/project.yaml
 
 ## Try it
 
-The app, if you would rather click than type:
+If you prefer a visual app to typed commands, run:
 
 ```bash
 openoptima-app
 ```
 
-Or the command line:
+If you prefer the command line, run these commands in order:
 
 ```bash
 openoptima doctor   examples/l_bracket/project.yaml   # check the setup first
@@ -89,12 +110,14 @@ openoptima doe      examples/l_bracket/project.yaml --evaluations 24
 openoptima optimise examples/l_bracket/project.yaml
 ```
 
-The example minimises the mass of an aluminium bracket carrying a 2.5 kN end
-load, subject to a factor of safety of 2 and a 1 mm deflection limit.
+This example minimises the mass of an aluminium bracket. The bracket
+carries a 2.5 kN load at its end. The design must keep a factor of safety
+of at least 2, and a deflection under 1 mm.
 
 ## Defining a study
 
-A project is one YAML file. The interesting part is how regions are defined:
+A project is one YAML file. This is how you define a region — a named
+face, or group of faces, that you push or hold:
 
 ```yaml
 regions:
@@ -105,24 +128,30 @@ regions:
       prefer_largest: true
 ```
 
-That is not a face number. Face numbering changes whenever the model is rebuilt,
-so a stored index eventually attaches your load to the wrong face and returns a
-converged, plausible, wrong answer. OpenOptima re-resolves selectors against the
-real geometry on **every** evaluation, and if two faces match equally well it
-**stops** rather than guessing.
+That is not a face number. Face numbering changes every time OpenOptima
+rebuilds the model. A stored face number can end up pointing at the wrong
+face. Your load then lands in the wrong place, and OpenOptima still reports
+an answer that looks correct and is wrong.
 
-`openoptima doctor` builds the extremes of your design range and checks every
-selector still resolves uniquely there — so you find setup mistakes before a
-study, not 200 evaluations into one.
+Instead, OpenOptima finds each region again from your written description —
+its selector — every time it evaluates a design. If two faces match equally
+well, OpenOptima stops instead of guessing.
+
+`openoptima doctor` builds your part at the smallest and largest sizes in
+your design range. It checks that every selector still finds exactly one
+face at each size. This finds a setup mistake in seconds, before you start
+a study — not 200 designs into one.
 
 ## Saying what you actually want
 
-The hard question in optimisation is not finding good designs, it is choosing
-between them. A weighted score (`0.6 × strength + 0.4 × weight`) hides the
-trade-off, changes meaning when units change, and cannot reach concave parts of
-the front.
+The hard question in optimisation is not finding good designs. It is
+choosing between them. A weighted score, for example
+`0.6 × strength + 0.4 × weight`, hides the trade-off between the two goals.
+Its result also changes meaning whenever your units change. And it cannot
+reach some good designs at all, no matter how you set the weights.
 
-So OpenOptima always produces the front, then lets you rank it four ways:
+So OpenOptima always produces the full set of trade-offs — the Pareto front
+— first. Then it lets you rank the designs on that front in four ways:
 
 ```yaml
 preferences:
@@ -138,20 +167,22 @@ preferences:
       gain_amount: 0.1              #  factor of safety"
 ```
 
-and it shows you what each step along the front actually costs:
+OpenOptima also shows you what each step along the front actually costs:
 
 | Mass paid | Deflection gained | Cost per unit |
 |-----------|-------------------|---------------|
 | 0.0159 kg | 0.0323 mm         | 0.49          |
 | 0.1479 kg | 0.0189 mm         | 7.82          |
 
-The first step is cheap, the second is sixteen times worse value. That is the
-knee, and it is the sort of thing a single score would have buried.
+The first step is cheap. The second step is sixteen times worse value.
+That point is called the knee point — where extra strength stops being
+worth its weight. A single blended score would have hidden this pattern.
 
 ## How it is verified
 
-The cantilever benchmark compares a full geometry→mesh→solve→parse run against
-Timoshenko beam theory:
+The cantilever benchmark checks a full run — shape, mesh, solve, and read
+the result — against Timoshenko beam theory. A cantilever is a beam fixed
+at one end and free at the other, like a diving board:
 
 ```
 tip deflection, FE      : -2.8519 mm
@@ -160,10 +191,18 @@ error                   : -0.98 %      (3% tolerance)
 reaction force          :  1000.000 N  (exactly balances the applied load)
 ```
 
-The model must land on the *stiff* side — a fully fixed end suppresses Poisson
-contraction — so the test asserts the sign of the discrepancy as well as its
-size. Every load case in every run also checks reaction against applied load,
-which catches load-on-the-wrong-face and unit mistakes for free.
+The finite-element answer must be slightly stiffer than beam theory
+predicts: a smaller deflection, never a larger one. A fully fixed end stops
+the material narrowing sideways as it stretches, an effect called Poisson
+contraction. Beam theory ignores this effect, so the finite-element model
+comes out a little stiffer. The test checks two things: the size of the
+error, and its direction. A verified model may be a little too stiff. It
+must never be too soft.
+
+Every load case — one loading scenario your part must survive — is checked
+the same way. OpenOptima compares the reaction force to the applied load in
+every run. This check finds a load placed on the wrong face, and unit
+mistakes, automatically.
 
 Buckling is verified the same way, against Euler's column formula:
 
@@ -173,12 +212,14 @@ Euler, fixed-free       : 14.3932
 error                   : +0.11 %      (3% tolerance)
 ```
 
-Buckling is also where OpenOptima refuses to answer. Solid elements stop being
-reliable for very slender members and fail *optimistically* — telling you a
-strut is safe when it will fold. So every buckling result is cross-checked
-against beam theory computed from the mesh itself, and one that falls outside
-the validated range is reported as an error, not as a number with a warning
-attached. An optimiser acts on the number and ignores the warning.
+Buckling is also where OpenOptima sometimes refuses to answer, on purpose.
+For very slender parts, solid elements stop giving a reliable buckling
+number. The failure is optimistic: the calculation can report a strut as
+safe when it will actually fold. So OpenOptima checks every buckling result
+against beam theory, calculated from the same mesh. A result outside the
+range OpenOptima has verified is reported as an error, not as a number with
+a warning attached. An automatic optimiser reads the number, and ignores a
+warning next to it.
 
 See [`docs/verification-plan.md`](docs/verification-plan.md).
 
@@ -197,15 +238,15 @@ See [`docs/verification-plan.md`](docs/verification-plan.md).
 
 ## Built with
 
-[gmsh](https://gmsh.info/) · [CalculiX](http://www.calculix.de/) ·
+[Gmsh](https://gmsh.info/) · [CalculiX](http://www.calculix.de/) ·
 [pymoo](https://pymoo.org/) · [SciPy](https://scipy.org/) ·
 [CadQuery](https://cadquery.readthedocs.io/) (optional)
 
 ## Licence
 
-GPL-3.0-or-later. See [LICENSE](LICENSE) and
+OpenOptima is licensed under GPL-3.0-or-later. See [LICENSE](LICENSE) and
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-GPL was chosen for compatibility with gmsh (GPL-2.0-or-later) and CalculiX
-(GPL-2.0-or-later), which OpenOptima builds on. This is a practical assessment,
-not legal advice.
+OpenOptima builds on Gmsh (GPL-2.0-or-later) and CalculiX
+(GPL-2.0-or-later). We chose GPL-3.0-or-later for compatibility with both.
+This is a practical assessment, not legal advice.

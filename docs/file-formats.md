@@ -2,9 +2,10 @@
 
 ## Project file (`project.yaml`)
 
-The only file a user writes. Versioned via `schema_version`; unknown keys are
-**rejected** so a typo cannot silently fall back to a default and change the
-physics. See `examples/l_bracket/project.yaml` for a commented example.
+`project.yaml` is the only file a user writes. OpenOptima versions it with
+`schema_version`, and rejects unknown keys. This way, a typo cannot
+silently fall back to a default value and change the physics. See
+`examples/l_bracket/project.yaml` for a commented example.
 
 Top-level sections:
 
@@ -38,12 +39,14 @@ openoptima_work/
     └── optimisation.json
 ```
 
-`--discard-artifacts` deletes geometry and mesh after each evaluation, keeping
-manifests and metrics. A 500-design study otherwise keeps 500 meshes.
+`--discard-artifacts` deletes the geometry and mesh after each evaluation,
+and keeps the manifests and metrics. Without this flag, a 500-design study
+keeps all 500 meshes on disk.
 
 ## `evaluation_manifest.json`
 
-The provenance record. Everything needed to explain a number later:
+This is the **provenance** record — the record of exactly what produced a
+result. It holds everything needed to explain a number later:
 
 ```json
 {
@@ -64,24 +67,27 @@ The provenance record. Everything needed to explain a number later:
 }
 ```
 
-If a result is ever questioned, this file answers: which tool versions, which
-regions resolved to which faces and with what confidence, what mesh, and whether
-anything warned.
+If anyone ever questions a result, this file answers exactly that. It
+records which tool versions ran, which regions resolved to which faces
+(and with what confidence), which mesh was used, and whether anything
+raised a warning.
 
 ## Database
 
-SQLite. Two tables — `evaluations` (one row per unique evaluation hash) and
-`studies`. The database is an **index**, not an archive: bulk artefacts stay on
-disk under `runs/`.
+OpenOptima uses SQLite, with two tables: `evaluations` (one row per unique
+evaluation hash) and `studies`. The database is an **index**, not an
+archive — the bulk data stays on disk, under `runs/`.
 
-`evaluation_hash` is unique. It covers the design vector, the project setup
-digest and the tool versions, so a result computed under different physics can
-never be served as a cache hit.
+`evaluation_hash` is unique. It covers the design vector, the project's
+setup digest, and the tool versions together. So OpenOptima can never
+serve a result computed under different physics as a cache hit.
 
 ## Solver deck
 
-Split across files rather than written as one blob, because the first question
-when something looks wrong is always "mesh, material, or loads?":
+OpenOptima splits the solver deck across several files, instead of
+writing one single file. This is because the first question when
+something looks wrong is always: "is it the mesh, the material, or the
+loads?"
 
 | File | Contents |
 |---|---|
@@ -90,5 +96,6 @@ when something looks wrong is always "mesh, material, or loads?":
 | `sets.inp` | one `*NSET` per region |
 | `material.inp` | `*MATERIAL`, `*ELASTIC`, `*DENSITY`, `*SOLID SECTION` |
 
-One `*STEP` per load case, with `OP=NEW` on loads and boundary conditions so
-cases stay independent rather than accumulating.
+OpenOptima writes one `*STEP` per load case, with `OP=NEW` on the loads
+and boundary conditions. This keeps each load case independent, instead
+of letting effects accumulate across cases.

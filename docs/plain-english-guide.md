@@ -1,23 +1,32 @@
 # OpenOptima in plain English
 
-No jargon. Where a technical term is unavoidable, it is explained the first time
-it appears, and every term is listed again in the [glossary](#glossary) at the end.
+This guide avoids jargon. Where a technical term is unavoidable, this guide
+explains it the first time it appears. Every term also appears again in the
+[glossary](#7-glossary) at the end.
 
 ---
 
 ## 1. What does this software actually do?
 
-You have a part. You know roughly what shape it should be, but not what size
-every feature should be. You want it as light as possible without it breaking.
+You have a part. You know roughly what shape it should be, but not what
+size every feature should be. You want it as light as possible, but it
+must not break.
 
-Normally you would guess some dimensions, run a stress analysis, look at the
-result, adjust, and repeat. That is slow, so in practice people try five or ten
-versions and pick the best one they found.
+Normally, you would do this by hand:
 
-This software does that loop automatically, hundreds of times, and then shows
-you the best designs it found and what each one costs you.
+1. Guess some dimensions.
+2. Run a stress analysis.
+3. Look at the result.
+4. Adjust the dimensions.
+5. Repeat.
 
-**The loop it runs, over and over:**
+This process is slow. In practice, people try five or ten versions, then
+pick the best one they found.
+
+OpenOptima runs that loop automatically, hundreds of times. Then it shows
+you the best designs it found, and what each one costs you.
+
+**The loop OpenOptima repeats:**
 
 ```
    pick some dimensions
@@ -35,8 +44,8 @@ you the best designs it found and what each one costs you.
         (repeat)
 ```
 
-That is the whole idea. Everything else in this project exists to make that loop
-reliable, and to help you choose between the answers it gives you.
+That loop is the core of OpenOptima. Everything else in this project makes
+that loop reliable, or helps you choose between the answers it gives you.
 
 ---
 
@@ -44,18 +53,23 @@ reliable, and to help you choose between the answers it gives you.
 
 ### The app
 
-On Windows, install it and open **OpenOptima** from the Start menu. It opens in
-your browser and walks you through four steps: choose a part, check the setup,
-run it, read the results. Nothing to type.
+On Windows:
 
-On other systems, `openoptima-app` does the same thing.
+1. Install OpenOptima.
+2. Open **OpenOptima** from the Start menu.
 
-The rest of this section covers the command line, which does exactly the same
-work if you prefer typing.
+OpenOptima opens in your browser. It shows four steps: choose a part,
+check the setup, run it, read the results. You do not need to type
+anything.
+
+On other systems, running `openoptima-app` does the same thing.
+
+The rest of this section covers the command line. It does exactly the same
+work, if you prefer typing instead.
 
 ### The commands
 
-Four of them. Run them from the project folder.
+This guide covers four commands. Run each one from your project folder.
 
 ### `openoptima doctor`
 
@@ -63,13 +77,15 @@ Four of them. Run them from the project folder.
 openoptima doctor examples/l_bracket/project.yaml
 ```
 
-**Run this first, always.** It builds your part at its smallest possible size,
-its default size, and its largest possible size, and checks that the software
-can still correctly find the faces you said to push and hold.
+**Always run this command first.** It builds your part at three sizes: the
+smallest allowed, the default, and the largest allowed. At each size, it
+checks that OpenOptima can still find the faces where you push or hold the
+part.
 
-If something is wrong with your setup, this tells you in ten seconds. Without
-it, you might find out two hours into a run — or worse, not find out at all,
-and get an answer that looks fine but isn't.
+If something is wrong with your setup, `doctor` tells you within ten
+seconds. Without this check, you might not find out until two hours into a
+run. In the worst case, you never find out, and you trust an answer that
+looks fine but is wrong.
 
 ### `openoptima evaluate`
 
@@ -78,9 +94,9 @@ openoptima evaluate examples/l_bracket/project.yaml
 openoptima evaluate examples/l_bracket/project.yaml --set thickness_h=18
 ```
 
-Analyses **one** design and prints the results. Useful for checking that a
-single set of dimensions behaves the way you expect before you set a big run
-going.
+This command analyses **one** design and prints the results. Use it to
+check that a single set of dimensions behaves as you expect, before you
+start a large run.
 
 ### `openoptima doe`
 
@@ -88,12 +104,13 @@ going.
 openoptima doe examples/l_bracket/project.yaml --evaluations 24
 ```
 
-Tries a spread of designs across the whole range you allowed, to survey what is
-possible. This is a **design of experiments**, usually shortened to **DOE**.
+This command tries a spread of designs across your whole allowed range, to
+show what is possible. Engineers call this a **design of experiments**, or
+**DOE** for short.
 
-Think of it as scouting. It tells you which dimensions actually matter, which
-combinations are impossible, and roughly where the good designs live — before
-you commit to a long optimisation run.
+Use DOE to explore before you commit to a long optimisation run. It tells
+you which dimensions actually matter, which combinations are impossible,
+and roughly where the good designs are.
 
 ### `openoptima optimise`
 
@@ -101,13 +118,15 @@ you commit to a long optimisation run.
 openoptima optimise examples/l_bracket/project.yaml
 ```
 
-The main event. Scouts first, then hunts properly, then writes you a report.
+This is the main command. It explores first, then searches properly, then
+writes you a report.
 
 ---
 
 ## 3. Setting up your own part
 
-Everything lives in one file, `project.yaml`. Here is what each part of it means.
+Everything is in one file, `project.yaml`. This section explains what each
+part means.
 
 ### The dimensions the software is allowed to change
 
@@ -119,15 +138,17 @@ variables:
     default: 10.0
 ```
 
-"The horizontal plate can be anywhere from 5 mm to 20 mm thick. Start at 10."
+"The horizontal plate can be anywhere from 5 mm to 20 mm thick. Start at
+10."
 
-These are called **design variables**. The set of all of them is the
-**design space** — every combination the software is allowed to try.
+Together, these are called **design variables**. The set of every
+combination they can form is the **design space** — every combination the
+software is allowed to try.
 
 ### The faces you push and hold
 
-This is the part most worth understanding, because it is where the software does
-something clever that isn't obvious.
+Read this section carefully. It explains a part of OpenOptima that is easy
+to miss, and important to understand.
 
 ```yaml
 regions:
@@ -138,34 +159,38 @@ regions:
       prefer_largest: true
 ```
 
-That says: *"the mounting face is the biggest flat face pointing in the negative
-X direction."*
+That selector means: *"the mounting face is the biggest flat face pointing
+in the negative X direction."*
 
-Notice it does **not** say "face number 6".
+It does **not** say "face number 6".
 
-**Why this matters.** Every CAD program numbers the faces of a shape. But when
-you change a dimension and the shape rebuilds, the numbers get shuffled. Face 6
-before might be a completely different surface after.
+**Why this matters.** Every CAD program numbers the faces of a shape. When
+you change a dimension, the shape rebuilds, and the face numbers change
+too. The face that was "face 6" before the rebuild can be a different
+surface after it.
 
-If your load is attached to "face 6", it will eventually end up on the wrong
-face. The analysis still runs. The numbers still look sensible. They are just
-wrong, and nothing warns you.
+If your load is attached to "face 6", it will eventually land on the wrong
+face. The analysis still runs, and the numbers still look sensible. The
+numbers are wrong all the same, and nothing warns you.
 
-So instead, we **describe** the face by what it is, and go and find it again
-every single time. It is the difference between:
+Instead, OpenOptima **describes** the face by what it is, and finds it
+again every time. The difference is like this:
 
-> "the third person from the left" — useless once everyone shuffles
+> "the third person from the left" — wrong as soon as people move.
 
 and
 
-> "the tallest person in the room" — still finds the right person
+> "the tallest person in the room" — still correct, no matter how people
+> move.
 
-The description is called a **selector**, and the named face is a **region**.
+The description is called a **selector**, and the named face is a
+**region**.
 
-**And if the description is ambiguous, the software stops.** If you say "the
-round hole" and there are two identical round holes, it refuses to pick one and
-tells you to be more specific. Guessing would be worse than failing, because a
-guess looks exactly like success.
+**If the description is ambiguous, OpenOptima stops.** For example, if you
+say "the round hole" and there are two identical round holes, OpenOptima
+refuses to pick one. It tells you to be more specific instead. A guess
+would be worse than a failure, because a wrong guess looks exactly like
+success.
 
 ### The material
 
@@ -179,14 +204,20 @@ material:
   allowable_stress_basis: "0.2% proof stress 260 MPa with a 1.6 design factor"
 ```
 
-**Allowable stress is your decision, not a property of aluminium.** The material
-yields at 260 MPa. Choosing to only work it to 160 leaves a safety margin. How
-big that margin should be depends on how well you know the loads, how the part
-is made, how it's inspected, and what happens if it fails.
+**Allowable stress is your decision. It is not a property of aluminium.**
+This material yields at 260 MPa. Choosing to work it at only 160 MPa
+leaves a safety margin. The right size for that margin depends on several
+things:
 
-The software will not guess this for you. It asks you to write down *why* you
-chose it (`allowable_stress_basis`), and prints that in every report so anyone
-reviewing your work can see your reasoning.
+- how well you know the actual loads
+- how the part is made
+- how the part is inspected
+- what happens if the part fails
+
+OpenOptima will not guess this value for you. It asks you to write down
+*why* you chose it, in `allowable_stress_basis`. OpenOptima then prints
+that reason in every report. Anyone who reviews your work can then see
+your reasoning.
 
 ### The loads
 
@@ -201,11 +232,13 @@ load_cases:
         vector: [0.0, 0.0, -2500.0]   # 2500 Newtons, straight down
 ```
 
-A **load case** is one scenario the part has to survive. You can have several —
-lifting, braking, cornering — and the software checks all of them.
+A **load case** is one scenario your part must survive. You can define
+several — lifting, braking, cornering — and OpenOptima checks every one of
+them.
 
-Crucially it takes the **worst** result, never the average. Averaging a scenario
-that fails with one that passes would hide the failure.
+OpenOptima always uses the **worst** result across all load cases. It
+never averages them. Averaging a failing scenario together with a passing
+one would hide the failure.
 
 ### What you want
 
@@ -220,12 +253,13 @@ constraints:
     value: 2.0                     # but never weaker than this
 ```
 
-An **objective** is something to push as far as you can. A **constraint** is a
-line you must not cross. "As light as possible, but never below a factor of
-safety of 2."
+An **objective** is something to push as far as you can. A **constraint**
+is a line you must not cross. "As light as possible, but never below a
+factor of safety of 2."
 
-**Factor of safety** is simply how much margin you have. 2.0 means the stress is
-half of what you said was allowable. Below 1.0 means it's overloaded.
+**Factor of safety** is how much margin you have. A factor of safety of
+2.0 means the stress is half of the allowable value you chose. A factor of
+safety below 1.0 means the part is overloaded.
 
 ---
 
@@ -233,11 +267,11 @@ half of what you said was allowable. Below 1.0 means it's overloaded.
 
 ### The main idea: there is usually no single best design
 
-Suppose you want a light part *and* a strong part. Those fight each other —
-removing metal makes it lighter and weaker.
+Suppose you want a part that is both light and strong. These two goals
+conflict: removing metal makes the part lighter, but also weaker.
 
-So there is no single winner. There is a **set** of designs where you cannot
-improve one thing without giving up another. That set is called the
+So there is no single winner. There is a **set** of designs where you
+cannot improve one thing without giving up another. That set is called the
 **Pareto front** (pronounced "pa-RAY-toe").
 
 Think of it as a menu of the best available deals:
@@ -253,45 +287,50 @@ Think of it as a menu of the best available deals:
      └──────────────────────► weight
 ```
 
-Every one of A, B, C, D is a legitimate answer. Which is right depends on what
-*you* care about — and the software cannot know that, so it shows you all of
-them rather than picking one.
+Every one of A, B, C, D is a legitimate answer. Which one is right depends
+on what *you* care about. OpenOptima cannot know that, so it shows you all
+of them instead of picking one.
 
-Anything below and to the right of that curve is simply worse in every respect
-and gets thrown away.
+OpenOptima discards any design below and to the right of that curve — such
+a design is worse in every respect.
 
 ### Why not just give it a score?
 
-The obvious shortcut is a formula like `0.6 × strength + 0.4 × lightness`.
-We deliberately don't do this, for three reasons:
+The obvious shortcut is a formula, such as
+`0.6 × strength + 0.4 × lightness`. OpenOptima deliberately does not do
+this, for three reasons:
 
-1. **The answer changes if you change units.** Measure weight in grams instead
-   of kilograms and the same formula picks a different design. That should
-   worry you.
-2. **It can't reach some good designs.** If the curve bulges the wrong way, whole
-   families of sensible designs become unreachable no matter what weights you use.
-3. **It hides the decision.** You get a number, not an understanding. Nobody can
-   argue with it, including you.
+1. **The answer changes if you change units.** If you measure weight in
+   grams instead of kilograms, the same formula picks a different design.
+   That should worry you.
+2. **It cannot reach some good designs at all.** No matter how you set the
+   weights, some good designs on the curve stay permanently out of reach.
+3. **It hides the decision.** You get a number, not an understanding.
+   Nobody can argue with it, including you.
 
 ### Instead: what does each step actually cost?
 
-This is the bit that answers the question you asked. From a real run:
+This section answers that question directly. Here is an example, from a
+real run:
 
 | Extra mass paid | Deflection improvement bought | Cost per unit |
 |-----------------|-------------------------------|---------------|
 | 0.016 kg        | 0.032 mm                      | 0.49          |
 | 0.148 kg        | 0.019 mm                      | **7.82**      |
 
-Read that as: *the first 16 grams buys you a lot. The next 148 grams buys you
-almost nothing — sixteen times worse value.*
+Read that as: the first 16 grams of extra weight buys a lot of
+improvement. The next 148 grams buys almost nothing — sixteen times worse
+value.
 
-That is exactly the insight you were asking about, and it's the sort of thing a
-single score would bury. The point where the value collapses is called the
-**knee point**, and the software finds and highlights it for you.
+That table shows exactly the trade-off you need to see. A single blended
+score would hide this pattern. The point where the value drops sharply is
+called the **knee point**. OpenOptima finds this point, and highlights it
+for you.
 
 ### Telling it what you actually care about
 
-Four ways, from bluntest to most subtle. Use as many or as few as you like.
+OpenOptima offers four ways to state your preferences, from the bluntest
+to the most subtle. Use as many, or as few, as you like.
 
 **1. Hard limits — "never acceptable"**
 
@@ -302,7 +341,7 @@ constraints:
     value: 2.0
 ```
 
-**2. Targets — "what I'm aiming for"**
+**2. Targets — "what I am aiming for"**
 
 ```yaml
 targets:
@@ -321,9 +360,10 @@ desirability:
     acceptable: 2.0   # below 2.0, no amount of lightness makes up for it
 ```
 
-This stops the software adding weight to chase strength you don't need.
+This setting stops OpenOptima from adding weight for strength you do not
+need.
 
-**4. Trade rules — "I'll pay X for Y"**
+**4. Trade rules — "I will pay X for Y"**
 
 ```yaml
 trade_rules:
@@ -333,9 +373,10 @@ trade_rules:
     gain_amount: 0.1              # for each 0.1 of factor of safety
 ```
 
-This is your "small penalty for a big gain" question, written down. The software
-walks up the menu of designs, taking each step for as long as it's worth it by
-your own rule, and stops at the first step that isn't.
+This rule writes down your own trade-off directly: a small cost, for a
+stated gain. OpenOptima then walks along the menu of designs, one step at
+a time. It takes each step while that step is still worth it, by your own
+rule. It stops at the first step that is not worth it.
 
 ---
 
@@ -343,114 +384,135 @@ your own rule, and stops at the first step that isn't.
 
 ### "Mesh" and why elements are curved
 
-The computer can't do sums on a smooth shape. It chops the part into thousands
-of small tetrahedra (triangular pyramids) and does sums on each one. That is the
-**mesh**, and each piece is an **element**.
+A computer cannot calculate directly on a smooth shape. OpenOptima chops
+the part into thousands of small tetrahedra (triangular pyramids), and
+calculates on each one. That is the **mesh**. Each small piece is an
+**element**.
 
-Elements come in two flavours. **First-order** ones have straight edges.
-**Second-order** ones have an extra point halfway along each edge, so they can
-curve.
+Elements come in two kinds. **First-order** elements have straight edges.
+**Second-order** elements have an extra point halfway along each edge, so
+their edges can curve.
 
-We use second-order, because straight-edged elements are artificially stiff —
-they make the part look stronger than it is. That is a big enough error to
-invalidate the whole answer, which is why the software refuses to continue if it
-accidentally produces the wrong kind.
+OpenOptima uses second-order elements. Straight-edged, first-order
+elements are artificially stiff: they make the part look stronger than it
+really is. This error is large enough to invalidate the whole result. This
+is why OpenOptima checks the element type, and refuses to continue if
+meshing accidentally produces the wrong kind.
 
 ### Stress "singularities" — the strangest thing in this document
 
-Where a part has a perfectly sharp internal corner, or is held perfectly rigidly,
-the mathematics says the stress there is **infinite**.
+Where a part has a perfectly sharp internal corner, or is held perfectly
+rigidly, the mathematics says the stress there is **infinite**.
 
-Not "very high" — actually infinite. And it's not a bug in the software; it's
-what the equations genuinely say when you assume a perfectly sharp corner, which
-doesn't exist in reality.
+The stress is not just "very high" — it is genuinely infinite. This is not
+a bug in the software. It is what the equations say, when you assume a
+perfectly sharp corner. A perfectly sharp corner does not exist in
+reality.
 
-The practical consequence: if you chop the part into finer and finer pieces, the
-peak stress there just keeps climbing. Forever. It never settles on an answer.
+In practice, this means: if you chop the part into finer and finer pieces,
+the peak stress there keeps climbing, without limit. It never settles on a
+final answer.
 
-**Why this matters enormously for optimisation.** If you tell the software to
-minimise peak stress, and peak stress is a meaningless number that depends on how
-finely you chopped the part, the software will spend its whole budget chasing a
+**This matters a great deal for optimisation.** Suppose you tell
+OpenOptima to minimise peak stress directly. Peak stress is then a
+meaningless number: its value depends only on how finely you chopped the
+part. OpenOptima would spend its whole budget of evaluations pursuing a
 number that means nothing.
 
-So by default we ignore the worst 1% of the values and use the next one down —
-the **99th percentile**. That is a real, stable number.
+So, by default, OpenOptima ignores the worst 1% of the stress values, and
+uses the next value down instead — the **99th percentile**. This number is
+real and stable.
 
-The true peak is still reported on every single result (`stress_raw_max_mpa`),
-so nothing is hidden from you. It's just not what the optimiser chases.
+OpenOptima still reports the true peak stress on every result, in
+`stress_raw_max_mpa`. Nothing is hidden from you. OpenOptima simply does
+not use that peak value as the optimisation target.
 
-If your part has a *genuine* stress concentration — a real fillet with a real
-radius, not an idealised sharp corner — model the fillet properly and refine the
-mesh there. Don't rely on the percentile to hide it.
+Your part might have a *genuine* stress concentration: a real fillet, with
+a real radius, not an idealised sharp corner. If so, model that fillet
+accurately. Refine the mesh there as well. Do not rely on the percentile
+to hide a real stress concentration.
 
 ### "Infeasible" versus "error" — a distinction that matters more than it sounds
 
-When a design fails, there are two completely different reasons:
+When a design fails, OpenOptima distinguishes two different reasons:
 
 | | What it means | What we do |
 |---|---|---|
 | **Infeasible** | The design is genuinely bad — too thin, too weak, impossible to make | Tell the optimiser. It should learn from this. |
-| **Error** | We couldn't find out — the solver crashed, the disk filled up | Retry. Tell the optimiser **nothing**. |
+| **Error** | OpenOptima could not find out — for example, the solver crashed, or the disk filled up | Retry. Tell the optimiser **nothing**. |
 
-Why keep these apart? Imagine the solver crashes while testing thick designs,
-purely by bad luck. If we score those as "terrible designs", the software learns
-"thick is bad" and avoids thick designs for the rest of the run. It would never
-find the right answer, and it would look like it was working perfectly the
-whole time.
+Why does this distinction matter? Imagine the solver crashes while testing
+thick designs, purely by chance. If OpenOptima scored those crashes as
+"terrible designs", the optimiser would learn the wrong lesson: "thick is
+bad". It would then avoid thick designs for the rest of the run. It would
+never find the right answer. Worse, it would look like it was working
+correctly the whole time.
 
-Your run summary shows both counts. If **errors** is anything other than zero,
-something is wrong with the setup, not the design.
+Your run summary shows both counts. If the **errors** count is not zero,
+something is wrong with your setup — not with the design itself.
 
 ### The "cache" and why changing the material invalidates it
 
-Analysing a design takes seconds, so results are saved and reused if you ask the
-same question twice.
+Analysing one design takes only seconds. So OpenOptima saves each result,
+and reuses it if you ask the same question twice.
 
-But "the same question" has to genuinely mean the same. If you change the
-material, or the load, or the mesh settings, then an old answer is an answer to a
-*different question*. Reusing it would give you a wrong number, instantly.
+However, "the same question" must genuinely mean the same question. If you
+change the material, the load, or the mesh settings, an old answer becomes
+the answer to a *different question*. Reusing that old answer would
+instantly give you a wrong number.
 
-So the saved result is stamped with everything that could affect it — material,
-loads, mesh, stress settings, and which versions of which programs produced it.
-Change any of them and the old results are correctly ignored.
+So OpenOptima stamps every saved result with everything that could affect
+it: the material, the loads, the mesh, the stress settings, and the exact
+program versions that produced it. If you change any of these, OpenOptima
+correctly ignores the old result.
 
 ### The run folder
 
-Every single analysis leaves a folder behind containing the 3D model, the mesh,
-the input given to the solver, the raw output, and a summary file recording every
-program version used.
+Every analysis leaves behind a folder. That folder contains:
 
-This looks like clutter. It's the only thing that lets you answer "where did this
-number come from?" six months later, when someone asks. Use `--discard-artifacts`
-if disk space becomes a problem — it keeps the summaries and throws away the bulk.
+- the 3D model
+- the mesh
+- the exact input sent to the solver
+- the raw solver output
+- a summary file listing every program version used
+
+This folder can look like clutter. It is, however, the only way to answer
+the question "where did this number come from?", months later. If disk
+space becomes a problem, use `--discard-artifacts`. This keeps the summary
+file, and deletes the large intermediate files.
 
 ---
 
 ## 6. When not to trust the answer
 
-Genuinely important. The analysis is **linear static**, which means it works out
-how much things bend and stress under a steady load, and nothing else.
+This section is important, so read it carefully. The analysis is **linear
+static** — it works out how much the part bends, and how much stress it
+carries, under one steady load. It calculates nothing else.
 
-**Buckling is now included** (see below), but it's switched off unless you ask
-for it. Everything else in this list is still invisible:
+**Buckling is now included** (see below). It stays switched off unless you
+turn it on. OpenOptima still cannot see any of the following:
 
-- **Fatigue** — failing after millions of load cycles, at stresses it would
-  survive indefinitely if applied once.
-- **Bolts, joints, contact, friction** — the mounting face is treated as
-  perfectly rigidly held, which is stiffer than any real bolted joint.
-- **Impact, vibration, heat, permanent bending.**
+- **Fatigue** — failing after millions of load cycles, at stresses it
+  would survive indefinitely if applied once.
+- **Bolts, joints, contact, friction** — OpenOptima treats the mounting
+  face as held perfectly rigid, which is stiffer than any real bolted
+  joint.
+- **Impact, vibration, heat, and permanent bending.**
 
-An optimiser will happily exploit every one of these blind spots.
+An optimiser will exploit every one of these blind spots, given the
+chance.
 
 ### Buckling — worth understanding
 
-**Buckling is when something long and thin suddenly folds sideways**, rather
-than being crushed. Stand on an empty drinks can and it holds you; press the
-side and it collapses instantly. The metal never got anywhere near its strength
-limit — the shape just became unstable.
+**Buckling happens when something long and thin suddenly folds sideways.**
+It does not get crushed straight down; it folds. Stand on an empty drinks
+can, and it holds your weight. Press the side of the can, and it collapses
+instantly. The metal in the can never came close to its strength limit.
+The shape simply became unstable.
 
-This matters enormously when minimising mass, because "as light as possible"
-means "as thin as possible", and thin is exactly what buckles.
+This matters a great deal when you minimise mass. "As light as possible"
+usually means "as thin as possible" — and thin parts are exactly the parts
+that buckle.
 
 Turn it on like this:
 
@@ -460,34 +522,41 @@ buckling:
   modes: 3
 ```
 
-You get a **buckling factor**: how many times the applied load the part can take
-before it folds. A factor of 3 means it buckles at three times your load. Below
-1.0 means it folds under the load you gave it.
+OpenOptima reports a **buckling factor**: how many times the applied load
+the part can carry before it folds. A factor of 3 means the part folds at
+three times your load. A factor below 1.0 means the part folds under the
+load you actually gave it.
 
-The `examples/strut/project.yaml` example exists to show why this matters. A
-600 mm strut carrying 30 kN, at the lightest section allowed, has a **stress
-factor of safety of 4.8** — looks very safe — and a **buckling factor of 1.08**.
-It is within 8% of collapsing. Sizing it properly costs about 50% more mass, and
-the stress check never comes close to noticing.
+The example at `examples/strut/project.yaml` exists to show why this
+matters. Consider a 600 mm strut carrying 30 kN, at the lightest section
+OpenOptima allows. This design has a **stress factor of safety of 4.8**,
+which looks very safe. But it has a **buckling factor of only 1.08** —
+within 8% of collapsing. Sizing the strut correctly costs about 50% more
+mass. The stress check alone never comes close to noticing the real
+danger.
 
-**Buckling margins are usually set higher than stress margins.** The analysis
-assumes a perfectly straight strut loaded perfectly down its middle. Real parts
-are slightly bent and real loads are slightly off-centre, and both make things
-buckle sooner than the calculation says.
+**Engineers usually set a higher margin for buckling than for stress.**
+This calculation assumes a perfectly straight strut, loaded exactly down
+its centre. Real parts are always slightly bent. Real loads are always
+slightly off-centre. Both effects make a real part buckle sooner than the
+calculation predicts.
 
-**One important limitation.** The way this software chops parts into small
-pieces stops being trustworthy for buckling once a part gets very long and thin
-— and it goes wrong in the *dangerous* direction, saying a part is safer than it
-is. So OpenOptima checks its own buckling answers against hand-calculation
-theory, and **refuses to give you a number it doesn't trust** rather than
-handing you a reassuring wrong one. If you see `result_unreliable`, that is the
-software telling you it cannot answer, which is the honest response.
+**One important limitation.** The method this software uses to chop a
+part into small pieces stops being trustworthy for buckling, once a part
+becomes very long and thin. It also fails in the *dangerous* direction: it
+can report a part as safer than it really is. So OpenOptima checks its own
+buckling answers against a hand-calculation theory. **OpenOptima refuses
+to give you a number it does not trust**, instead of handing you a
+reassuring, wrong one. If you see `result_unreliable`, OpenOptima is
+telling you that it cannot answer. That refusal is the honest response.
 
-**Also:** all results come from one mesh setting. They're fair to compare against
-each other, but you should re-run your chosen design with a finer mesh and check
-the numbers have stopped moving before believing any single one.
+**One more thing to know.** Every result in a single run comes from one
+mesh setting. You can fairly compare these results against each other.
+Before you trust any single number, re-run your chosen design with a
+finer mesh. Check that the numbers have stopped moving.
 
-Full detail in [`engineering-assumptions.md`](engineering-assumptions.md).
+See [`engineering-assumptions.md`](engineering-assumptions.md) for full
+detail.
 
 ---
 
@@ -495,27 +564,29 @@ Full detail in [`engineering-assumptions.md`](engineering-assumptions.md).
 
 | Term | Plain meaning |
 |---|---|
-| **Allowable stress** | How hard you've decided you're willing to work the material. Your choice, not the material's. |
-| **Boundary condition** | Somewhere the part is held and can't move. |
+| **Allowable stress** | How hard you have decided to work the material. This is your choice, not a property of the material. |
+| **Boundary condition** | Somewhere the part is held, and cannot move. |
 | **Buckling** | Something long and thin suddenly folding sideways, like an empty can when you press its side. |
 | **Buckling factor** | How many times your load the part takes before it folds. Below 1.0 means it folds now. |
 | **Cache** | Saved results, reused when you ask an identical question. |
 | **CalculiX** | The free program that does the actual stress calculation. |
+| **Cantilever** | A beam or part fixed at one end and free at the other, like a diving board. |
 | **Constraint** | A line you must not cross. |
 | **Design space** | Every combination of dimensions the software may try. |
 | **Design variable** | One dimension the software is allowed to change. |
-| **DOE** (design of experiments) | A planned spread of trial designs, to survey what's possible. |
+| **DOE** (design of experiments) | A planned spread of trial designs, used to survey what is possible. |
 | **Element** | One small piece the part is chopped into. |
 | **Factor of safety** | How much margin you have. 2.0 = stress is half the allowable. |
 | **Gmsh** | The free program that builds the shape and chops it into pieces. |
 | **Infeasible** | The design itself is no good. |
-| **Knee point** | Where you stop getting good value for what you're paying. |
+| **Knee point** | Where you stop getting good value for what you pay. |
 | **Load case** | One scenario the part must survive. |
 | **Mesh** | The part chopped into thousands of small pieces. |
 | **NSGA-II** | The search method used. Keeps a population of designs and improves them, like breeding. |
 | **Objective** | Something to push as far as you can. |
 | **Pareto front** | The set of best available deals; no single winner. |
 | **Percentile (99th)** | Ignore the top 1%, take the next value down. Avoids meaningless infinities. |
+| **Poisson contraction** | The material narrowing sideways as it stretches lengthwise. Ordinary beam theory ignores this effect. |
 | **Provenance** | The record of exactly what produced a number. |
 | **Region** | A named face or set of faces you push or hold. |
 | **Second-order element** | A piece with curved edges. More accurate than straight-edged. |
@@ -524,19 +595,20 @@ Full detail in [`engineering-assumptions.md`](engineering-assumptions.md).
 | **Solver** | The program that does the stress calculation. |
 | **Sobol / Latin hypercube** | Ways of spreading trial designs out evenly rather than randomly. |
 | **Stress** | Force divided by the area carrying it. How hard the material is working. |
-| **Trade rule** | Your stated exchange rate: "I'll pay this much of X for that much of Y". |
+| **Trade rule** | Your stated exchange rate: "I will pay this much of X for that much of Y". |
 | **von Mises stress** | The standard single number for "how hard is this metal working", combining stresses in all directions. |
 
 ---
 
 ## 8. If you only remember five things
 
-1. **Run `doctor` before anything else.** It catches setup mistakes in seconds.
-2. **Faces are described, not numbered** — that's what stops loads silently
-   attaching to the wrong place.
-3. **There's no single best design.** You get a menu, and a table showing what
-   each step up it costs you.
-4. **"Errors" in a run summary mean something is broken.** "Infeasible" just
-   means those designs were no good, which is normal and useful.
-5. **It doesn't know about buckling or fatigue.** Check those separately before
-   trusting a lightweight result.
+1. **Run `doctor` before anything else.** It catches setup mistakes in
+   seconds.
+2. **OpenOptima describes faces; it does not number them.** This is what
+   stops a load from silently attaching to the wrong place.
+3. **There is no single best design.** You get a menu of designs, and a
+   table showing what each step up that menu costs you.
+4. **An "error" in a run summary means something is broken.** "Infeasible"
+   just means those designs were no good. That is normal, and useful.
+5. **OpenOptima does not know about buckling or fatigue by default.**
+   Check those separately, before you trust a lightweight result.

@@ -1,16 +1,17 @@
 # Verification plan
 
-Verification asks a different question from testing. Testing asks "does the
-software do what it was told?"; verification asks "does what it was told produce
-physics?". Both are needed; only the second gives anyone a reason to believe a
-number.
+Verification asks a different question from testing. Testing asks: "does
+the software do what it was told?" Verification asks: "does what it was
+told produce real physics?" Both questions matter. Only the second one
+gives anyone a reason to believe a number.
 
 ## Rule
 
-**A verification tolerance is never widened to make a build pass.** If a
-verification test fails, either the code regressed or the physics changed. Both
-require a human to look. An agent that adjusts one of these numbers to get green
-has destroyed the only evidence that the software computes correctly.
+**Never widen a verification tolerance to make a build pass.** If a
+verification test fails, either the code has regressed, or the physics
+has changed. Either way, a human must look. An agent that adjusts one of
+these numbers just to make tests pass has destroyed the only evidence that
+the software computes correctly.
 
 ## Implemented benchmarks
 
@@ -29,26 +30,32 @@ has destroyed the only evidence that the software computes correctly.
 | **Tolerance** | 3% |
 | **Measured** | **2.852 mm, −0.98%** |
 
-The finite element result must be slightly **stiffer** than beam theory, because
-fully fixing the end face suppresses the Poisson contraction beam theory allows.
-A result on the *soft* side indicates a real problem — wrong element order, wrong
-constraint, or a load that is not doing what it should — not merely a coarse
-mesh. The test asserts the sign of the discrepancy as well as its size.
+The finite-element result must be slightly **stiffer** than beam theory
+predicts. This is because fully fixing the end face suppresses the
+Poisson contraction that beam theory allows for. A result on the *soft*
+side indicates a real problem: the wrong element order, the wrong
+constraint, or a load that is not doing what it should. It does not
+merely indicate a coarse mesh. This test checks the sign of the
+discrepancy, as well as its size.
 
-Also asserted in the same case:
+This test also checks:
 
-- reaction force equals the applied load to 1 part in 10⁴ (global equilibrium —
-  this is exact arithmetic, not an approximation, so the tolerance is tight);
+- reaction force equals the applied load to 1 part in 10⁴ (global
+  equilibrium — this is exact arithmetic, not an approximation, so the
+  tolerance is tight);
 - no spurious transverse reaction;
-- peak von Mises consistent with the 150 MPa nominal bending stress;
+- peak von Mises stress consistent with the 150 MPa nominal bending
+  stress;
 - mesh volume matches CAD volume;
-- the mesh is genuinely C3D10 — if the mesher silently fell back to first order
-  the deflection comparison would be meaningless, so this is asserted explicitly.
+- the mesh is genuinely C3D10 elements — if the mesher had silently
+  fallen back to first order, the deflection comparison would be
+  meaningless, so this test checks the element type explicitly.
 
 ### V2 — Analytic reference guard
 
-The formulas in the test file are themselves checked against hard-coded values,
-so a typo in the reference cannot silently move the goalposts.
+The formulas in the test file are themselves checked against hard-coded
+values. This means a typo in a reference value cannot silently change
+what counts as a pass.
 
 ### V3 — Euler column buckling
 
@@ -63,64 +70,78 @@ so a typo in the reference cannot silently move the goalposts.
 | **Tolerance** | 3% |
 | **Measured** | **14 409 N, +0.11%** |
 
-Also asserted: the first two modes are nearly equal (a square column buckles
-about either axis), higher modes are ordered, a column in **tension** returns no
-positive buckling factor and says so rather than reporting a negative one, and
-the paired-mode condition is surfaced to the user.
+This test also checks:
 
-**Known limit.** Accurate to 1% at slenderness 69–277 for a 20 mm section, but
-wrong by a factor of nine at slenderness 195+ for smaller sections, in the
-optimistic direction. `results/buckling_check.py` cross-checks every result
-against beam theory and refuses to report one outside the validated range. The
-next useful piece of work here is establishing where the boundary actually lies,
-which needs a systematic sweep of section size against slenderness.
+- the first two modes are nearly equal (a square column can buckle about
+  either axis)
+- the higher modes are correctly ordered
+- a column in **tension** returns no positive buckling factor, and says
+  so, instead of reporting a negative number
+- OpenOptima reports the paired-mode condition to the user
+
+**Known limit.** This method is accurate to within 1% at a slenderness of
+69–277, for a 20 mm section. But it is wrong by a factor of nine at a
+slenderness of 195 or more, for smaller sections — and the error runs in
+the optimistic direction. `results/buckling_check.py` checks every result
+against beam theory, and refuses to report a result outside the validated
+range. The next useful piece of work here is finding exactly where that
+boundary lies. That needs a systematic sweep of section size against
+slenderness.
 
 ## Planned benchmarks
 
-Ordered by value. Each needs a documented source and tolerance before it is
-written.
+This list is ordered by value. Each benchmark needs a documented source
+and tolerance before anyone writes it.
 
 ### V4 — Plate with a central hole (stress concentration)
 
-The `plate_with_hole` template exists for this. Compare the peak stress against
-the finite-width Howland correction to Kt ≈ 3. Expect slow convergence — this is
-the case that demonstrates why raw peak stress is a poor optimisation target,
-and it should be run at several mesh densities with the convergence recorded.
+The `plate_with_hole` template already exists for this benchmark. Compare
+the peak stress against the finite-width Howland correction, at Kt ≈ 3.
+Expect slow convergence: this is the case that demonstrates why raw peak
+stress is a poor optimisation target. Run this benchmark at several mesh
+densities, and record how the answer converges.
 
 ### V5 — Thick cylinder under internal pressure
 
-Lamé solution. Exercises the pressure load path (`*DLOAD` element faces), which
-V1 does not touch. High value: pressure loading is currently verified only by
-unit tests of the face lookup.
+This benchmark uses the Lamé solution. It exercises the pressure load
+path (`*DLOAD` element faces), which V1 does not touch. This benchmark has
+high value, because pressure loading is currently verified only by unit
+tests of the face lookup.
 
 ### V6 — Mesh convergence study
 
-Not a comparison against theory but against itself: run one design at 4–5 mesh
-densities and record how displacement, strain energy, reaction and the various
-stress measures converge. This produces the evidence for the guidance in
-`engineering-assumptions.md` and gives users a defensible default mesh size.
+This benchmark does not compare against theory. It compares a design
+against itself: run one design at 4–5 mesh densities. Record how
+displacement, strain energy, reaction, and the various stress measures
+converge. This produces the evidence behind the guidance in
+`engineering-assumptions.md`, and gives users a defensible default mesh
+size.
 
 ### V7 — Multiple load cases
 
-Confirm cases are enveloped rather than averaged, and that per-case metrics
-match single-case runs of the same loading.
+Confirm that OpenOptima envelopes load cases, rather than averaging them.
+Also confirm that per-case metrics match single-case runs of the same
+loading.
 
 ### V8 — NAFEMS benchmarks
 
-NAFEMS publishes standard linear-elastic benchmarks with agreed reference
-values. LE1 (elliptic membrane) and LE10 (thick plate under pressure) are the
-usual starting points, and being externally defined they are stronger evidence
-than self-derived comparisons.
+NAFEMS publishes standard linear-elastic benchmarks, with agreed reference
+values. LE1 (elliptic membrane) and LE10 (thick plate under pressure) are
+the usual starting points. Because these values come from an external
+source, they are stronger evidence than a comparison against our own
+derivation.
 
 ### V9 — Buckling validity boundary
 
-Sweep section size against slenderness to find exactly where CalculiX's
-solid-element buckling stops being reliable, so `slenderness_limit` rests on a
-measured boundary rather than the handful of points behind the current default.
+Sweep section size against slenderness. Find exactly where CalculiX's
+solid-element buckling stops being reliable. This would let
+`slenderness_limit` rest on a measured boundary, instead of the handful of
+points behind the current default.
 
 ## Software regression tests
 
-Distinct from verification. These pin behaviour that has broken before:
+These tests are distinct from verification. They pin down behaviour that
+has broken before:
 
 | Guard | Test |
 |---|---|
@@ -148,7 +169,7 @@ pytest tests/verification            # needs gmsh and CalculiX
 
 ## Environment of record
 
-The measured values above were produced with:
+This toolchain produced the measured values above:
 
 | | |
 |---|---|
@@ -157,5 +178,6 @@ The measured values above were produced with:
 | Python | 3.11 |
 | Platform | Linux x86-64 |
 
-Verification results are only meaningful against a stated toolchain. Every run
-directory records these versions in its manifest.
+A verification result is only meaningful when you know the toolchain that
+produced it. Every run directory records these tool versions in its
+manifest.
