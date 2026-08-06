@@ -13,7 +13,7 @@ from ..base import AnalysisResults, LoadCaseFields, von_mises_from_tensor
 from .dat import parse_buckling, parse_dat, reactions_in_step
 from .deck import write_deck
 from .frd import blocks_named, parse_frd
-from .runner import find_executable, run_calculix, solver_version
+from .runner import find_executable, installation_hint, run_calculix, solver_version
 
 #: Relative tolerance on the reaction-force equilibrium check.
 _EQUILIBRIUM_TOLERANCE = 0.01
@@ -28,10 +28,7 @@ class CalculiXSolver:
     def available(self) -> tuple[bool, str]:
         executable = find_executable(self.specification)
         if executable is None:
-            return False, (
-                "CalculiX not found. Install with 'apt install calculix-ccx' "
-                "or set solver.executable in the project file."
-            )
+            return False, installation_hint()
         return True, f"{executable} ({solver_version(executable) or 'version unknown'})"
 
     def solve(

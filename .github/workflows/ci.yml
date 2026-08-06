@@ -46,6 +46,29 @@ jobs:
       - name: Unit tests
         run: pytest tests/unit -v
 
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e ".[dev,optimise]"
+      - name: Unit tests
+        run: pytest tests/unit -v
+      - name: Geometry and meshing work on Windows
+        run: pytest tests/integration -v -m gmsh --timeout 1800
+      - name: CLI runs
+        run: |
+          openoptima templates
+          openoptima doctor examples/l_bracket/project.yaml
+        continue-on-error: true   # doctor needs a solver; see the note below
+      # CalculiX has no standard Windows package, so a full solve is not run
+      # here. tests/unit/test_platform.py covers the platform-specific process
+      # control and solver discovery paths on every platform.
+
   integration:
     name: Integration and verification
     runs-on: ubuntu-latest
