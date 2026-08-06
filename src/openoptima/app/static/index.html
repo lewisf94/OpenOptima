@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenOptima</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">OpenOptima</div>
+  <div id="env" class="env"></div>
+</header>
+
+<main>
+
+  <!-- ── 1. choose a part ───────────────────────────────────────────── -->
+  <section class="step" id="step-project">
+    <h2><span class="step-badge">1</span> Choose a part</h2>
+    <div id="project-list" class="cards">Looking for parts…</div>
+    <details class="advanced">
+      <summary>Open a part from somewhere else</summary>
+      <div class="row">
+        <input type="text" id="custom-path" placeholder="Full path to a project.yaml file">
+        <button id="open-custom" class="secondary">Open</button>
+      </div>
+    </details>
+  </section>
+
+  <!-- ── 2. review ──────────────────────────────────────────────────── -->
+  <section class="step hidden" id="step-review">
+    <h2><span class="step-badge">2</span> Check the setup</h2>
+    <div id="project-summary"></div>
+    <div class="actions">
+      <button id="run-doctor" class="secondary">Check this part</button>
+      <span class="hint">Builds the part at its smallest and largest sizes and
+        makes sure the load and support surfaces can still be found. Takes a few
+        seconds and saves a lot of wasted time.</span>
+    </div>
+    <div id="doctor-result"></div>
+  </section>
+
+  <!-- ── 3. run ─────────────────────────────────────────────────────── -->
+  <section class="step hidden" id="step-run">
+    <h2><span class="step-badge">3</span> Run it</h2>
+    <div class="row wrap">
+      <label>What to do
+        <select id="kind">
+          <option value="optimise">Find the best designs</option>
+          <option value="doe">Explore the range first</option>
+        </select>
+      </label>
+      <label>How many designs to try
+        <input type="number" id="budget" min="4" step="4" value="48">
+      </label>
+      <button id="start" class="primary">Start</button>
+      <button id="stop" class="danger hidden">Stop</button>
+    </div>
+    <p class="hint" id="time-hint"></p>
+
+    <div id="progress" class="hidden">
+      <div class="progress-head">
+        <strong id="progress-count">0</strong> designs tried
+        <span id="progress-total" class="tag"></span>
+        <span id="progress-state" class="tag"></span>
+      </div>
+      <div class="meter"><div id="meter-fill"></div></div>
+      <div class="tally">
+        <span class="pill ok">Good: <b id="tally-ok">0</b></span>
+        <span class="pill no">Rejected: <b id="tally-no">0</b></span>
+        <span class="pill err">Errors: <b id="tally-err">0</b></span>
+      </div>
+      <div id="log" class="log"></div>
+    </div>
+  </section>
+
+  <!-- ── 4. results ─────────────────────────────────────────────────── -->
+  <section class="step hidden" id="step-results">
+    <h2><span class="step-badge">4</span> The results</h2>
+    <div id="results-body"></div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

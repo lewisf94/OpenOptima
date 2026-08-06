@@ -40,6 +40,17 @@ built entirely on open-source CAD, meshing and finite element tools.
 
 ## Install
 
+### Windows — the app
+
+Download the installer, run it, and open OpenOptima from the Start menu. It
+opens in your browser as a step-by-step app: choose a part, check the setup, run
+it, read the trade-off. No terminal, no Python.
+
+Build it yourself with `packaging\build_windows.ps1` — see
+[`packaging/README.md`](packaging/README.md).
+
+### Everything else — pip
+
 Two runtime dependencies: a Python wheel and a solver binary.
 
 ```bash
@@ -62,6 +73,14 @@ openoptima doctor examples/l_bracket/project.yaml
 ```
 
 ## Try it
+
+The app, if you would rather click than type:
+
+```bash
+openoptima-app
+```
+
+Or the command line:
 
 ```bash
 openoptima doctor   examples/l_bracket/project.yaml   # check the setup first

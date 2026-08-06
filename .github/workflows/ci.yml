@@ -101,3 +101,43 @@ jobs:
           name: study-output
           path: examples/l_bracket/openoptima_work/reports/
           if-no-files-found: ignore
+
+  windows-app:
+    name: Build the Windows application
+    runs-on: windows-latest
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -e ".[optimise]"
+          pip install pyinstaller
+      - name: Freeze
+        run: pyinstaller packaging\openoptima.spec --noconfirm --clean
+      # A frozen build that compiles and then dies on first use is the normal
+      # failure mode here, so start it and call its API before publishing.
+      - name: Smoke-test the built application
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist\OpenOptima\OpenOptima.exe" `
+            -ArgumentList "--no-browser","--port","8791" -PassThru
+          Start-Sleep -Seconds 20
+          try {
+            $status = Invoke-RestMethod -Uri "http://127.0.0.1:8791/api/status" -TimeoutSec 60
+            Write-Host "gmsh in the frozen build: $($status.versions.gmsh)"
+            if (-not $status.versions.gmsh -or $status.versions.gmsh -eq "not installed") {
+              throw "the frozen build cannot load gmsh"
+            }
+            if ($status.templates.Count -lt 3) { throw "geometry templates missing from the bundle" }
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenOptima-windows
+          path: dist/OpenOptima/
+          retention-days: 14

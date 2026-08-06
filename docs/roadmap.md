@@ -16,6 +16,8 @@ than a narrow one that produces numbers they can.
 - Cantilever verified to 0.98% against Timoshenko beam theory
 - Linear buckling, verified to 0.11% against Euler, with an automatic
   cross-check that refuses results outside its validated range
+- Desktop app: a local browser interface with setup checks, live progress, a
+  Pareto chart and trade-off tables, packaged for Windows with PyInstaller
 
 ## Next (v0.2) — trust
 

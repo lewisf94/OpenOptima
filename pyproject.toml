@@ -50,6 +50,7 @@ dev = [
 
 [project.scripts]
 openoptima = "openoptima.cli.main:main"
+openoptima-app = "openoptima.app.launcher:main"
 
 [project.urls]
 Homepage = "https://github.com/lewisf94/OpenOptima"
@@ -58,6 +59,9 @@ Issues = "https://github.com/lewisf94/OpenOptima/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openoptima"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/openoptima/app/static" = "openoptima/app/static"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

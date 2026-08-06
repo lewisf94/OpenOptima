@@ -1,0 +1,303 @@
+"""The desktop app's local web server.
+
+Deliberately built on the standard library. FastAPI would be more comfortable
+to write, but every extra dependency is another thing that has to be bundled
+correctly into a Windows executable and another way the frozen build can fail
+on a machine nobody can debug. ``http.server`` has no such risk, and for one
+local user on one machine it is entirely adequate.
+
+The server binds to loopback only. This is a desktop application that happens
+to render in a browser, not a web service, and it must never be reachable from
+the network.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import socket
+import threading
+from functools import partial
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+from ..domain.model import SolverSpecification
+from ..evaluation.evaluator import default_job_count
+from ..evaluation.runspace import tool_versions
+from ..geometry.occ.templates import available_templates
+from ..schema.loader import ProjectLoadError, load_project
+from ..solvers import create_solver
+from .jobs import JobRunner
+
+STATIC_ROOT = Path(__file__).parent / "static"
+
+#: Loopback only. Never bind to 0.0.0.0 -- see the module docstring.
+HOST = "127.0.0.1"
+
+_CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
+
+
+def find_free_port(preferred: int = 8731) -> int:
+    """Take the preferred port if it is free, otherwise let the OS choose."""
+    for candidate in (preferred, 0):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind((HOST, candidate))
+                return int(probe.getsockname()[1])
+            except OSError:
+                continue
+    raise RuntimeError("could not find a free port to listen on")
+
+
+class AppState:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.runner = JobRunner()
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "OpenOptima"
+
+    def __init__(self, *args: Any, state: AppState, **kwargs: Any) -> None:
+        self.state = state
+        super().__init__(*args, **kwargs)
+
+    # -- plumbing ------------------------------------------------------------
+    def log_message(self, *_args: Any) -> None:
+        """Silence the default per-request logging; the app has its own output."""
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        # The page may navigate away mid-response; that is not an error.
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            self.wfile.write(body)
+
+    def _json(self, payload: Any, status: int = 200) -> None:
+        body = json.dumps(payload, default=_encode).encode("utf-8")
+        self._send(status, body, "application/json; charset=utf-8")
+
+    def _error(self, message: str, status: int = 400) -> None:
+        self._json({"error": message}, status=status)
+
+    def _body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            return {}
+
+    # -- routing -------------------------------------------------------------
+    def do_GET(self) -> None:
+        path = self.path.split("?")[0]
+        if path == "/" or path == "/index.html":
+            return self._static("index.html")
+        if path == "/favicon.ico":
+            return self._static("favicon.svg")
+        if path.startswith("/static/"):
+            return self._static(path[len("/static/") :])
+        if path == "/api/status":
+            return self._json(self._status())
+        if path == "/api/projects":
+            return self._json({"projects": self._discover_projects()})
+        if path.startswith("/api/job/"):
+            job = self.state.runner.get(path.rsplit("/", 1)[-1])
+            if job is None:
+                return self._error("no such job", 404)
+            return self._json(job.to_dict())
+        if path == "/api/current":
+            job = self.state.runner.current()
+            return self._json(job.to_dict() if job else {"state": "idle"})
+        return self._error("not found", 404)
+
+    def do_POST(self) -> None:
+        path = self.path.split("?")[0]
+        body = self._body()
+        if path == "/api/open":
+            return self._open(body)
+        if path == "/api/doctor":
+            return self._doctor(body)
+        if path == "/api/run":
+            return self._run(body)
+        if path.startswith("/api/job/") and path.endswith("/stop"):
+            job = self.state.runner.get(path.split("/")[3])
+            if job is None:
+                return self._error("no such job", 404)
+            job.cancel()
+            return self._json({"ok": True})
+        if path == "/api/report":
+            return self._report(body)
+        return self._error("not found", 404)
+
+    # -- static files --------------------------------------------------------
+    def _static(self, relative: str) -> None:
+        # Resolve and confirm the result is still inside the static directory,
+        # so a crafted path cannot read arbitrary files off the disk.
+        candidate = (STATIC_ROOT / relative).resolve()
+        try:
+            candidate.relative_to(STATIC_ROOT.resolve())
+        except ValueError:
+            return self._error("not found", 404)
+        if not candidate.is_file():
+            return self._error("not found", 404)
+        content_type = _CONTENT_TYPES.get(candidate.suffix, "application/octet-stream")
+        self._send(200, candidate.read_bytes(), content_type)
+
+    # -- endpoints -----------------------------------------------------------
+    def _status(self) -> dict[str, Any]:
+        versions = tool_versions()
+        solver = create_solver(SolverSpecification(name="calculix"))
+        available, message = solver.available()
+        return {
+            "solver_available": available,
+            "solver_message": message,
+            "versions": versions,
+            "cores": default_job_count(),
+            "templates": [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": sorted(t.defaults),
+                }
+                for t in available_templates()
+            ],
+            "busy": self.state.runner.busy,
+        }
+
+    def _discover_projects(self) -> list[dict[str, str]]:
+        found: list[dict[str, str]] = []
+        seen: set[Path] = set()
+        for base in (self.state.root, self.state.root / "examples"):
+            if not base.is_dir():
+                continue
+            for path in sorted(base.rglob("project.yaml")):
+                # rglob from the root already reaches examples/, so the two
+                # search roots overlap and every example would be listed twice.
+                resolved = path.resolve()
+                if resolved in seen or "openoptima_work" in path.parts:
+                    continue
+                seen.add(resolved)
+                try:
+                    project = load_project(path)
+                    name, description = project.name, project.description
+                except ProjectLoadError:
+                    name, description = path.parent.name, "(could not be read)"
+                found.append({"path": str(path), "name": name, "description": description.strip()})
+        return found
+
+    def _load(self, body: dict[str, Any]):
+        path = Path(body.get("path", "")).expanduser()
+        if not path.is_file():
+            raise ProjectLoadError(f"no project file at {path}")
+        return load_project(path), path
+
+    def _open(self, body: dict[str, Any]) -> None:
+        try:
+            project, path = self._load(body)
+        except ProjectLoadError as exc:
+            return self._error(str(exc))
+        return self._json(_describe(project, path))
+
+    def _doctor(self, body: dict[str, Any]) -> None:
+        try:
+            project, path = self._load(body)
+        except ProjectLoadError as exc:
+            return self._error(str(exc))
+        from .checks import run_doctor
+
+        return self._json(run_doctor(project, path))
+
+    def _run(self, body: dict[str, Any]) -> None:
+        try:
+            project, path = self._load(body)
+        except ProjectLoadError as exc:
+            return self._error(str(exc))
+        kind = body.get("kind", "optimise")
+        if kind not in ("doe", "optimise"):
+            return self._error("kind must be 'doe' or 'optimise'")
+        budget = body.get("budget")
+        try:
+            job = self.state.runner.start(project, path, kind, int(budget) if budget else None)
+        except RuntimeError as exc:
+            return self._error(str(exc), 409)
+        return self._json(job.to_dict())
+
+    def _report(self, body: dict[str, Any]) -> None:
+        path = Path(body.get("path", ""))
+        if not path.is_file():
+            return self._error("no report yet", 404)
+        self._send(200, path.read_bytes(), "text/plain; charset=utf-8")
+
+
+def _describe(project, path: Path) -> dict[str, Any]:
+    return {
+        "path": str(path),
+        "name": project.name,
+        "description": project.description.strip(),
+        "template": project.geometry.template,
+        "variables": [
+            {
+                "id": v.id,
+                "label": v.display_name,
+                "minimum": v.minimum,
+                "maximum": v.maximum,
+                "default": v.effective_default(),
+                "unit": v.unit,
+            }
+            for v in project.design_space
+        ],
+        "regions": [r.name for r in project.regions],
+        "material": {
+            "name": project.material.name,
+            "allowable_stress_mpa": project.material.allowable_stress,
+            "basis": project.material.allowable_stress_basis,
+        },
+        "load_cases": [{"id": lc.id, "description": lc.description} for lc in project.load_cases],
+        "objectives": [
+            {"metric": o.metric, "label": o.display_name, "direction": o.direction.value}
+            for o in project.objectives
+        ],
+        "constraints": [c.describe() for c in project.constraints],
+        "buckling": {
+            "enabled": project.buckling.enabled,
+            "slenderness_limit": project.buckling.slenderness_limit,
+        },
+        "budget": project.optimisation.algorithm.evaluation_budget,
+    }
+
+
+def _encode(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, float) and value != value:  # NaN is not valid JSON
+        return None
+    return str(value)
+
+
+def create_server(root: Path, port: int) -> ThreadingHTTPServer:
+    state = AppState(root)
+    handler = partial(Handler, state=state)
+    server = ThreadingHTTPServer((HOST, port), handler)  # type: ignore[arg-type]
+    server.daemon_threads = True
+    return server
+
+
+def serve(root: Path, port: int, background: bool = False) -> ThreadingHTTPServer:
+    server = create_server(root, port)
+    if background:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    else:
+        server.serve_forever()
+    return server

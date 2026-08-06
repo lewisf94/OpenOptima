@@ -42,7 +42,20 @@ reliable, and to help you choose between the answers it gives you.
 
 ## 2. Running it
 
-Four commands. Run them from the project folder.
+### The app
+
+On Windows, install it and open **OpenOptima** from the Start menu. It opens in
+your browser and walks you through four steps: choose a part, check the setup,
+run it, read the results. Nothing to type.
+
+On other systems, `openoptima-app` does the same thing.
+
+The rest of this section covers the command line, which does exactly the same
+work if you prefer typing.
+
+### The commands
+
+Four of them. Run them from the project folder.
 
 ### `openoptima doctor`
 

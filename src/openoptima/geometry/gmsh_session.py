@@ -29,7 +29,7 @@ def gmsh_session(verbosity: int = 0, capture_log: bool = True) -> Iterator[Any]:
     with _LOCK:
         already_running = gmsh.isInitialized()
         if not already_running:
-            gmsh.initialize()
+            _initialise(gmsh)
         try:
             gmsh.option.setNumber("General.Terminal", 0)
             gmsh.option.setNumber("General.Verbosity", verbosity)
@@ -45,6 +45,30 @@ def gmsh_session(verbosity: int = 0, capture_log: bool = True) -> Iterator[Any]:
                     gmsh.clear()
                 with contextlib.suppress(Exception):
                     gmsh.finalize()
+
+
+def _initialise(gmsh: Any) -> None:
+    """Start gmsh in a way that works off the main thread.
+
+    ``gmsh.initialize()`` installs a SIGINT handler so Ctrl-C interrupts a long
+    mesh. Python only allows signal handlers to be installed from the main
+    thread, so the call raises ``ValueError: signal only works in main thread of
+    the main interpreter`` when it first runs on a worker -- which is exactly
+    where the desktop app runs it, since requests are served on a thread pool.
+
+    The failure is nastily shaped: gmsh is left partly initialised, so
+    ``isInitialized()`` then returns True and every *subsequent* call succeeds.
+    Only the first operation after launch fails, which made it look intermittent
+    until the message was read.
+
+    ``interruptible=False`` skips the handler. Ctrl-C still stops the process;
+    it just cannot interrupt gmsh mid-operation, which is irrelevant here
+    because operations are seconds long and run in a worker anyway.
+    """
+    try:
+        gmsh.initialize(interruptible=False)
+    except TypeError:  # pragma: no cover - gmsh older than 4.9
+        gmsh.initialize()
 
 
 @contextlib.contextmanager
