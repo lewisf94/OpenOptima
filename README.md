@@ -193,6 +193,7 @@ See [`docs/verification-plan.md`](docs/verification-plan.md).
 | [Roadmap](docs/roadmap.md) | what is next |
 | [ADRs](docs/adr/) | decisions and the reasoning behind them |
 | [AGENTS.md](AGENTS.md) | contributing, including with coding agents |
+| [Technical writing standard](docs/technical-writing-standard.md) | the language rules all project text follows |
 
 ## Built with
 

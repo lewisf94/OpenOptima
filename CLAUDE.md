@@ -16,25 +16,32 @@ human will read.
 ## How to write
 
 - **Explain a term the first time you use it**, in the same sentence. Not
-  "the Pareto front" but "the Pareto front — the set of designs where you can't
-  improve one thing without giving up another".
+  "the Pareto front" but "the Pareto front — the set of designs where you
+  cannot improve one thing without giving up another".
 - **Prefer the short word.** "Chops the part into small pieces" beats
   "discretises the domain". "How much it bends" beats "displacement field".
-- **Lead with what it means, then the name.** "There's no single best design,
-  only a menu of trade-offs. That menu is called the Pareto front."
+- **Lead with what it means, then the name.** "There is no single best
+  design, only a menu of trade-offs. That menu is called the Pareto front."
 - **Use a concrete number from an actual run** instead of describing a capability
   in the abstract.
 - **Say what a thing is *for*, not just what it does.** "This catches setup
   mistakes in ten seconds instead of two hours" is more useful than "this
   validates region selectors across the design space".
-- **Don't hide a caveat in vocabulary.** If a result shouldn't be trusted, say
-  so in words the reader cannot misread.
+- **Do not hide a caveat in vocabulary.** If a result should not be trusted,
+  say so in words the reader cannot misread.
 
 Avoid unexplained: *topological naming, semantic region, failure taxonomy,
 consistent nodal load, scaled Jacobian, discretisation, provenance, spawn
 context, divergence theorem, p-norm, aspiration point, infill point.*
 Every one of these has a plain-English equivalent in
 `docs/plain-english-guide.md` — use it, or link there.
+
+These bullets are the *why*. [`docs/technical-writing-standard.md`](docs/technical-writing-standard.md)
+is the *how*: a mechanical standard (Simplified Technical English) covering
+sentence length, contractions, voice and structure, for every piece of
+repository-owned text. It does not relax this rule — a CAE or optimisation
+term still needs a plain-English explanation at first use, from the glossary
+below, before anyone uses it.
 
 ## Where the explanations live
 
@@ -51,7 +58,7 @@ phrasings elsewhere so the project speaks with one voice.
 
 Being readable does not mean being vague. Never soften these:
 
-- a result that shouldn't be trusted, and exactly why
+- a result that should not be trusted, and exactly why
 - the difference between an infeasible design and an infrastructure error
 - what the analysis does not cover (buckling, fatigue, contact, plasticity)
 - that allowable stress is the engineer's decision, not a material property
