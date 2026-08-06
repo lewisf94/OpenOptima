@@ -79,6 +79,14 @@ pytest tests/verification              # anything affecting a computed number
 you have changed the mesher, the deck writer, a parser, the metrics or the unit
 handling.
 
+## Git workflow
+
+Push straight to `main`. This is a single-maintainer project — feature
+branches and pull requests are overhead a `git revert` doesn't need. If a
+session's tooling assigns a different working branch by default, that's fine
+to develop on, but merge it to `main` yourself (fast-forward, no PR) once the
+required checks pass, rather than leaving it stranded waiting for review.
+
 ## Conventions
 
 - British spelling in prose and identifiers (`optimise`, `normalised`).
