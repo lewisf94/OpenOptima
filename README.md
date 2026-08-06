@@ -21,13 +21,16 @@ built entirely on open-source CAD, meshing and finite element tools.
 > optimisation runs end to end, but this is early software. Read
 > [`docs/engineering-assumptions.md`](docs/engineering-assumptions.md) before
 > sizing anything real from its output. It performs **linear static analysis
-> only** — no buckling, fatigue, contact or plasticity.
+> only**, plus optional linear buckling — no fatigue, contact or plasticity.
 
 ## What it does
 
 - **Parametric geometry** from built-in templates or your own CadQuery model
 - **Automatic meshing** with size fields, quality gates and a retry ladder
 - **Finite element analysis** via CalculiX, with automatic equilibrium checking
+- **Linear buckling** as a constraint, verified to 0.11% against Euler — and it
+  refuses to report a result it cannot trust rather than giving you an
+  optimistic one
 - **Design of experiments** (Sobol / Latin hypercube) with sensitivity ranking
 - **Multi-objective optimisation** (NSGA-II) producing a real Pareto front
 - **Decision support** — knee point, marginal exchange rates, and a preference
@@ -142,6 +145,21 @@ The model must land on the *stiff* side — a fully fixed end suppresses Poisson
 contraction — so the test asserts the sign of the discrepancy as well as its
 size. Every load case in every run also checks reaction against applied load,
 which catches load-on-the-wrong-face and unit mistakes for free.
+
+Buckling is verified the same way, against Euler's column formula:
+
+```
+buckling factor, FE     : 14.4086
+Euler, fixed-free       : 14.3932
+error                   : +0.11 %      (3% tolerance)
+```
+
+Buckling is also where OpenOptima refuses to answer. Solid elements stop being
+reliable for very slender members and fail *optimistically* — telling you a
+strut is safe when it will fold. So every buckling result is cross-checked
+against beam theory computed from the mesh itself, and one that falls outside
+the validated range is reported as an error, not as a number with a warning
+attached. An optimiser acts on the number and ignores the warning.
 
 See [`docs/verification-plan.md`](docs/verification-plan.md).
 

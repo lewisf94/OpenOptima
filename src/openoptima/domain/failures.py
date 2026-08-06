@@ -80,6 +80,7 @@ class FailureCode(str, Enum):
     SOLVER_CRASH = "solver_crash"
     RESULT_FILE_MISSING = "result_file_missing"
     RESULT_PARSE_FAILED = "result_parse_failed"
+    RESULT_UNRELIABLE = "result_unreliable"
     WORKER_CRASH = "worker_crash"
     CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"
@@ -116,6 +117,12 @@ def outcome_for(code: FailureCode | None) -> Outcome:
 
 def is_retryable(code: FailureCode | None) -> bool:
     return code is not None and code in RETRYABLE_CODES
+
+
+#: Codes that mean "we cannot trust this number", as distinct from "the design
+#: is bad". Never retried -- retrying a deterministic modelling limitation just
+#: burns the evaluation budget -- and never shown to the optimiser as a result.
+UNRELIABLE_CODES: frozenset[FailureCode] = frozenset({FailureCode.RESULT_UNRELIABLE})
 
 
 class EvaluationFailure(Exception):

@@ -165,12 +165,17 @@ class EvaluationPipeline:
         }
 
         # 4. metrics
-        metrics, load_cases = collect_metrics(
+        metrics, load_cases, metric_warnings = collect_metrics(
             analysis, project.analysis_model(), mesh, region_map, geometry.volume
         )
         state = EvaluationState.RESULTS_PARSED
 
-        warnings = list(analysis.warnings) + list(mesh.quality.warnings) + geometry.warnings
+        warnings = (
+            list(analysis.warnings)
+            + list(mesh.quality.warnings)
+            + geometry.warnings
+            + metric_warnings
+        )
 
         # 5. engineering constraints
         violations = self._constraint_violations(metrics)

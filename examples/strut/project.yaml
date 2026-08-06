@@ -1,0 +1,167 @@
+# OpenOptima example: compression strut — why buckling must be checked
+#
+# This example exists to make one point as sharply as possible.
+#
+# A 600 mm strut carrying 30 kN in compression. At the lightest section the
+# optimiser is allowed (30 x 30 mm) the stress factor of safety is 4.8 — nearly
+# two and a half times the limit, and a stress-only analysis would call it a
+# comfortable pass at 1.46 kg.
+#
+# Its buckling factor is 1.08. It is within 8% of folding up.
+#
+# Sizing it against buckling as well needs about a 37 mm section and 2.2 kg,
+# roughly 50% more mass. At that size the stress factor of safety is over 7:
+# the part is governed entirely by stability and the stress check never comes
+# near it.
+#
+# A static analysis cannot see any of this. An optimiser told to minimise mass
+# will find every blind spot in your analysis, and this is the biggest one.
+#
+# Try it both ways:
+#   openoptima optimise examples/strut/project.yaml
+#   (then set buckling.enabled to false and compare — the answer gets lighter
+#    and completely wrong)
+#
+# NOTE ON TRUSTING THE NUMBERS. Solid tetrahedral elements stop being reliable
+# for buckling once a member gets very slender, and the error runs in the
+# optimistic direction. OpenOptima cross-checks every buckling result against
+# beam theory computed from the mesh itself and REFUSES to report one it cannot
+# trust, rather than handing the optimiser a number that would select an unsafe
+# design. The section range here is deliberately kept inside the verified band
+# (slenderness 69 to 139, limit 150), so every design in this study returns a
+# trustworthy answer. See docs/engineering-assumptions.md.
+
+schema_version: 1
+name: Compression strut
+description: >
+  A strut in axial compression, sized against both stress and buckling.
+  Demonstrates that a design passing every stress check with room to spare can
+  still be far too weak, and that a static analysis alone cannot tell you so.
+
+unit_system: mm_N_MPa_t
+
+geometry:
+  provider: occ
+  template: cantilever_box
+  parameters:
+    length: 600.0
+  variables:
+    - id: width
+      label: Section width
+      type: continuous
+      minimum: 30.0
+      maximum: 60.0
+      default: 40.0
+      unit: mm
+    - id: height
+      label: Section depth
+      type: continuous
+      minimum: 30.0
+      maximum: 60.0
+      default: 40.0
+      unit: mm
+
+regions:
+  - name: fixed_end
+    description: Built-in end
+    selector:
+      surface_type: plane
+      normal: [-1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+
+  - name: loaded_end
+    description: Free end carrying the axial compressive load
+    selector:
+      surface_type: plane
+      normal: [1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+
+material:
+  name: Aluminium 6082-T6
+  elastic_modulus_mpa: 70000.0
+  poisson_ratio: 0.33
+  density_kg_m3: 2700.0
+  allowable_stress_mpa: 160.0
+  allowable_stress_basis: "0.2% proof stress 260 MPa with a 1.6 design factor"
+
+load_cases:
+  - id: axial_compression
+    description: 30 kN pushing along the strut
+    boundary_conditions:
+      - region: fixed_end
+        kind: fixed
+        dofs: [1, 2, 3]
+    loads:
+      - kind: force
+        region: loaded_end
+        vector: [-30000.0, 0.0, 0.0]   # negative x = pushing inwards
+
+mesh:
+  global_size: 10.0
+  minimum_size: 4.0
+  element_order: 2
+  algorithm: delaunay
+  curvature_refinement: false
+  size_from_thickness: false
+  min_scaled_jacobian: 0.05
+  volume_tolerance: 0.02
+
+stress_evaluation:
+  measure: percentile
+  percentile: 99.0
+  excluded_regions: [fixed_end]
+
+# Buckling is the whole point of this example. Turning it off makes the
+# optimiser pick the lightest section allowed, and that answer is wrong.
+buckling:
+  enabled: true
+  modes: 3
+
+solver:
+  name: calculix
+  timeout_seconds: 1200
+
+objectives:
+  - metric: mass_kg
+    direction: minimise
+    label: Mass
+
+constraints:
+  - metric: factor_of_safety
+    operator: greater_than_or_equal
+    value: 2.0
+    label: Stress factor of safety
+
+  # Buckling margins are conventionally set higher than stress margins, because
+  # this analysis assumes a perfectly straight strut loaded perfectly down its
+  # axis. Real parts are neither, and imperfections reduce the real buckling
+  # load below the theoretical one. How much higher is an engineering
+  # judgement — 2.5 here is illustrative, not a recommendation.
+  - metric: buckling_factor
+    operator: greater_than_or_equal
+    value: 2.5
+    label: Buckling factor
+
+preferences:
+  desirability:
+    - metric: mass_kg
+      direction: minimise
+      ideal: 2.0
+      acceptable: 4.5
+    - metric: buckling_factor
+      direction: maximise
+      ideal: 3.5        # beyond this, extra stability is not worth the mass
+      acceptable: 2.5
+
+optimisation:
+  initial_sampling:
+    method: sobol
+    evaluations: 12
+    seed: 1
+  algorithm:
+    name: nsga2
+    population_size: 12
+    evaluation_budget: 40
+    seed: 1
+  parallel_jobs: 0
+  max_retries: 1

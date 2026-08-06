@@ -24,6 +24,7 @@ from ..domain.regions import RegionMap
 from ..domain.results import LoadCaseResult
 from ..meshing.base import MeshData
 from ..solvers.base import AnalysisResults, LoadCaseFields
+from .buckling_check import check_buckling_plausibility
 
 
 @dataclass(frozen=True)
@@ -129,8 +130,11 @@ def load_case_metrics(
     mask = excluded_node_mask(mesh, regions, evaluation, fields.node_tags)
     stress = evaluate_stress(fields.von_mises, evaluation, mask)
 
+    critical = fields.critical_buckling_factor
     return LoadCaseResult(
         load_case_id=fields.load_case_id,
+        buckling_factor=critical,
+        buckling_modes=fields.buckling_factors,
         displacement_max=float(magnitude[peak_index]) if magnitude.size else 0.0,
         displacement_node=int(fields.node_tags[peak_index]) if magnitude.size else None,
         stress_measure=stress.value,
@@ -146,7 +150,7 @@ def collect_metrics(
     mesh: MeshData,
     regions: RegionMap,
     volume_mm3: float,
-) -> tuple[dict[str, float], tuple[LoadCaseResult, ...]]:
+) -> tuple[dict[str, float], tuple[LoadCaseResult, ...], list[str]]:
     """Produce the metric dictionary the objectives and constraints refer to.
 
     Multi-case metrics are **envelopes**, never averages: the governing case is
@@ -158,8 +162,33 @@ def collect_metrics(
         for fields in results.load_cases
     )
 
+    # Cross-check every buckling factor against beam theory computed from the
+    # mesh itself. A buckling result that is wrong in the optimistic direction
+    # is the most dangerous output this software can produce.
+    warnings: list[str] = []
+    if model.buckling.enabled:
+        for case, fields in zip(per_case, results.load_cases, strict=False):
+            warnings.extend(
+                check_buckling_plausibility(
+                    mesh,
+                    model.material,
+                    case.load_case_id,
+                    case.buckling_factor,
+                    float(np.linalg.norm(fields.reaction_force)),
+                    model.buckling.slenderness_limit,
+                )
+            )
+
     mass = mass_kg(volume_mm3, model.material)
     allowable = model.material.allowable_stress
+
+    # Buckling: the governing case is the one with the *lowest* factor, and a
+    # case with no positive factor simply does not buckle under its load, so it
+    # is excluded rather than counted as zero.
+    buckling_values = [
+        case.buckling_factor for case in per_case if case.buckling_factor is not None
+    ]
+    worst_buckling = min(buckling_values) if buckling_values else None
 
     worst_stress = max((case.stress_measure for case in per_case), default=0.0)
     worst_raw = max((case.stress_raw_max for case in per_case), default=0.0)
@@ -176,6 +205,12 @@ def collect_metrics(
         "stiffness_n_per_mm": 0.0,
     }
 
+    if worst_buckling is not None:
+        metrics["buckling_factor"] = worst_buckling
+    elif any(case.buckling_modes for case in per_case):
+        # Buckling was analysed and nothing buckles: infinite margin, not zero.
+        metrics["buckling_factor"] = float("inf")
+
     total_load = 0.0
     for case in per_case:
         total_load = max(total_load, float(np.linalg.norm(case.reaction_force)))
@@ -187,5 +222,7 @@ def collect_metrics(
         metrics[f"stress_max_mpa.{case.load_case_id}"] = case.stress_measure
         if case.stress_measure > 0:
             metrics[f"factor_of_safety.{case.load_case_id}"] = allowable / case.stress_measure
+        if case.buckling_factor is not None:
+            metrics[f"buckling_factor.{case.load_case_id}"] = case.buckling_factor
 
-    return metrics, per_case
+    return metrics, per_case, warnings

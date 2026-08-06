@@ -196,6 +196,16 @@ def write_deck(
 
             applied_force[load_case.id] = (float(total[0]), float(total[1]), float(total[2]))
 
+            if model.buckling.enabled:
+                _write_buckling_step(
+                    handle,
+                    load_case,
+                    model.buckling.modes,
+                    concentrated,
+                    pressures,
+                    gravity,
+                )
+
     return DeckArtifact(
         job_name=job_name,
         directory=directory,
@@ -203,6 +213,57 @@ def write_deck(
         files=(main_file, mesh_file, sets_file, material_file),
         applied_force=applied_force,
     )
+
+
+def _write_buckling_step(
+    handle,
+    load_case,
+    modes: int,
+    concentrated: dict[int, np.ndarray],
+    pressures: list[tuple[int, int, float]],
+    gravity: list[tuple[float, tuple[float, float, float]]],
+) -> None:
+    """A ``*BUCKLE`` step carrying the same loads as the static step.
+
+    The eigenvalues CalculiX returns are multiples of *this* load, so the load
+    written here must match the static step exactly or the reported factor means
+    something different from what the user thinks.
+
+    Deliberately no ``*NODE FILE``: requesting mode shapes writes one extra
+    displacement block per mode into the FRD, which would shift the block
+    indices the static results are read from and silently mis-attribute results
+    to the wrong load case. Mode shapes are also large, and a 500-design study
+    does not want them. The deck is kept in the run directory, so re-running one
+    design with mode-shape output is easy when a design is being reviewed.
+    """
+    handle.write(f"\n** ---- buckling: {load_case.id} ----\n")
+    handle.write(f"*STEP\n*BUCKLE\n{modes}\n")
+
+    handle.write("*BOUNDARY, OP=NEW\n")
+    for condition in load_case.boundary_conditions:
+        set_name = _set_name(condition.region)
+        magnitude = 0.0 if condition.kind is ConstraintKind.FIXED else condition.magnitude
+        for dof in condition.dofs:
+            handle.write(f"{set_name}, {dof}, {dof}, {magnitude:.9g}\n")
+
+    handle.write("*CLOAD, OP=NEW\n")
+    for tag in sorted(concentrated):
+        vector = concentrated[tag]
+        for dof in (1, 2, 3):
+            component = float(vector[dof - 1])
+            if abs(component) > 0.0:
+                handle.write(f"{tag}, {dof}, {component:.9g}\n")
+
+    handle.write("*DLOAD, OP=NEW\n")
+    for element, face, magnitude in pressures:
+        handle.write(f"{element}, P{face}, {magnitude:.9g}\n")
+    for magnitude, direction in gravity:
+        handle.write(
+            f"Eall, GRAV, {magnitude:.9g}, "
+            f"{direction[0]:.9g}, {direction[1]:.9g}, {direction[2]:.9g}\n"
+        )
+
+    handle.write("*END STEP\n")
 
 
 def _safe(name: str) -> str:

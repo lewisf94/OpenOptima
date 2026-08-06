@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ..domain.model import (
     BoundaryCondition,
+    BucklingSettings,
     ConstraintKind,
     Load,
     LoadCase,
@@ -299,6 +300,26 @@ class StressSchema(Strict):
         )
 
 
+class BucklingSchema(Strict):
+    """Linear buckling analysis settings.
+
+    Off by default because it costs an extra eigenvalue solve per load case.
+    Turn it on for anything with slender sections — which is most things an
+    optimiser produces when told to minimise mass.
+    """
+
+    enabled: bool = False
+    modes: int = 3
+    slenderness_limit: float = 150.0
+
+    def to_domain(self) -> BucklingSettings:
+        return BucklingSettings(
+            enabled=self.enabled,
+            modes=self.modes,
+            slenderness_limit=self.slenderness_limit,
+        )
+
+
 class SolverSchema(Strict):
     name: Literal["calculix", "analytic"] = "calculix"
     executable: str | None = None
@@ -441,6 +462,7 @@ class ProjectSchema(Strict):
     objectives: list[ObjectiveSchema]
     constraints: list[ConstraintSchema] = Field(default_factory=list)
     stress_evaluation: StressSchema = Field(default_factory=StressSchema)
+    buckling: BucklingSchema = Field(default_factory=BucklingSchema)
     solver: SolverSchema = Field(default_factory=SolverSchema)
     preferences: PreferenceSchema = Field(default_factory=PreferenceSchema)
     optimisation: OptimisationSchema = Field(default_factory=OptimisationSchema)
@@ -477,6 +499,7 @@ class ProjectSchema(Strict):
             objectives=tuple(objective.to_domain() for objective in self.objectives),
             constraints=tuple(constraint.to_domain() for constraint in self.constraints),
             stress_evaluation=self.stress_evaluation.to_domain(),
+            buckling=self.buckling.to_domain(),
             solver=self.solver.to_domain(),
             preferences=self.preferences.to_domain(),
             optimisation=self.optimisation.to_domain(),

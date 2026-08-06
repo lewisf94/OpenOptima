@@ -10,7 +10,7 @@ from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.model import AnalysisModel, SolverSpecification
 from ...meshing.base import MeshData
 from ..base import AnalysisResults, LoadCaseFields, von_mises_from_tensor
-from .dat import parse_dat
+from .dat import parse_buckling, parse_dat, reactions_in_step
 from .deck import write_deck
 from .frd import blocks_named, parse_frd
 from .runner import find_executable, run_calculix, solver_version
@@ -63,8 +63,22 @@ class CalculiXSolver:
             )
 
         reactions = parse_dat(run.dat_path)
+        buckling_tables = parse_buckling(run.dat_path) if model.buckling.enabled else []
+        if model.buckling.enabled and len(buckling_tables) < expected:
+            raise EvaluationFailure(
+                FailureCode.RESULT_PARSE_FAILED,
+                f"buckling was requested but only {len(buckling_tables)} of {expected} "
+                f"buckling factor table(s) were found in {run.dat_path.name}",
+            )
         warnings: list[str] = []
         fields: list[LoadCaseFields] = []
+
+        # Deck step layout: one static step per load case, plus a *BUCKLE step
+        # after each when buckling is on. Step numbers are 1-based.
+        steps_per_case = 2 if model.buckling.enabled else 1
+
+        def static_step_of(case_index: int) -> int:
+            return case_index * steps_per_case + 1
 
         for index, load_case in enumerate(model.load_cases):
             displacement_block = displacement_blocks[index]
@@ -84,7 +98,24 @@ class CalculiXSolver:
                 von_mises = np.zeros(len(node_tags))
                 warnings.append(f"no stress output for load case {load_case.id!r}")
 
-            reaction = self._reaction_for_step(reactions, index, len(model.load_cases))
+            factors: tuple[float, ...] = ()
+            if index < len(buckling_tables):
+                table = buckling_tables[index]
+                factors = table.factors
+                if table.critical is None:
+                    warnings.append(
+                        f"load case {load_case.id!r} does not buckle under this load "
+                        f"in any of the {len(factors)} extracted mode(s); the load "
+                        f"would have to reverse"
+                    )
+                elif table.has_close_pair:
+                    warnings.append(
+                        f"load case {load_case.id!r} has two nearly equal buckling "
+                        f"modes ({factors[0]:.4g}, {factors[1]:.4g}); the part is "
+                        f"symmetric and can buckle in either of two directions"
+                    )
+
+            reaction = self._reaction_for_step(reactions, static_step_of(index))
             applied = deck.applied_force.get(load_case.id, (0.0, 0.0, 0.0))
             message = self._check_equilibrium(load_case.id, applied, reaction)
             if message:
@@ -97,6 +128,7 @@ class CalculiXSolver:
                     displacement=displacement,
                     von_mises=von_mises,
                     reaction_force=reaction,
+                    buckling_factors=factors,
                 )
             )
 
@@ -113,22 +145,18 @@ class CalculiXSolver:
         )
 
     @staticmethod
-    def _reaction_for_step(
-        reactions: list, index: int, case_count: int
-    ) -> tuple[float, float, float]:
-        """Sum reaction totals belonging to one step.
+    def _reaction_for_step(reactions: list, step: int) -> tuple[float, float, float]:
+        """Sum the reaction totals reported in one specific step.
 
-        CalculiX writes one total per constrained node set per step, at
-        increasing time values; steps are equally spaced so grouping by order
-        is reliable for the linear static case.
+        Selected by step number rather than by dividing the record count among
+        load cases. A ``*BUCKLE`` step also emits a reaction total -- an
+        artefact of the eigenvalue solve, not a real reaction -- and averaging
+        or summing it with the static one produced a 100% equilibrium error on
+        a perfectly sound model the first time buckling was enabled.
         """
-        if not reactions:
-            return (0.0, 0.0, 0.0)
-        per_step = max(1, len(reactions) // max(1, case_count))
-        start = index * per_step
-        chunk = reactions[start : start + per_step]
+        chunk = reactions_in_step(reactions, step)
         if not chunk:
-            chunk = reactions[-per_step:]
+            return (0.0, 0.0, 0.0)
         total = np.zeros(3)
         for reaction in chunk:
             total += np.array(reaction.force, dtype=float)

@@ -247,6 +247,55 @@ class StressEvaluation:
 
 
 @dataclass(frozen=True)
+class BucklingSettings:
+    """Linear (eigenvalue) buckling analysis.
+
+    Why this matters more than it looks: minimising mass under stress and
+    displacement limits alone pushes a design towards thin, slender sections —
+    which is precisely the geometry that buckles.  A static analysis cannot see
+    it at all, so an optimiser will happily hand back a part that passes every
+    stress check and folds up under load.
+
+    The result is a *buckling factor*: the multiple of the applied load at which
+    the structure becomes unstable.  A factor of 3 means it buckles at three
+    times the load you applied.  Constrain it like any other metric::
+
+        constraints:
+          - metric: buckling_factor
+            operator: greater_than_or_equal
+            value: 3.0
+
+    Buckling factors are conventionally required to be well above the stress
+    factor of safety, because real parts have imperfections and this analysis
+    assumes a perfect one.  How far above is an engineering judgement and the
+    software will not make it for you.
+    """
+
+    enabled: bool = False
+    #: Eigenvalues to extract. The lowest drives the constraint; the others are
+    #: reported because a closely spaced pair signals a symmetric structure with
+    #: two equally likely buckling directions.
+    modes: int = 3
+    #: Above this slenderness ratio a solid tetrahedral model cannot be trusted
+    #: for buckling, and the evaluation fails rather than returning a number.
+    #:
+    #: Measured behaviour behind the default: a 20 mm square column (ratio 139)
+    #: matched Euler to better than 1% at three different lengths, while a 22 mm
+    #: column at ratio 195 and an 8 mm one at ratio 444 were both wrong by a
+    #: factor of nine -- in the *unsafe* direction. Raising this limit does not
+    #: make the analysis more accurate, it only silences the check.
+    slenderness_limit: float = 150.0
+
+    def __post_init__(self) -> None:
+        if self.modes < 1:
+            raise ValueError("buckling.modes must be at least 1")
+        if self.modes > 20:
+            raise ValueError("buckling.modes above 20 is rarely useful and is slow")
+        if self.slenderness_limit <= 0:
+            raise ValueError("buckling.slenderness_limit must be positive")
+
+
+@dataclass(frozen=True)
 class AnalysisModel:
     """Everything a structural solver needs for one design.
 
@@ -259,3 +308,4 @@ class AnalysisModel:
     load_cases: tuple[LoadCase, ...]
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     element_order: int = 2
+    buckling: BucklingSettings = field(default_factory=BucklingSettings)

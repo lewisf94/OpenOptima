@@ -14,6 +14,8 @@ than a narrow one that produces numbers they can.
 - SQLite storage, evaluation cache, run manifests, provenance
 - CLI (`doctor`, `evaluate`, `doe`, `optimise`, `report`, `templates`)
 - Cantilever verified to 0.98% against Timoshenko beam theory
+- Linear buckling, verified to 0.11% against Euler, with an automatic
+  cross-check that refuses results outside its validated range
 
 ## Next (v0.2) — trust
 
@@ -26,10 +28,11 @@ Nothing new; make what exists defensible.
 2. **Verification benchmarks V3–V5** (see `verification-plan.md`): plate with a
    hole, thick cylinder under pressure, mesh convergence study. The pressure
    load path is only unit-tested today.
-3. **Buckling.** Linear eigenvalue buckling as a constraint. This is the single
-   biggest safety gap: minimising mass drives designs towards thin slender
-   sections, which is exactly what buckles, and the current analysis cannot see
-   it.
+3. **Buckling validity boundary.** Buckling now exists and is verified, but the
+   `slenderness_limit` of 150 rests on a handful of measured points. A
+   systematic sweep of section size against slenderness would replace a
+   defensible guess with a measured boundary, and would tell us whether the
+   failure is CalculiX's eigenvalue solve or the tetrahedral formulation.
 4. **Better failure diagnostics.** When a study has a high error rate, say why
    in one line rather than making the user read run directories.
 

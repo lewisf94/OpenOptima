@@ -9,8 +9,6 @@ sizing anything real from its output.
 
 Specifically **not** modelled:
 
-- buckling (a thin optimised web can be stable in this analysis and buckle in
-  reality — this is the most likely way a minimum-mass result is unsafe);
 - fatigue and any cyclic loading;
 - plasticity, creep, or any nonlinear material behaviour;
 - contact, friction, preload, bolt or joint behaviour;
@@ -20,10 +18,11 @@ Specifically **not** modelled:
 - temperature dependence and thermal stress;
 - fracture and crack growth.
 
-An optimiser will exploit every one of these omissions. Minimising mass under
-stress and displacement constraints alone will drive a design towards thin
-slender sections — precisely the geometry most at risk from the phenomena in
-that list.
+**Buckling is analysed** — see its own section below — but it is off by default
+and has a limited range of validity. Everything else in that list stays
+invisible, and an optimiser will exploit every one of them. Minimising mass
+under stress and displacement constraints alone drives a design towards thin
+slender sections, precisely the geometry most at risk.
 
 ## Units
 
@@ -78,6 +77,63 @@ Consequence: the reported factor of safety is based on the percentile, so it is
 *less conservative* than one based on the true peak. If your part has a genuine
 stress concentration that matters (not a modelling singularity), model the
 fillet properly and refine it, rather than relying on the percentile to hide it.
+
+## Buckling
+
+Linear (eigenvalue) buckling is available and **off by default**. Turn it on for
+anything slender:
+
+```yaml
+buckling:
+  enabled: true
+  modes: 3
+```
+
+It reports a **buckling factor**: the multiple of the applied load at which the
+structure becomes unstable. Constrain it like any other metric.
+
+### Range of validity — read this before trusting a number
+
+Solid tetrahedral elements stop being reliable for buckling once a member gets
+slender, and **the error runs in the optimistic direction**.
+
+Measured during development, against Euler's formula:
+
+| Section | Slenderness | Result |
+|---|---|---|
+| 20 mm square, 200 / 400 / 800 mm long | 69–277 | within 1%, mode series correct at 1 : 9 |
+| 22 mm square, 600 mm long | 195 | **9x too high** |
+| 8 mm square, 400 / 500 mm long | 346 / 444 | **9x too high** |
+
+In the failing cases the returned mode series was 1 : 1.95 : 3.20 — nothing like
+a column's — so the eigenvalue solve had missed the true lowest mode entirely,
+and refining the mesh moved the answer around without converging.
+
+A buckling factor that is too high tells you a strut is safe when it will fold
+up. So OpenOptima **cross-checks every buckling result against beam theory
+computed from the mesh itself, and refuses to report one it cannot trust**. You
+get an explicit `result_unreliable` error, not a number with a footnote —
+because the optimiser would act on the number and ignore the footnote.
+
+The limit is `buckling.slenderness_limit`, default 150. Raising it does not make
+the analysis more accurate; it only silences the check. For genuinely slender
+members, use beam elements or a hand Euler calculation.
+
+### Other buckling caveats
+
+- **Linear buckling assumes a perfect part.** Real members have initial bow and
+  eccentric loading, both of which reduce the real buckling load below the
+  computed one. Buckling margins are conventionally set well above stress
+  margins for this reason; how far above is your judgement.
+- **Negative eigenvalues are not failures.** They mean the load would have to
+  reverse before anything buckles — a member in tension. These are reported as
+  "does not buckle", not as a catastrophic factor.
+- **Two nearly equal modes** mean a symmetric part that can buckle in either of
+  two directions. This is flagged, because the real margin is thinner than a
+  single mode suggests.
+- Mode shapes are not written to the results file, to keep result sizes sane
+  across a large study. The solver deck is kept in the run directory, so one
+  design can be re-run with mode-shape output for review.
 
 ## Load application
 
@@ -134,8 +190,9 @@ constraints, under *this* analysis.
 3. The mesh convergence of the chosen design has been checked.
 4. The allowable stress and its basis are ones you would defend.
 5. The load cases genuinely bound the service loading.
-6. Buckling, fatigue and any other omitted phenomenon have been assessed
-   separately.
+6. Buckling is either enabled and within its validity range, or has been
+   assessed separately. Fatigue and the other omitted phenomena have been
+   assessed separately regardless.
 7. Someone qualified has looked at the deformed shape and stress field, not just
    the numbers.
 

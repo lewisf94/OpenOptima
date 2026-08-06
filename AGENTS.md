@@ -29,6 +29,10 @@ These are not style preferences. Breaking one silently corrupts results.
   percentile or p-norm as the objective.
 - **Never average across load cases.** Envelope them. Averaging a failing case
   against a passing one hides the failure.
+- **Never report a buckling factor outside its validated range.** Solid-element
+  buckling fails optimistically on slender members, and an optimiser acts on the
+  number while ignoring any warning attached to it. `RESULT_UNRELIABLE` is a
+  failure, not a footnote. Do not downgrade it to a warning.
 - **Never pass user values straight to a solver.** Solvers are unitless.
   Convert into the internal `mm, N, MPa, t` system first — `domain/units.py`.
 - **Never change a verification tolerance to make a build pass.** The tolerances
@@ -104,6 +108,14 @@ by review. They are documented in `docs/adr/` and guarded by tests.
 5. **Lumping a surface load evenly over a quadratic face** is wrong — the exact
    integral of a corner shape function over a flat 6-node triangle is zero.
    Integrate the shape functions.
+6. **A `*BUCKLE` step also emits a reaction total** — an artefact of the
+   eigenvalue solve, not a real reaction. Associating reactions with load cases
+   by dividing the record count summed it with the real one and reported a 100%
+   equilibrium error on a sound model. Select reactions by step number.
+7. **CalculiX buckling silently returns the wrong mode family on slender solid
+   models**, off by a factor of nine in the unsafe direction, with a mode series
+   that does not follow any column pattern. Refining the mesh does not fix it.
+   This is why `results/buckling_check.py` exists.
 
 ## What an agent must not decide alone
 

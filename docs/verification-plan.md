@@ -50,48 +50,73 @@ Also asserted in the same case:
 The formulas in the test file are themselves checked against hard-coded values,
 so a typo in the reference cannot silently move the goalposts.
 
+### V3 — Euler column buckling
+
+`tests/verification/test_euler_buckling.py`
+
+| | |
+|---|---|
+| **Model** | 400 mm cantilever column, 20 x 20 mm square section |
+| **Material** | E = 70 GPa, nu = 0.33 |
+| **Load** | 1 kN axial compression on the free end face |
+| **Reference** | Euler, fixed-free: P_cr = pi^2 EI / (2L)^2 = **14 393 N** |
+| **Tolerance** | 3% |
+| **Measured** | **14 409 N, +0.11%** |
+
+Also asserted: the first two modes are nearly equal (a square column buckles
+about either axis), higher modes are ordered, a column in **tension** returns no
+positive buckling factor and says so rather than reporting a negative one, and
+the paired-mode condition is surfaced to the user.
+
+**Known limit.** Accurate to 1% at slenderness 69–277 for a 20 mm section, but
+wrong by a factor of nine at slenderness 195+ for smaller sections, in the
+optimistic direction. `results/buckling_check.py` cross-checks every result
+against beam theory and refuses to report one outside the validated range. The
+next useful piece of work here is establishing where the boundary actually lies,
+which needs a systematic sweep of section size against slenderness.
+
 ## Planned benchmarks
 
 Ordered by value. Each needs a documented source and tolerance before it is
 written.
 
-### V3 — Plate with a central hole (stress concentration)
+### V4 — Plate with a central hole (stress concentration)
 
 The `plate_with_hole` template exists for this. Compare the peak stress against
 the finite-width Howland correction to Kt ≈ 3. Expect slow convergence — this is
 the case that demonstrates why raw peak stress is a poor optimisation target,
 and it should be run at several mesh densities with the convergence recorded.
 
-### V4 — Thick cylinder under internal pressure
+### V5 — Thick cylinder under internal pressure
 
 Lamé solution. Exercises the pressure load path (`*DLOAD` element faces), which
 V1 does not touch. High value: pressure loading is currently verified only by
 unit tests of the face lookup.
 
-### V5 — Mesh convergence study
+### V6 — Mesh convergence study
 
 Not a comparison against theory but against itself: run one design at 4–5 mesh
 densities and record how displacement, strain energy, reaction and the various
 stress measures converge. This produces the evidence for the guidance in
 `engineering-assumptions.md` and gives users a defensible default mesh size.
 
-### V6 — Multiple load cases
+### V7 — Multiple load cases
 
 Confirm cases are enveloped rather than averaged, and that per-case metrics
 match single-case runs of the same loading.
 
-### V7 — NAFEMS benchmarks
+### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks with agreed reference
 values. LE1 (elliptic membrane) and LE10 (thick plate under pressure) are the
 usual starting points, and being externally defined they are stronger evidence
 than self-derived comparisons.
 
-### V8 — Buckling
+### V9 — Buckling validity boundary
 
-Euler column, once linear buckling is supported. Until then, the omission is
-documented in `engineering-assumptions.md` as the most likely way a minimum-mass
-result is unsafe.
+Sweep section size against slenderness to find exactly where CalculiX's
+solid-element buckling stops being reliable, so `slenderness_limit` rests on a
+measured boundary rather than the handful of points behind the current default.
 
 ## Software regression tests
 
@@ -109,6 +134,9 @@ Distinct from verification. These pin behaviour that has broken before:
 | Ambiguous selectors stop rather than guess | `tests/integration/test_geometry_and_regions.py` |
 | Cache invalidates when physics changes | `tests/integration/test_pipeline.py` |
 | Infeasible ≠ error, throughout | `tests/unit/test_failures_and_schema.py` |
+| Negative buckling eigenvalues are not failures | `tests/unit/test_buckling.py` |
+| Buckle-step reactions excluded from the equilibrium check | `tests/unit/test_buckling.py` |
+| Untrustworthy buckling refused, not reported | `tests/unit/test_buckling.py` |
 
 ## Running
 

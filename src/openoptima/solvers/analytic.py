@@ -16,6 +16,7 @@ backend.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -89,9 +90,21 @@ class AnalyticSolver:
 
             von_mises = np.abs(bending_stress) * (1.0 - normalised) + abs(axial_stress)
 
+            # Euler buckling of the equivalent cantilever, so the analytic
+            # backend can exercise buckling constraints in CI. Same caveat as
+            # everything else here: not an engineering result.
+            buckling: tuple[float, ...] = ()
+            if model.buckling.enabled and magnitude > 0:
+                critical = math.pi**2 * material.elastic_modulus * second_moment / (2.0 * span) ** 2
+                buckling = tuple(
+                    critical / magnitude * (2 * n - 1) ** 2
+                    for n in range(1, model.buckling.modes + 1)
+                )
+
             fields.append(
                 LoadCaseFields(
                     load_case_id=load_case.id,
+                    buckling_factors=buckling,
                     node_tags=mesh.node_tags,
                     displacement=displacement,
                     von_mises=von_mises,

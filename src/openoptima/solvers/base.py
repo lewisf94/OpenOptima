@@ -27,6 +27,15 @@ class LoadCaseFields:
     von_mises: np.ndarray  # (N,) MPa
     reaction_force: tuple[float, float, float]  # N
     strain_energy: float | None = None  # mJ
+    #: Buckling load factors, lowest first. Empty when buckling was not run.
+    #: Negative values mean the load would have to reverse to buckle it.
+    buckling_factors: tuple[float, ...] = ()
+
+    @property
+    def critical_buckling_factor(self) -> float | None:
+        """Smallest positive factor, or None if nothing buckles under this load."""
+        positive = [f for f in self.buckling_factors if f > 0.0]
+        return min(positive) if positive else None
 
     @property
     def displacement_magnitude(self) -> np.ndarray:

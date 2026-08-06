@@ -19,6 +19,7 @@ from .failures import (
 from .model import (
     AnalysisModel,
     BoundaryCondition,
+    BucklingSettings,
     ConstraintKind,
     Load,
     LoadCase,
@@ -77,6 +78,7 @@ __all__ = [
     "AnalysisModel",
     "BoundaryCondition",
     "BoundingBox",
+    "BucklingSettings",
     "Constraint",
     "ConstraintKind",
     "DesignSpace",

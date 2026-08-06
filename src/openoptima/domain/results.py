@@ -26,6 +26,10 @@ class LoadCaseResult:
     stress_measure_name: str
     reaction_force: tuple[float, float, float]  # N
     strain_energy: float | None = None  # mJ
+    #: Lowest positive buckling factor. None when buckling was not analysed, or
+    #: when nothing buckles under this load (a purely tensile case).
+    buckling_factor: float | None = None
+    buckling_modes: tuple[float, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -37,6 +41,8 @@ class LoadCaseResult:
             "stress_measure_name": self.stress_measure_name,
             "reaction_force_n": list(self.reaction_force),
             "strain_energy_mj": self.strain_energy,
+            "buckling_factor": self.buckling_factor,
+            "buckling_modes": list(self.buckling_modes),
         }
 
 

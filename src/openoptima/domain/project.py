@@ -9,6 +9,7 @@ from typing import Any
 
 from .model import (
     AnalysisModel,
+    BucklingSettings,
     LoadCase,
     Material,
     MeshSpecification,
@@ -77,6 +78,7 @@ class Project:
     constraints: tuple[Constraint, ...] = ()
     solver: SolverSpecification = field(default_factory=SolverSpecification)
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
+    buckling: BucklingSettings = field(default_factory=BucklingSettings)
     preferences: PreferenceModel = field(default_factory=PreferenceModel)
     optimisation: OptimisationSettings = field(default_factory=OptimisationSettings)
     unit_system_name: str = "mm_N_MPa_t"
@@ -126,6 +128,7 @@ class Project:
             load_cases=self.load_cases,
             stress_evaluation=self.stress_evaluation,
             element_order=self.mesh.element_order,
+            buckling=self.buckling,
         )
 
     def objective_metrics(self) -> tuple[str, ...]:
@@ -205,6 +208,11 @@ class Project:
                 "pnorm": self.stress_evaluation.pnorm_exponent,
                 "excluded": list(self.stress_evaluation.excluded_regions),
                 "exclusion_radius": self.stress_evaluation.exclusion_radius,
+            },
+            "buckling": {
+                "enabled": self.buckling.enabled,
+                "modes": self.buckling.modes,
+                "slenderness_limit": self.buckling.slenderness_limit,
             },
             "solver": {"name": self.solver.name},
         }

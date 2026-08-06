@@ -418,12 +418,9 @@ if disk space becomes a problem — it keeps the summaries and throws away the b
 Genuinely important. The analysis is **linear static**, which means it works out
 how much things bend and stress under a steady load, and nothing else.
 
-It does **not** consider:
+**Buckling is now included** (see below), but it's switched off unless you ask
+for it. Everything else in this list is still invisible:
 
-- **Buckling** — a thin panel suddenly folding, like standing on an empty can.
-  This is the big one, because making something as light as possible pushes it
-  towards thin sections, which is exactly what buckles. The software cannot see
-  this at all.
 - **Fatigue** — failing after millions of load cycles, at stresses it would
   survive indefinitely if applied once.
 - **Bolts, joints, contact, friction** — the mounting face is treated as
@@ -431,6 +428,47 @@ It does **not** consider:
 - **Impact, vibration, heat, permanent bending.**
 
 An optimiser will happily exploit every one of these blind spots.
+
+### Buckling — worth understanding
+
+**Buckling is when something long and thin suddenly folds sideways**, rather
+than being crushed. Stand on an empty drinks can and it holds you; press the
+side and it collapses instantly. The metal never got anywhere near its strength
+limit — the shape just became unstable.
+
+This matters enormously when minimising mass, because "as light as possible"
+means "as thin as possible", and thin is exactly what buckles.
+
+Turn it on like this:
+
+```yaml
+buckling:
+  enabled: true
+  modes: 3
+```
+
+You get a **buckling factor**: how many times the applied load the part can take
+before it folds. A factor of 3 means it buckles at three times your load. Below
+1.0 means it folds under the load you gave it.
+
+The `examples/strut/project.yaml` example exists to show why this matters. A
+600 mm strut carrying 30 kN, at the lightest section allowed, has a **stress
+factor of safety of 4.8** — looks very safe — and a **buckling factor of 1.08**.
+It is within 8% of collapsing. Sizing it properly costs about 50% more mass, and
+the stress check never comes close to noticing.
+
+**Buckling margins are usually set higher than stress margins.** The analysis
+assumes a perfectly straight strut loaded perfectly down its middle. Real parts
+are slightly bent and real loads are slightly off-centre, and both make things
+buckle sooner than the calculation says.
+
+**One important limitation.** The way this software chops parts into small
+pieces stops being trustworthy for buckling once a part gets very long and thin
+— and it goes wrong in the *dangerous* direction, saying a part is safer than it
+is. So OpenOptima checks its own buckling answers against hand-calculation
+theory, and **refuses to give you a number it doesn't trust** rather than
+handing you a reassuring wrong one. If you see `result_unreliable`, that is the
+software telling you it cannot answer, which is the honest response.
 
 **Also:** all results come from one mesh setting. They're fair to compare against
 each other, but you should re-run your chosen design with a finer mesh and check
@@ -446,6 +484,8 @@ Full detail in [`engineering-assumptions.md`](engineering-assumptions.md).
 |---|---|
 | **Allowable stress** | How hard you've decided you're willing to work the material. Your choice, not the material's. |
 | **Boundary condition** | Somewhere the part is held and can't move. |
+| **Buckling** | Something long and thin suddenly folding sideways, like an empty can when you press its side. |
+| **Buckling factor** | How many times your load the part takes before it folds. Below 1.0 means it folds now. |
 | **Cache** | Saved results, reused when you ask an identical question. |
 | **CalculiX** | The free program that does the actual stress calculation. |
 | **Constraint** | A line you must not cross. |
