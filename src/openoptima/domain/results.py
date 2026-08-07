@@ -45,6 +45,23 @@ class LoadCaseResult:
             "buckling_modes": list(self.buckling_modes),
         }
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> LoadCaseResult:
+        """Rebuild from :meth:`to_dict`, for reading a stored result back."""
+        reaction = tuple(payload.get("reaction_force_n") or (0.0, 0.0, 0.0))
+        return cls(
+            load_case_id=payload["load_case_id"],
+            displacement_max=payload["displacement_max_mm"],
+            displacement_node=payload.get("displacement_node"),
+            stress_measure=payload["stress_measure_mpa"],
+            stress_raw_max=payload["stress_raw_max_mpa"],
+            stress_measure_name=payload.get("stress_measure_name", ""),
+            reaction_force=(reaction[0], reaction[1], reaction[2]),
+            strain_energy=payload.get("strain_energy_mj"),
+            buckling_factor=payload.get("buckling_factor"),
+            buckling_modes=tuple(payload.get("buckling_modes") or ()),
+        )
+
 
 @dataclass(frozen=True)
 class MeshSummary:
@@ -70,6 +87,21 @@ class MeshSummary:
             "algorithm": self.algorithm,
             "attempt": self.attempt,
         }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> MeshSummary:
+        """Rebuild from :meth:`to_dict`, for reading a stored result back."""
+        return cls(
+            node_count=payload["node_count"],
+            element_count=payload["element_count"],
+            element_type=payload["element_type"],
+            min_scaled_jacobian=payload["min_scaled_jacobian"],
+            mesh_volume=payload["mesh_volume_mm3"],
+            cad_volume=payload["cad_volume_mm3"],
+            volume_error=payload["volume_error"],
+            algorithm=payload.get("algorithm", ""),
+            attempt=payload.get("attempt", 1),
+        )
 
 
 @dataclass

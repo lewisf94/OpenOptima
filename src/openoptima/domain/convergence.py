@@ -115,6 +115,25 @@ class MetricConvergence:
         return self.levels[0].value if self.levels else None
 
     @property
+    def spread(self) -> float | None:
+        """Total relative range across every mesh, as a fraction.
+
+        This is the plainest, least theoretical number in the report, and it
+        is reported whatever the behaviour. A value can be labelled
+        "oscillating" or "diverging" and still have moved by only a twentieth
+        of one percent across every mesh tried, which is a different situation
+        from one that moved by forty percent. The behaviour alone cannot tell
+        those apart; this can, and the reader needs both to judge.
+        """
+        if len(self.levels) < 2:
+            return None
+        values = [level.value for level in self.levels]
+        scale = max(abs(value) for value in values)
+        if scale == 0.0:
+            return 0.0
+        return (max(values) - min(values)) / scale
+
+    @property
     def order_is_plausible(self) -> bool:
         if self.observed_order is None:
             return False
@@ -128,6 +147,7 @@ class MetricConvergence:
             "observed_order": self.observed_order,
             "extrapolated": self.extrapolated,
             "uncertainty": self.uncertainty,
+            "spread": self.spread,
             "asymptotic_ratio": self.asymptotic_ratio,
             "order_is_plausible": self.order_is_plausible,
             "note": self.note,
@@ -295,14 +315,31 @@ def analyse_metric(metric: str, levels: list[GridLevel]) -> MetricConvergence:
 
     notes: list[str] = []
     low, high = PLAUSIBLE_ORDER
+    # A measured rate outside the expected range means one of two opposite
+    # things, and telling a reader the wrong one is worse than saying nothing.
+    # When the value has all but stopped moving, the remaining differences are
+    # close to solver noise and the measured rate becomes erratic -- usually
+    # high. That is not a problem: the band is tiny and the answer is settled.
+    # It is only a warning when the value is still moving appreciably.
+    settled_enough = uncertainty is not None and uncertainty < 0.001
     if not low <= order <= high:
-        notes.append(
-            f"the measured rate of settling ({order:.2f}) is outside the "
-            f"expected range of {low:g} to {high:g}. The meshes are probably "
-            "not yet fine enough for this estimate to be reliable, so treat "
-            "the band as optimistic"
-        )
-    if asymptotic is not None and not 0.85 <= asymptotic <= 1.15:
+        if settled_enough:
+            notes.append(
+                f"the measured rate ({order:.2f}) is outside the usual range "
+                f"of {low:g} to {high:g}, which is normal for a value that has "
+                "essentially stopped moving: the differences left between "
+                "meshes are near the solver's own noise. The band is small, "
+                "and the value is settled"
+            )
+        else:
+            notes.append(
+                f"the measured rate of settling ({order:.2f}) is outside the "
+                f"expected range of {low:g} to {high:g}, and the value is "
+                "still moving. The meshes are probably not yet fine enough "
+                "for this estimate to be reliable, so treat the band as "
+                "optimistic"
+            )
+    if asymptotic is not None and not 0.85 <= asymptotic <= 1.15 and not settled_enough:
         notes.append(
             f"the consistency check came out at {asymptotic:.2f} rather than "
             "near 1.00, which points the same way: the band is probably "

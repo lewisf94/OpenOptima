@@ -199,6 +199,60 @@ def test_uncertainty_shrinks_as_the_answer_settles():
     assert nearly_settled.uncertainty < still_moving.uncertainty
 
 
+def test_spread_is_reported_whatever_the_behaviour():
+    """The plainest number in the report, and the one that stops a false alarm.
+
+    A real run of the L-bracket produced a raw peak stress that wobbled by
+    0.05% between the three finest meshes. That is oscillation by the strict
+    definition, and reporting it as "unsteady" alone reads as a problem. The
+    total spread across every mesh is what tells the reader it is not one.
+    """
+    wobbling = analyse_metric("stress_raw_max_mpa", _levels([1.0, 2.0, 4.0], [100.1, 99.9, 100.0]))
+
+    assert wobbling.behaviour is Behaviour.OSCILLATING
+    assert wobbling.spread is not None
+    assert wobbling.spread == pytest.approx(0.2 / 100.1, rel=1e-6)
+
+    moving = analyse_metric("stress_max_mpa", _levels([1.0, 2.0, 4.0], [80.0, 100.0, 130.0]))
+    assert moving.spread == pytest.approx(50.0 / 130.0, rel=1e-6)
+    assert moving.spread > wobbling.spread
+
+
+def test_a_settled_value_with_an_odd_rate_is_not_called_a_problem():
+    """Regression test on the wording, from a real run.
+
+    When a value has all but stopped moving, the differences left between
+    meshes approach the solver's own noise and the measured rate becomes
+    erratic -- usually high. The first version of this module told the reader
+    that meant "the meshes are probably not yet fine enough", which is the
+    opposite of the truth: the band was 0.0036% and the value was settled.
+
+    A high rate with a wide band is a genuine warning. A high rate with a tiny
+    band is not, and must not be worded as one.
+    """
+    settled = analyse_metric(
+        "displacement_max_mm",
+        _levels([1.0, 2.0, 4.0], [10.0 + 1e-5 * h**6 for h in (1.0, 2.0, 4.0)]),
+    )
+
+    assert settled.behaviour is Behaviour.SETTLING
+    assert not settled.order_is_plausible, "the rate really is outside the usual range"
+    assert settled.uncertainty is not None and settled.uncertainty < 0.001
+    assert "essentially stopped moving" in settled.note
+    assert "not yet fine enough" not in settled.note
+
+
+def test_a_still_moving_value_with_an_odd_rate_is_still_flagged():
+    """The other side of the same distinction: this one is a real warning."""
+    moving = analyse_metric(
+        "displacement_max_mm", _levels([1.0, 2.0, 4.0], [10.0 + h**6 for h in (1.0, 2.0, 4.0)])
+    )
+
+    assert moving.behaviour is Behaviour.SETTLING
+    assert moving.uncertainty is not None and moving.uncertainty > 0.001
+    assert "not yet fine enough" in moving.note
+
+
 def test_representative_size_is_the_average_element_edge():
     """A cube of side 10 chopped into 1000 elements has 1 mm elements."""
     assert representative_size(1000.0, 1000) == pytest.approx(1.0)

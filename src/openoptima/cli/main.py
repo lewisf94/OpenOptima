@@ -284,6 +284,128 @@ def command_optimise(args: argparse.Namespace) -> int:
     return _EXIT_OK if study.front else _EXIT_FAILED
 
 
+def command_converge(args: argparse.Namespace) -> int:
+    from ..convergence.study import (
+        DEFAULT_LEVEL_COUNT,
+        DEFAULT_REFINEMENT_RATIO,
+        element_growth,
+        mesh_levels,
+        run_convergence,
+    )
+    from ..reporting.convergence_report import (
+        summarise_for_terminal,
+        write_convergence_json,
+        write_convergence_report,
+    )
+
+    project, root = _load(args.project)
+    workspace = _workspace(root, args.workspace)
+
+    design, error = _design_for_convergence(args, project, workspace)
+    if error:
+        print(f"error: {error}", file=sys.stderr)
+        return _EXIT_BAD_USAGE
+
+    count = args.levels or DEFAULT_LEVEL_COUNT
+    ratio = args.ratio or DEFAULT_REFINEMENT_RATIO
+    try:
+        levels = mesh_levels(project, count=count, ratio=ratio)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return _EXIT_BAD_USAGE
+
+    print(f"Mesh convergence check on {project.name}")
+    print(f"Design: {design.canonical_text().replace(chr(10), ', ')}")
+    print()
+    print("Running the same design at these mesh sizes:")
+    for level in levels:
+        print(f"  {level.label}  {level.requested_size:8.3f} mm")
+    growth = element_growth(levels)
+    print()
+    print(
+        f"Together these are roughly {growth:.0f} times the work of one "
+        "evaluation at your project's own mesh setting, because halving the "
+        "element size multiplies the element count by about eight."
+    )
+    print()
+
+    def show(outcome) -> None:
+        mesh = outcome.result.mesh if outcome.result else None
+        if outcome.usable and mesh:
+            note = "  (design breaks its limits)" if outcome.infeasible else ""
+            print(
+                f"  {outcome.level.label}  {mesh.element_count:>9,} elements  "
+                f"avg size {outcome.achieved_size:6.3f} mm  "
+                f"({outcome.result.wall_time:.1f} s){note}"
+            )
+        else:
+            print(f"  {outcome.level.label}  FAILED  {outcome.error[:70]}")
+
+    assessment = run_convergence(
+        project,
+        design,
+        workspace,
+        count=count,
+        ratio=ratio,
+        study=args.study or "convergence",
+        keep_artifacts=not args.discard_artifacts,
+        project_root=root,
+        use_cache=not args.no_cache,
+        progress=show,
+    )
+
+    print()
+    print("=" * 70)
+    for line in summarise_for_terminal(assessment):
+        print(line)
+    print("=" * 70)
+
+    report_path = write_convergence_report(
+        assessment, project, workspace / "reports" / "convergence.md"
+    )
+    write_convergence_json(assessment, workspace / "reports" / "convergence.json")
+    print(f"\nFull report: {report_path}")
+
+    if len(assessment.usable_levels) < 3:
+        print("\nToo few meshes succeeded to say anything about convergence. Three are needed.")
+        return _EXIT_FAILED
+    return _EXIT_OK
+
+
+def _design_for_convergence(args: argparse.Namespace, project: Project, workspace: Path):
+    """Pick the design to check: a stored run, explicit values, or the defaults."""
+    if args.run:
+        from ..storage.database import ResultStore
+
+        database = workspace / "openoptima.sqlite"
+        if not database.exists():
+            return None, f"no results database at {database}. Run a study first."
+        with ResultStore(database) as store:
+            for record in store.evaluations():
+                if str(record["run_id"]) == str(args.run):
+                    result = _record_to_result(record, project)
+                    if result is None:
+                        return None, f"run {args.run} could not be read back"
+                    return result.design, ""
+        return None, f"run {args.run!r} not found in {database}"
+
+    values = project.design_space.defaults().as_dict()
+    for assignment in args.set or []:
+        if "=" not in assignment:
+            return None, f"--set expects name=value, received {assignment!r}"
+        name, _, raw = assignment.partition("=")
+        name = name.strip()
+        if name not in project.design_space.ids:
+            return None, (
+                f"unknown variable {name!r}. Available: {', '.join(project.design_space.ids)}"
+            )
+        try:
+            values[name] = float(raw)
+        except ValueError:
+            values[name] = raw.strip()
+    return project.design_space.decode(values), ""
+
+
 def command_report(args: argparse.Namespace) -> int:
     from ..optimisation.pareto import pareto_front
     from ..optimisation.study import StudyResult
@@ -442,6 +564,22 @@ def build_parser() -> argparse.ArgumentParser:
     optimise.add_argument("--seed", type=int)
     optimise.add_argument("--no-doe", action="store_true", help="skip the DOE seeding stage")
     optimise.set_defaults(func=command_optimise)
+
+    converge = subparsers.add_parser(
+        "converge",
+        help="re-run one design at several mesh densities to see if its numbers have settled",
+    )
+    add_common(converge)
+    converge.add_argument("--run", help="check the design from this stored run id")
+    converge.add_argument(
+        "--set", action="append", metavar="NAME=VALUE", help="override a design variable"
+    )
+    converge.add_argument("--levels", type=int, help="how many mesh densities to try (minimum 3)")
+    converge.add_argument(
+        "--ratio", type=float, help="how much finer each mesh is than the last (minimum 1.1)"
+    )
+    converge.add_argument("--no-cache", action="store_true", help="ignore cached results")
+    converge.set_defaults(func=command_converge)
 
     report = subparsers.add_parser("report", help="rebuild a report from stored results")
     add_common(report)

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..domain.failures import EvaluationState, FailureCode, Outcome
-from ..domain.results import EvaluationResult
+from ..domain.results import EvaluationResult, LoadCaseResult, MeshSummary
 from ..domain.variables import DesignSpace, DesignVector
 
 _SCHEMA = """
@@ -208,6 +208,8 @@ class ResultStore:
             from_cache=True,
             provenance=json.loads(record["provenance_json"]),
             created_at=record["created_at"],
+            mesh=_mesh_from_record(record),
+            load_cases=_load_cases_from_record(record),
         )
         return result
 
@@ -258,3 +260,32 @@ class ResultStore:
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return dict(zip(row.keys(), tuple(row), strict=True))
+
+
+def _mesh_from_record(record: dict[str, Any]) -> MeshSummary | None:
+    """Rebuild the mesh summary a cached result was stored with.
+
+    Without this, a cached result comes back with ``mesh`` set to None, and
+    any caller that needs the element count or the achieved element size gets
+    nothing -- silently, because None is a legitimate value for a design that
+    failed before meshing. The mesh convergence command found this: on a second
+    run every level was served from cache, lost its element counts, and the
+    whole study reported "not enough data" while looking like it had worked.
+    """
+    payload = record.get("mesh_json")
+    if not payload:
+        return None
+    try:
+        return MeshSummary.from_dict(json.loads(payload))
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _load_cases_from_record(record: dict[str, Any]) -> tuple[LoadCaseResult, ...]:
+    payload = record.get("load_cases_json")
+    if not payload:
+        return ()
+    try:
+        return tuple(LoadCaseResult.from_dict(item) for item in json.loads(payload))
+    except (ValueError, KeyError, TypeError):
+        return ()
