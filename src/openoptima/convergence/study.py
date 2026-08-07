@@ -38,6 +38,7 @@ from ..storage.database import ResultStore
 DEFAULT_METRICS: tuple[str, ...] = (
     "mass_kg",
     "displacement_max_mm",
+    "strain_energy_mj",
     "stiffness_n_per_mm",
     "stress_max_mpa",
     "stress_raw_max_mpa",

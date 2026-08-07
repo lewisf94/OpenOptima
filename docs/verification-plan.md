@@ -377,6 +377,7 @@ has broken before:
 | A cached result keeps its mesh summary and load cases | `tests/unit/test_result_store_roundtrip.py` |
 | Reactions are summed per direction, not across free ones | `tests/unit/test_reaction_assembly.py` |
 | Load cases are enveloped, never averaged | `tests/unit/test_load_case_envelope.py` |
+| Strain energy equals the work the load did (Clapeyron) | `tests/verification/test_strain_energy.py` |
 | A gentler extra load case cannot improve a result | `tests/unit/test_load_case_envelope.py` |
 | Buckle-step loads are scaled and scaled back exactly | `tests/unit/test_buckling_load_scale.py` |
 

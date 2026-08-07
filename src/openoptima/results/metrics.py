@@ -141,6 +141,7 @@ def load_case_metrics(
         stress_raw_max=stress.raw_max,
         stress_measure_name=stress.measure_name,
         reaction_force=fields.reaction_force,
+        strain_energy=fields.strain_energy,
     )
 
 
@@ -190,6 +191,12 @@ def collect_metrics(
     ]
     worst_buckling = min(buckling_values) if buckling_values else None
 
+    # Strain energy is the work the load did on the part. Enveloped upwards
+    # like everything else: the case that stores the most energy is the one
+    # working the structure hardest.
+    energies = [case.strain_energy for case in per_case if case.strain_energy is not None]
+    worst_energy = max(energies) if energies else None
+
     worst_stress = max((case.stress_measure for case in per_case), default=0.0)
     worst_raw = max((case.stress_raw_max for case in per_case), default=0.0)
     worst_displacement = max((case.displacement_max for case in per_case), default=0.0)
@@ -204,6 +211,9 @@ def collect_metrics(
         "factor_of_safety": factor_of_safety,
         "stiffness_n_per_mm": 0.0,
     }
+
+    if worst_energy is not None:
+        metrics["strain_energy_mj"] = worst_energy
 
     if worst_buckling is not None:
         metrics["buckling_factor"] = worst_buckling
@@ -222,6 +232,8 @@ def collect_metrics(
         metrics[f"stress_max_mpa.{case.load_case_id}"] = case.stress_measure
         if case.stress_measure > 0:
             metrics[f"factor_of_safety.{case.load_case_id}"] = allowable / case.stress_measure
+        if case.strain_energy is not None:
+            metrics[f"strain_energy_mj.{case.load_case_id}"] = case.strain_energy
         if case.buckling_factor is not None:
             metrics[f"buckling_factor.{case.load_case_id}"] = case.buckling_factor
 

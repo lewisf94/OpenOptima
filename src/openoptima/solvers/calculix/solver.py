@@ -10,7 +10,7 @@ from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.model import AnalysisModel, LoadCase, SolverSpecification
 from ...meshing.base import MeshData
 from ..base import AnalysisResults, LoadCaseFields, von_mises_from_tensor
-from .dat import parse_buckling, parse_dat, reactions_in_step
+from .dat import parse_buckling, parse_dat, parse_strain_energy, reactions_in_step
 from .deck import BUCKLING_LOAD_SCALE, _set_name, write_deck
 from .frd import blocks_named, parse_frd
 from .runner import find_executable, installation_hint, run_calculix, solver_version
@@ -75,6 +75,7 @@ class CalculiXSolver:
             )
 
         reactions = parse_dat(run.dat_path)
+        strain_energies = parse_strain_energy(run.dat_path)
         buckling_tables = parse_buckling(run.dat_path) if model.buckling.enabled else []
         if model.buckling.enabled and len(buckling_tables) < expected:
             raise EvaluationFailure(
@@ -146,6 +147,7 @@ class CalculiXSolver:
                     displacement=displacement,
                     von_mises=von_mises,
                     reaction_force=reaction,
+                    strain_energy=strain_energies.get(static_step_of(index)),
                     buckling_factors=factors,
                 )
             )

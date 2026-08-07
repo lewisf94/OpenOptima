@@ -206,6 +206,12 @@ def write_deck(
 
             handle.write("*NODE FILE\nU\n")
             handle.write("*EL FILE\nS\n")
+            # ELSE is the internal energy already integrated over each element's
+            # volume. ENER is the energy *density* at each integration point,
+            # which TOTALS=ONLY does not sum -- it prints one row per point, and
+            # turning that into a total needs the Jacobian weights the .dat does
+            # not carry. ELSE gives the number directly.
+            handle.write("*EL PRINT, ELSET=Eall, TOTALS=ONLY\nELSE\n")
             for condition in load_case.boundary_conditions:
                 handle.write(f"*NODE PRINT, NSET={_set_name(condition.region)}, TOTALS=ONLY\nRF\n")
             handle.write("*END STEP\n")

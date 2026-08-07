@@ -42,6 +42,11 @@ _TOTAL_FORCE = re.compile(
     re.IGNORECASE,
 )
 
+_TOTAL_ENERGY = re.compile(
+    r"total internal energy for set (?P<set>\S+) and time\s+(?P<time>\S+)",
+    re.IGNORECASE,
+)
+
 #: CalculiX spaces out its headings: "S T E P       1".
 _STEP_HEADER = re.compile(r"^\s*S\s+T\s+E\s+P\s+(?P<step>\d+)\s*$", re.IGNORECASE)
 _BUCKLING_HEADER = re.compile(r"B\s*U\s*C\s*K\s*L\s*I\s*N\s*G", re.IGNORECASE)
@@ -154,6 +159,41 @@ def parse_dat(path: str | Path) -> list[ReactionTotal]:
 
 def reactions_in_step(totals: list[ReactionTotal], step: int) -> list[ReactionTotal]:
     return [total for total in totals if total.step == step]
+
+
+def parse_strain_energy(path: str | Path) -> dict[int, float]:
+    """Total internal energy per step, in mJ, keyed by 1-based step number.
+
+    Keyed by step for the same reason reactions are: a ``*BUCKLE`` step emits
+    its own energy total, an artefact of the eigenvalue solve rather than the
+    work done by the applied load. Taking totals in file order and pairing them
+    with load cases by position would attribute a buckling artefact to the next
+    static case.
+    """
+    path = Path(path)
+    if not path.exists():
+        return {}
+
+    energies: dict[int, float] = {}
+    lines = path.read_text(errors="replace").splitlines()
+    for index, line in enumerate(lines):
+        if not _TOTAL_ENERGY.search(line):
+            continue
+        for offset in range(1, 4):
+            if index + offset >= len(lines):
+                break
+            candidate = lines[index + offset].split()
+            if len(candidate) != 1:
+                continue
+            try:
+                value = float(candidate[0])
+            except ValueError:
+                continue
+            # First total wins for a step: CalculiX repeats the block when more
+            # than one output request is active, and they carry the same value.
+            energies.setdefault(_step_of(lines, index), value)
+            break
+    return energies
 
 
 def parse_buckling(path: str | Path) -> list[BucklingTable]:
