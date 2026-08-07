@@ -292,7 +292,15 @@ class TestPlausibilityGuard:
         assert info.value.outcome is Outcome.ERROR, (
             "an untrustworthy number is 'we could not find out', not 'the design is bad'"
         )
-        assert "UNSAFE" in info.value.message
+        # The message used to shout UNSAFE, because the number really was
+        # optimistic by a factor of nine. That defect is fixed at its root (see
+        # V9), so the wording no longer claims it. What must survive is that
+        # the refusal is plain, the rejected number is quoted rather than
+        # reported as a result, and the reader is told what to do instead.
+        message = info.value.message
+        assert "not reported" in message
+        assert "2.79" in message, "the rejected number must be visible, not hidden"
+        assert "beam elements" in message
 
     def test_a_member_in_the_verified_regime_is_reported(self):
         """Slenderness 139 -- the case measured accurate to 0.11% against Euler.
