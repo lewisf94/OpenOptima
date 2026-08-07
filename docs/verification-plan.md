@@ -88,6 +88,50 @@ range. The next useful piece of work here is finding exactly where that
 boundary lies. That needs a systematic sweep of section size against
 slenderness.
 
+### V4 — Plate with a central hole (stress concentration)
+
+`tests/verification/test_plate_with_hole.py`
+
+This checks a **real** stress concentration: a feature with a finite radius,
+where the peak stress is a genuine physical number. V6 checks the opposite
+case, a singularity where no such number exists. Together they draw the
+line the whole stress-measure argument rests on, and V4 is the half that
+had never been tested.
+
+| | |
+|---|---|
+| **Model** | 300 × 100 × 5 mm plate, 20 mm central hole |
+| **Load** | 50 kN tension along the length |
+| **Reference** | Howland, in Heywood's form: Kt_net = 2 + (1 − d/W)³ |
+| **Reference value** | Kt_net = 2.5120 (Kt_gross = 3.140; Howland tabulates 3.14) |
+| **Expected peak** | 2.5120 × 125 MPa net = **314.0 MPa** |
+| **Tolerance** | 4% |
+
+Measured at four mesh densities (4 733 to 21 832 elements):
+
+| Global / hole size | Peak at hole | Error |
+|---|---|---|
+| 8.0 / 4.0 mm | 309.48 MPa | −1.44% |
+| 6.0 / 2.5 mm | 319.66 MPa | +1.80% |
+| 5.0 / 1.6 mm | 316.11 MPa | +0.67% |
+| 4.0 / 1.0 mm | 316.76 MPa | +0.88% |
+
+Reaction equals the applied 50 kN exactly at every density.
+
+**On the scatter.** These do not settle monotonically; they wobble inside a
+3.2% band. That is expected, and it is not the same thing as V6's
+singularity running away. The reported peak is whichever *node* lands
+nearest the hottest point on the hole, and remeshing moves the nodes around
+the arc. What matters is that the band is bounded and stays put: **3.2%
+across a fourfold change in element count, against 19.8% and accelerating**
+for the singularity in V6.
+
+A real concentration has a real answer and the mesh scatters around it. A
+singularity has no answer and the mesh climbs away from it. That contrast
+is the measured evidence for reporting a percentile rather than the raw peak
+by default — and for the advice that a genuine fillet should be modelled and
+refined rather than hidden behind a percentile.
+
 ### V5 — Thick cylinder under internal pressure
 
 `tests/verification/test_thick_cylinder.py`
@@ -263,20 +307,7 @@ a measurement.
 This list is ordered by value. Each benchmark needs a documented source
 and tolerance before anyone writes it.
 
-### V4 — Plate with a central hole (stress concentration)
-
-The `plate_with_hole` template already exists for this benchmark. Compare
-the peak stress against the finite-width Howland correction, at Kt ≈ 3.
-Expect slow convergence: this is the case that demonstrates why raw peak
-stress is a poor optimisation target. Run this benchmark at several mesh
-densities, and record how the answer converges.
-
-### V5 — Thick cylinder under internal pressure
-
-This benchmark uses the Lamé solution. It exercises the pressure load
-path (`*DLOAD` element faces), which V1 does not touch. This benchmark has
-high value, because pressure loading is currently verified only by unit
-tests of the face lookup.
+*(V4, V5, V6 and V9 are implemented — see above.)*
 
 ### V7 — Multiple load cases
 
