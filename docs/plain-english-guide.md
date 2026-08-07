@@ -47,6 +47,25 @@ you the best designs it found, and what each one costs you.
 That loop is the core of OpenOptima. Everything else in this project makes
 that loop reliable, or helps you choose between the answers it gives you.
 
+### What it does not do: invent a shape
+
+OpenOptima changes the **dimensions** of a shape you describe. It does not
+change the shape itself. If you describe a rectangular arm with five
+dimensions, you get a rectangular arm with better dimensions. You never
+get a different kind of arm.
+
+This matters because of what people often expect. The organic,
+bone-like shapes you may have seen from "generative design" come from a
+different technique, called **topology optimisation**. That method starts
+from a solid block and deletes every part of it that is not carrying its
+weight, so it invents the shape rather than sizing one. OpenOptima does
+not do this yet. It is planned, as a second mode you would choose instead
+of this one — see [`roadmap.md`](roadmap.md).
+
+So the question OpenOptima answers today is *"I have a shape, what are the
+best dimensions for it?"* — not *"I have a problem, what shape should it
+be?"*
+
 ---
 
 ## 2. Running it
@@ -501,6 +520,23 @@ turn it on. OpenOptima still cannot see any of the following:
 
 An optimiser will exploit every one of these blind spots, given the
 chance.
+
+### A warning if you plan to 3D print the part
+
+**OpenOptima assumes a material that is equally strong in every
+direction. A printed part is not.** A printed part is made from stacked
+layers that are fused together, and it is typically 30 to 50 per cent
+weaker *between* those layers than *along* them. OpenOptima cannot see
+this. It can report a part as safe that will peel apart along its print
+layers under a load it appeared to survive.
+
+It also knows nothing about what a printer can make. There is no check on
+overhang angles, no check that a wall is thicker than your nozzle can
+produce, and no check that the part fits your build volume.
+
+Both of these are planned — see [`roadmap.md`](roadmap.md) — but neither
+exists today. Until they do, treat any result for a printed part with
+real caution, and remember that fatigue is invisible as well.
 
 ### Buckling — worth understanding
 
