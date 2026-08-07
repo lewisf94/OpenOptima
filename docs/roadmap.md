@@ -17,10 +17,10 @@ does not replace the other:
   them. Use it when you already know the shape and need the numbers right.
 - **Topology optimisation** (not built — see "Topology optimisation"
   below). You describe the space the part may occupy, where it is held
-  and where it is loaded, and
-  OpenOptima decides where material should exist at all. This is what
-  produces the organic, bone-like shapes people associate with generative
-  design. Use it when you do not yet know the shape.
+  and where it is loaded, and OpenOptima decides where material should
+  exist at all. This is what produces the organic, bone-like shapes
+  people associate with generative design. Use it when you do not yet
+  know the shape.
 
 A likely workflow uses both: topology optimisation to find the shape,
 then a parametric model of that shape to tune it and verify it properly.
@@ -32,9 +32,8 @@ assumes a material that is equally strong in every direction, which a
 printed part is not, and it has no idea what a printer can and cannot
 make. The "Printing and real-world materials" section below closes that
 gap. Until it does, a result for a printed part should be treated with
-real caution — the two things most
-likely to break such a part, layer adhesion and fatigue, are both
-invisible today.
+real caution — the two things most likely to break such a part, layer
+adhesion and fatigue, are both invisible today.
 
 ## Now (v0.1) — done
 
@@ -104,6 +103,10 @@ Nothing new here. This tier makes what already exists defensible.
    a stiff part, or deliberately below it for an isolated one. A
    single-sided limit would be the wrong shape.
 
+   Do this **before** fatigue. The two are linked: vibration is what
+   drives the load cycles that cause fatigue, so the natural frequency
+   tells you how many cycles the part actually sees.
+
 ## Printing and real-world materials (v0.3–v0.4)
 
 These are grouped because they share one purpose: making a result
@@ -158,21 +161,46 @@ about what a printer can make.
    actually breaks a part in service, and a drone arm is the textbook
    case: the propellers vibrate it millions of times.
 
-   It is deliberately last of this group, because it is the one that
-   cannot be done without a human decision. It needs an S-N curve — a
-   published table of how many cycles a material survives at a given
-   stress — and those curves vary by material, surface finish, and
-   manufacturing process. Printed materials have far less published
-   fatigue data than wrought ones, and what exists depends heavily on
-   print settings. It also needs an assumption about how the load
-   cycles, which is a statement about the part's service life rather
-   than about the part.
+   **Do this after modal analysis, not before.** For a vibrating part the
+   cycles come from resonance, so the natural frequency is what tells you
+   how many cycles per second the part actually sees. Doing fatigue first
+   means guessing a number modal would have given you.
 
-   So the software's job here is to compute a fatigue life *given* a
-   curve and a duty cycle the engineer supplies, and to say plainly
-   which curve it used. **Choosing the curve is not a decision
-   OpenOptima should make**, and a default one would be worse than
-   none: it would look authoritative and be wrong for most materials.
+   **What it needs.** Three things, none of which exist yet:
+
+   - **A stress range, not a stress.** Today's analysis gives one steady
+     answer. Fatigue is driven by how far stress *swings* each cycle: a
+     part going from 0 to 100 MPa and back is in a different situation
+     from one hovering between 45 and 55, even though the peak is
+     similar. This fits the load cases that already exist — name two of
+     them as the ends of a cycle.
+   - **An S-N curve** — a published table of how many cycles a material
+     survives at a given stress.
+   - **A way to add up damage** when more than one kind of cycle applies.
+
+   **One awkward problem has to be solved, not ignored.** Fatigue cracks
+   start at the *peak* stress — and the peak is exactly the number this
+   software refuses to use, because at a sharp corner it is meaningless
+   and grows forever as the mesh is refined. But V4 showed that a *real*
+   rounded feature does settle to a real number. So fatigue may use a
+   peak stress only where that peak has been shown to settle: the feature
+   must be modelled with a real radius, and `openoptima converge` must
+   confirm the number has stopped moving. Where it has not, fatigue
+   **refuses to answer**, exactly as buckling does outside its verified
+   range. A fatigue life computed from a number that changes with the
+   mesh is not a result.
+
+   **What OpenOptima must not decide.** The software's job is to compute
+   a life *given* a curve and a duty cycle the engineer supplies, and to
+   say plainly which it used. Choosing the curve is not its decision, and
+   a default would be worse than none — it would look authoritative and
+   be wrong for most materials. Two further honesty requirements: the
+   method for adding up damage is known to be unreliable, commonly out by
+   a factor of three, so a life quoted to three significant figures
+   implies a precision that does not exist; and the roughness of an
+   as-printed surface knocks fatigue strength down by more than layer
+   weakness does, so leaving it out makes the answer optimistic — the
+   dangerous direction.
 
 ## Later (v0.4+) — breadth
 
@@ -230,26 +258,52 @@ about what a printer can make.
    export STEP, which the geometry layer already reads, so a "use my own
    model" provider is a small piece of work on its own.
 
-   **The catch is worth knowing before anyone starts.** An imported STEP
-   file is a finished shape with no parameters in it. The dimensions
-   that CAD package used are not in the file — only the resulting
-   surfaces. So an imported model **cannot be parametrically
-   optimised**: there is nothing for the optimiser to vary. What it can
-   do is:
+   **What an imported file does and does not carry.** A STEP file is a
+   finished shape with no parameters in it. The dimensions that CAD
+   package used are not in the file — only the resulting surfaces — and
+   nothing can recover them.
 
-   - a single evaluation, to check a design somebody has already drawn;
-   - act as the starting envelope for topology optimisation (item 15),
-      which needs a region of space rather than a set of parameters;
-   - serve as a fixed part in an assembly.
+   That limitation is narrower than it first sounds. Running a study
+   needs two separate things, and only one of them is missing:
 
-   Getting parametric optimisation from imported CAD is a much larger
-   job: it needs the native file plus a live link back to the CAD
-   package's own API, so OpenOptima can change a dimension and ask that
-   package to rebuild. That is a per-vendor integration, only works
-   where the software is installed and licensed, and would tie an
-   open-source tool to a proprietary one. Worth doing eventually,
-   perhaps, but it is a different project from reading a STEP file and
-   should not be confused with one.
+   - **Where the loads and supports go** — not a problem. You pick faces
+     in the 3D viewer and OpenOptima writes down a description of what
+     it finds there. This works just as well on an imported shape as on
+     a built-in template.
+   - **What the optimiser may change** — this is the missing half. There
+     are no dimensions in the file for it to vary.
+
+   **You can supply your own, though.** OpenOptima can apply its own
+   operations to an imported shape and vary those: a fillet radius on an
+   edge you pick, a hole diameter on a round face you pick, an offset on
+   a wall you pick. That covers a large share of real work, because
+   improving an existing part usually does mean "make this boss thicker,
+   this fillet bigger, this hole smaller" rather than redrawing it.
+
+   So, for an imported model:
+
+   | Capability | Works? |
+   |---|---|
+   | Evaluate the design as drawn | yes |
+   | Pick load and support faces by clicking | yes |
+   | Vary features *you* add — fillets, holes, offsets | yes |
+   | Use it as the envelope for topology optimisation | yes |
+   | Vary the original CAD's own parameters | no |
+
+   Only the last one needs a live link back to the CAD package's own
+   interface, so OpenOptima could change a dimension and ask it to
+   rebuild. That is a separate piece of work per vendor, only works where
+   that software is installed and licensed, and ties an open-source tool
+   to a proprietary one. It is a different project from reading a STEP
+   file and should not be confused with one.
+
+   **The real difficulty is not the import.** Adding a fillet changes the
+   model's faces: it creates new ones and destroys old ones. A face you
+   picked before adding the fillet may not exist in the same form
+   afterwards. This is the hardest version of the problem the whole
+   project is built around, and it is why a click must be stored as a
+   *description* of a face rather than its number, and why `doctor` must
+   check those descriptions still work at every size in the range.
 
 5. **Assemblies and contact** — more than one part in a model, with
    surfaces that can touch.

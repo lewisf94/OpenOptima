@@ -202,19 +202,77 @@ statically. OpenOptima cannot see this at all today.
 **Why.** Very often what actually breaks a part in service, and the likely
 failure mode for a vibrating drone arm.
 
-**Do last of this group, and note what it must not do.** It needs an S-N
-curve, which varies by material, surface finish and process, and printed
-materials have far less published data than wrought ones. It also needs an
-assumption about how the load cycles, which is a statement about service
-life rather than about the part.
+**Do this after modal, not before.** For a vibrating part the cycles come
+from resonance, and the natural frequency is what tells you how many
+cycles per second the part actually sees. Doing fatigue first means
+guessing a number modal would have given you.
+
+**Scope.** New `results/fatigue.py`, plus a cycle definition in
+`domain/model.py` and the schema. No solver change: fatigue is
+post-processing on stresses that already exist.
+
+**The three pieces.**
+
+**1. A stress range, not a stress.** The static solve gives one state.
+Fatigue is driven by how far stress swings each cycle: 0 to 100 MPa is a
+different problem from 45 to 55 MPa, even though the peak is similar. This
+maps onto the load cases that already exist. Either name a pair of load
+cases as the two ends of a cycle, or give one case plus a ratio saying
+what it swings between.
+
+**2. An S-N curve.** The published relation between stress amplitude and
+how many cycles the material survives. Basquin form or a table.
+
+**3. Damage accumulation** when more than one cycle type applies. Miner's
+rule sums the fraction of life each one uses.
+
+**The awkward part, which must be solved and not ignored.**
+
+**Fatigue is driven by the peak stress at a concentration, and the peak is
+exactly the number this project refuses to optimise.** Everything else
+here uses a percentile, precisely because the raw peak at a sharp corner
+is meaningless -- V6 measured it climbing 19.8% and still rising. But a
+fatigue crack starts at the real peak, so a percentile is the wrong input.
+
+The resolution comes from V4: a *real* concentration, with a modelled
+radius, does converge -- it scattered inside 3.2% while the singularity
+ran away. So fatigue may use a peak stress **only where that peak has been
+shown to settle**. In practice:
+
+- the stress-raising feature must be modelled with a real radius, not
+  left as a sharp corner;
+- the peak must be converged, checked with the machinery `openoptima
+  converge` already provides;
+- where it is not converged, fatigue **refuses to report**, the same way
+  buckling refuses outside its validated range. A fatigue life computed
+  from a mesh-dependent peak is a number that changes when you refine the
+  mesh, and reporting it with a warning attached protects nobody.
+
+This dependency is why fatigue sits behind the convergence work rather
+than beside it.
 
 **Acceptance.**
 - The curve and the duty cycle are **supplied by the engineer**. There is
-  no default curve: a default would look authoritative and be wrong for
-  most materials, which is worse than refusing.
+  no default curve: curves vary by material, surface finish and process,
+  printed materials have thin published data that shifts with print
+  settings, and a default would look authoritative while being wrong for
+  most parts. That is worse than refusing.
 - Every report states which curve was used, as `allowable_stress_basis`
   already does for static strength.
-- Mean-stress correction is explicit and named, not silently applied.
+- Mean-stress correction is explicit and named. Goodman, Gerber and
+  Soderberg give materially different answers, so a silent choice is a
+  hidden assumption.
+- **Refuses to report a life computed from an unconverged peak**, with a
+  `FailureCode` of its own, classified as an error rather than an
+  infeasible design.
+- The reported life carries its own uncertainty in words. Miner's rule is
+  known to be unreliable -- commonly out by a factor of three -- and a
+  fatigue life quoted to three significant figures implies a precision
+  that does not exist.
+- Surface finish is an explicit input, not an assumption. On an
+  as-printed surface the roughness knockdown is often larger than the
+  layer-adhesion effect, and omitting it makes the answer optimistic,
+  which is the dangerous direction.
 
 ## Tier 3 — breadth
 
@@ -297,31 +355,69 @@ so this is mostly plumbing plus region resolution on an imported solid.
 
 **Know this before starting.** An imported STEP file is a finished shape
 with **no parameters in it** — the dimensions the CAD package used are not
-in the file, only the resulting surfaces. So an imported model **cannot be
-parametrically optimised**: there is nothing for the optimiser to vary.
-Do not build an interface that implies otherwise. What it genuinely
-supports is:
+in the file, only the resulting surfaces. Nothing can recover them.
 
-- a single evaluation, to check a design somebody has already drawn;
-- the starting envelope for topology optimisation (item 16), which wants
-  a region of space rather than a set of parameters;
-- a fixed part in an assembly.
+That is a narrower limitation than it first appears, and it is worth being
+precise about it, because the obvious reading ("imported models cannot be
+optimised") is wrong. Two separate things are needed to run a study, and
+only one of them is missing:
 
-Getting *parametric* optimisation from imported CAD is a much larger job:
-it needs the native file plus a live link back to that package's own API,
-so OpenOptima can change a dimension and ask it to rebuild. That is a
-per-vendor integration, works only where the software is installed and
+- **Where the loads and supports go.** *Not a problem.* The user picks
+  faces in the 3D viewer (item 8) and OpenOptima writes a selector from
+  what it sees there. This works exactly as well on an imported solid as
+  on a template.
+- **What the optimiser is allowed to change.** *This* is what a STEP file
+  lacks. There are no dimensions in it to vary.
+
+**But the user can supply their own.** OpenOptima can apply geometric
+operations to an imported solid and vary *those*: a fillet radius on a
+picked edge, a hole diameter on a picked cylindrical face, an offset on a
+picked wall. OCC does all of these on an imported BREP, and the optimiser
+rebuilds by re-applying them at each design point. This covers a large
+share of real work, because optimising an existing part usually does mean
+"make this boss thicker, this fillet bigger, this hole smaller" rather
+than rebuilding it from scratch.
+
+So the honest ladder for an imported model:
+
+| Capability | Works? |
+|---|---|
+| Single evaluation of the design as drawn | yes |
+| Pick load and support faces by clicking | yes |
+| Vary features the *user* adds — fillet radii, hole diameters, offsets | yes |
+| Starting envelope for topology optimisation (item 16) | yes |
+| Vary the original CAD's own parameters | no |
+
+Only the last needs a live link back to the originating package's API, so
+OpenOptima can change a dimension and ask it to rebuild. That is a
+per-vendor integration, works only where that software is installed and
 licensed, and ties an open-source tool to a proprietary one. It is a
 different project from reading a STEP file and must not be confused with
 one.
 
+**The hard part is not the import.** It is that a user's own operations
+change the model's topology. Adding a fillet creates new faces and
+destroys old ones, so a load face picked before the fillet may not exist
+in the same form after it. This is the topological naming problem in its
+sharpest form — worse than the template case, where the operations are
+known in advance. Two consequences:
+
+- A click must write a **selector**, never a face index. This is already
+  required by item 8, and it matters more here.
+- `doctor` must build the extremes of the design range *including* the
+  user's added operations, and confirm every selector still resolves
+  uniquely. That machinery exists; this is the case that will stress it.
+
 **Acceptance.**
 - STEP import produces a single valid solid, or fails with a clear reason.
-- `doctor` works on an imported model: region selectors resolve, and
-  ambiguity is still refused rather than guessed.
-- The CLI and the app say plainly that an imported model supports
-  evaluation but not parametric optimisation, rather than offering a
-  parametric run that cannot do anything.
+- `doctor` works on an imported model: selectors resolve across the whole
+  design range, and ambiguity is still refused rather than guessed.
+- Feature operations (fillet, hole, offset) can be applied to an imported
+  solid and driven as design variables, with selectors surviving the
+  topology change they cause.
+- The CLI and the app are honest about which rung of the ladder above a
+  given project is on. Offering a parametric run with nothing to vary is
+  worse than saying there is nothing to vary.
 - Units are checked on import. A model in inches silently treated as
   millimetres is exactly the class of error this project exists to
   prevent.
