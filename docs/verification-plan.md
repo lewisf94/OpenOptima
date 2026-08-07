@@ -88,6 +88,63 @@ range. The next useful piece of work here is finding exactly where that
 boundary lies. That needs a systematic sweep of section size against
 slenderness.
 
+### V5 — Thick cylinder under internal pressure
+
+`tests/verification/test_thick_cylinder.py`
+
+This benchmark verifies the **pressure load path**. Until it existed,
+pressure loading was covered only by unit tests of the element-face
+lookup. No test had ever checked that a pressure applied through `*DLOAD`
+produces the right stresses in a real part. Every force-loaded case in the
+suite exercises a completely different code path.
+
+| | |
+|---|---|
+| **Model** | Quarter of a thick-walled cylinder, bore 50 mm, outer 100 mm, 40 mm tall |
+| **Material** | E = 70 GPa, nu = 0.33 |
+| **Load** | 50 MPa internal pressure on the bore |
+| **Restraints** | Symmetry on both cut faces, axial restraint on both ends (plane strain) |
+| **Mesh** | C3D10, 6 mm global size, 5 712 elements |
+| **Reference** | Lame, with the axial stress plane strain implies |
+
+Only a quarter is modelled. This reproduces the whole cylinder at a
+quarter of the cost, and removes a real difficulty: a complete ring under
+internal pressure is in balance with itself, so nothing holds it in place
+and the solve has no unique answer.
+
+von Mises stress, checked at five radii through the wall rather than at
+one point:
+
+| Radius | FE | Lame | Error |
+|---|---|---|---|
+| 50.0 | 114.539 | 115.609 | **−0.93%** |
+| 62.5 | 73.975 | 74.118 | −0.19% |
+| 75.0 | 51.590 | 51.632 | −0.08% |
+| 87.5 | 38.170 | 38.128 | +0.11% |
+| 100.0 | 29.493 | 29.418 | +0.25% |
+
+Radial displacement agrees to −0.33% at the bore and +0.07% at the outer
+surface. Tolerance 3% on stress, 2% on displacement.
+
+**The exact check.** The resultant of pressure over a quarter bore is
+`p × a × h` = 100 000 N in each of x and y — the projected area is exactly
+a rectangle, whatever the mesh does with the curve. Measured: −100 001.3 N
+and −100 000.8 N, correct to about **one part in 100 000**. That single
+number verifies the pressure magnitude, its direction, and the
+shape-function integration behind it.
+
+**A defect this benchmark found.** OpenOptima used to total the reaction
+by adding every component of every restrained set. CalculiX reports a full
+`(fx, fy, fz)` for each set, including the directions that set leaves
+free, and those figures are not reactions. Here the x-symmetry set reports
+its true fx of −100 001 N together with a spurious fy of +1 560 N. Adding
+everything gave a total 1.7% short, so the equilibrium check reported a
+1.7% error on an analysis correct to one part in 100 000 — on every model
+that uses symmetry. A false alarm on a sound model is not harmless: it
+trains people to ignore the check that exists to catch a load on the wrong
+face. Reactions are now assembled one direction at a time, from the sets
+that restrain that direction.
+
 ### V6 — Mesh convergence of the cantilever
 
 `tests/verification/test_mesh_convergence.py`
@@ -198,6 +255,7 @@ has broken before:
 | Convergence levels never share a cache identity | `tests/unit/test_convergence_study.py` |
 | An infeasible design is still a convergence data point | `tests/unit/test_convergence_study.py` |
 | A cached result keeps its mesh summary and load cases | `tests/unit/test_result_store_roundtrip.py` |
+| Reactions are summed per direction, not across free ones | `tests/unit/test_reaction_assembly.py` |
 
 ## Running
 

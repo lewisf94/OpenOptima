@@ -7,16 +7,31 @@ from pathlib import Path
 import numpy as np
 
 from ...domain.failures import EvaluationFailure, FailureCode
-from ...domain.model import AnalysisModel, SolverSpecification
+from ...domain.model import AnalysisModel, LoadCase, SolverSpecification
 from ...meshing.base import MeshData
 from ..base import AnalysisResults, LoadCaseFields, von_mises_from_tensor
 from .dat import parse_buckling, parse_dat, reactions_in_step
-from .deck import write_deck
+from .deck import _set_name, write_deck
 from .frd import blocks_named, parse_frd
 from .runner import find_executable, installation_hint, run_calculix, solver_version
 
 #: Relative tolerance on the reaction-force equilibrium check.
 _EQUILIBRIUM_TOLERANCE = 0.01
+
+
+def _restrained_directions(load_case: LoadCase | None) -> dict[str, set[int]]:
+    """Which directions each reaction set actually restrains.
+
+    Keyed by the node-set name the deck writer used, so a total read back from
+    the solver can be matched to the boundary condition that produced it. Two
+    conditions on one region contribute the union of their directions.
+    """
+    if load_case is None:
+        return {}
+    restrained: dict[str, set[int]] = {}
+    for condition in load_case.boundary_conditions:
+        restrained.setdefault(_set_name(condition.region), set()).update(condition.dofs)
+    return restrained
 
 
 class CalculiXSolver:
@@ -112,7 +127,7 @@ class CalculiXSolver:
                         f"symmetric and can buckle in either of two directions"
                     )
 
-            reaction = self._reaction_for_step(reactions, static_step_of(index))
+            reaction = self._reaction_for_step(reactions, static_step_of(index), load_case)
             applied = deck.applied_force.get(load_case.id, (0.0, 0.0, 0.0))
             message = self._check_equilibrium(load_case.id, applied, reaction)
             if message:
@@ -142,21 +157,51 @@ class CalculiXSolver:
         )
 
     @staticmethod
-    def _reaction_for_step(reactions: list, step: int) -> tuple[float, float, float]:
-        """Sum the reaction totals reported in one specific step.
+    def _reaction_for_step(
+        reactions: list, step: int, load_case: LoadCase | None = None
+    ) -> tuple[float, float, float]:
+        """Total support reaction for one step, assembled direction by direction.
 
         Selected by step number rather than by dividing the record count among
         load cases. A ``*BUCKLE`` step also emits a reaction total -- an
         artefact of the eigenvalue solve, not a real reaction -- and averaging
         or summing it with the static one produced a 100% equilibrium error on
         a perfectly sound model the first time buckling was enabled.
+
+        **Each direction is summed only over the sets that restrain it.**
+        CalculiX reports a full ``(fx, fy, fz)`` total for every set asked for,
+        including the directions that set leaves free. Those free-direction
+        figures are not reactions and must not be added in.
+
+        This matters as soon as a model uses symmetry. A quarter of a
+        pressurised cylinder restrains x on one cut face and y on the other. In
+        that model the x-symmetry set reports its true fx of -100 001 N against
+        an exact -100 000 N, and alongside it a spurious fy of +1 560 N. Adding
+        every component of every set gave a total 1.7% short, and the
+        equilibrium check then reported a 1.7% error -- telling the user not to
+        trust an analysis that was in fact correct to one part in 100 000.
+        Summing per direction gives the exact answer.
         """
         chunk = reactions_in_step(reactions, step)
         if not chunk:
             return (0.0, 0.0, 0.0)
+
+        restrained = _restrained_directions(load_case)
         total = np.zeros(3)
         for reaction in chunk:
-            total += np.array(reaction.force, dtype=float)
+            force = np.array(reaction.force, dtype=float)
+            dofs = restrained.get(reaction.set_name)
+            if dofs is None:
+                # A set with no boundary condition we can identify. Keep every
+                # component, which is what this did before per-direction
+                # assembly existed. Dropping it silently could hide a real
+                # missing reaction, and a wrong total raises a warning a human
+                # then looks at -- the safe direction for an unknown.
+                total += force
+                continue
+            for axis in range(3):
+                if axis + 1 in dofs:
+                    total[axis] += force[axis]
         return (float(total[0]), float(total[1]), float(total[2]))
 
     @staticmethod

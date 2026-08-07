@@ -16,6 +16,7 @@ design analytically costs microseconds and meshing it costs seconds.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -282,5 +283,82 @@ register(
             "for stress concentration factor against the Howland/Peterson solution."
         ),
         suggested_regions=("fixed_face", "load_face", "hole_surface"),
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# Thick-walled cylinder — the pressure verification case
+# ---------------------------------------------------------------------------
+
+_THICK_CYLINDER_DEFAULTS = {
+    "inner_radius": 50.0,
+    "outer_radius": 100.0,
+    "height": 40.0,
+}
+
+
+def _build_thick_cylinder(gmsh: Any, parameters: dict[str, Any]) -> int:
+    """A quarter of a thick-walled cylinder, in the first quadrant.
+
+    Only a quarter is modelled. The two cut faces lie on the planes x=0 and
+    y=0, so restraining the movement normal to each one reproduces the whole
+    cylinder exactly, at a quarter of the cost. Restraining the two end faces
+    along the axis as well gives plane strain, which is the condition Lame's
+    closed-form solution describes.
+
+    The quarter also removes the free-body problem: a whole ring under
+    internal pressure is in balance with itself, so nothing holds it in place
+    and the solve has no unique answer.
+    """
+    p = _merged(_THICK_CYLINDER_DEFAULTS, parameters)
+    _require_positive(p, "inner_radius", "outer_radius", "height")
+    occ = gmsh.model.occ
+
+    inner = float(p["inner_radius"])
+    outer = float(p["outer_radius"])
+    height = float(p["height"])
+
+    if inner >= outer:
+        _infeasible(
+            f"inner radius {inner:g} must be smaller than outer radius {outer:g}",
+            FailureCode.INVALID_DESIGN_VARIABLES,
+        )
+    wall = outer - inner
+    if wall < 0.02 * outer:
+        _infeasible(
+            f"wall thickness {wall:g} is a vanishing fraction of the {outer:g} "
+            "outer radius; there is no material to mesh",
+            FailureCode.MANUFACTURING_RULE_VIOLATED,
+        )
+
+    quarter = math.pi / 2.0
+    bore = occ.addCylinder(0.0, 0.0, 0.0, 0.0, 0.0, height, inner, angle=quarter)
+    body = occ.addCylinder(0.0, 0.0, 0.0, 0.0, 0.0, height, outer, angle=quarter)
+    cut, _ = occ.cut([(3, body)], [(3, bore)])
+    occ.synchronize()
+    if len(cut) != 1:
+        _infeasible(f"cut produced {len(cut)} solids; expected 1")
+    return int(cut[0][1])
+
+
+register(
+    Template(
+        name="thick_cylinder",
+        build=_build_thick_cylinder,
+        defaults=_THICK_CYLINDER_DEFAULTS,
+        description=(
+            "Quarter of a thick-walled cylinder under internal pressure. Verification "
+            "case for the pressure load path against Lame's closed-form solution. Use "
+            "symmetry restraints on the two cut faces and axial restraint on both ends."
+        ),
+        suggested_regions=(
+            "bore_surface",
+            "outer_surface",
+            "symmetry_x",
+            "symmetry_y",
+            "bottom_face",
+            "top_face",
+        ),
     )
 )
