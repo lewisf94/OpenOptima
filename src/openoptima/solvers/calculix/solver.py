@@ -11,7 +11,7 @@ from ...domain.model import AnalysisModel, LoadCase, SolverSpecification
 from ...meshing.base import MeshData
 from ..base import AnalysisResults, LoadCaseFields, von_mises_from_tensor
 from .dat import parse_buckling, parse_dat, reactions_in_step
-from .deck import _set_name, write_deck
+from .deck import BUCKLING_LOAD_SCALE, _set_name, write_deck
 from .frd import blocks_named, parse_frd
 from .runner import find_executable, installation_hint, run_calculix, solver_version
 
@@ -113,6 +113,12 @@ class CalculiXSolver:
             factors: tuple[float, ...] = ()
             if index < len(buckling_tables):
                 table = buckling_tables[index]
+                # The buckle step was written with its loads divided by
+                # BUCKLING_LOAD_SCALE, to keep the eigenvalues clear of the
+                # range where CalculiX silently drops the lowest mode. Undo
+                # that here, so every factor above this line is against the
+                # load the user actually applied. See deck.py for why.
+                table = table.rescaled(1.0 / BUCKLING_LOAD_SCALE)
                 factors = table.factors
                 if table.critical is None:
                     warnings.append(

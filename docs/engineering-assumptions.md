@@ -125,34 +125,43 @@ it, like any other metric.
 
 ### Range of validity — read this before trusting a number
 
-Solid tetrahedral elements (small, four-sided solid shapes) stop being
-reliable for buckling once a structural member becomes slender, and **the
-error runs in the optimistic direction**.
+There used to be a serious defect here. It is worth knowing what it was,
+because the fix changed what this software can be trusted to do.
 
-This was measured during development, against Euler's formula:
+**The defect.** CalculiX silently skipped the lowest buckling mode and
+reported the second one instead — about **nine times too high**, in the
+unsafe direction, with nothing in its output to say so. A part that folds
+under half its load was reported with a comfortable margin of four.
 
-| Section | Slenderness | Result |
-|---|---|---|
-| 20 mm square, 200 / 400 / 800 mm long | 69–277 | within 1%, mode series correct at 1 : 9 |
-| 22 mm square, 600 mm long | 195 | **9x too high** |
-| 8 mm square, 400 / 500 mm long | 346 / 444 | **9x too high** |
+**What actually triggered it.** Not slenderness, which is what OpenOptima
+originally guarded against. The trigger is the buckling factor itself: if
+the true factor against the applied load fell below about **0.52**,
+CalculiX skipped the lowest mode. That threshold measured identically on
+three different columns, at slenderness 69 and at 277 alike. Asking for
+more modes did not help — at twenty modes, the true one was still absent.
 
-In the failing cases, the returned mode series was 1 : 1.95 : 3.20. A real
-column's mode series looks nothing like that. The eigenvalue solve had
-missed the true lowest mode entirely. Refining the mesh only moved the
-wrong answer around, without ever converging on the right one.
+That made the original slenderness guard wrong in both directions. It
+refused correct answers on slender members, and it let the real failure
+through on stubby ones: a 40 mm column at slenderness 69, far inside the
+"safe" range, was reported 8.4 times too high with no warning at all.
 
-A buckling factor that reads too high tells you a strut is safe, when it
-will actually fold. So OpenOptima **checks every buckling result against
-beam theory, calculated from the same mesh, and refuses to report a
-result it cannot trust**. Instead of a number with a footnote, you get an
-explicit `result_unreliable` error — because an optimiser acts on the
-number, and ignores the footnote.
+**The fix.** A buckling factor is exactly inversely proportional to the
+load it is measured against, so OpenOptima now solves the buckling step
+against a load a thousand times smaller and divides the answer back. Every
+factor lands far above the threshold, and the division is exact. A part
+folding under a thousandth of its load still comes back correctly.
 
-The limit is set by `buckling.slenderness_limit`, with a default of 150.
-Raising this limit does not make the analysis more accurate. It only
-turns off the check. For genuinely slender members, use beam elements
-instead, or a hand calculation using Euler's formula.
+Every case that previously failed now measures within 0.15% of Euler,
+including a column at slenderness 433. See V9 in
+[`verification-plan.md`](verification-plan.md) for the full sweep.
+
+**The limit that remains.** `buckling.slenderness_limit` still defaults to
+150 and still refuses results beyond it. That limit was set against the
+defect above, and is now deliberately conservative: the measurements go to
+433 without trouble. It has been left where it was because widening a
+verified range is an engineering decision, not one this software should
+make for you. If your work needs slender members, raise it knowingly, or
+use beam elements or a hand Euler calculation.
 
 ### Other buckling caveats
 

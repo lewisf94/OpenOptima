@@ -187,14 +187,17 @@ def check_buckling_plausibility(
     if slenderness > slenderness_limit:
         raise EvaluationFailure(
             FailureCode.RESULT_UNRELIABLE,
-            f"load case {load_case_id!r}: this member is too slender for a solid "
-            f"tetrahedral buckling analysis (ratio about {slenderness:.0f}, limit "
-            f"{slenderness_limit:.0f}). Measured behaviour in this regime is wrong "
-            f"by up to a factor of nine, and wrong in the UNSAFE direction, so the "
-            f"computed factor of {buckling_factor:.3g} is not reported. "
-            f"Use beam elements or a hand Euler calculation for members this "
-            f"slender, or raise buckling.slenderness_limit if you have "
-            f"independently verified this range.",
+            f"load case {load_case_id!r}: this member is more slender than the "
+            f"range this software has been verified over (ratio about "
+            f"{slenderness:.0f}, limit {slenderness_limit:.0f}), so the computed "
+            f"factor of {buckling_factor:.3g} is not reported. Use beam elements "
+            f"or a hand Euler calculation for members this slender, or raise "
+            f"buckling.slenderness_limit if you have independently verified this "
+            f"range. Note this limit is deliberately conservative: it was set "
+            f"against a solver defect that has since been fixed at its root (see "
+            f"V9 in docs/verification-plan.md), and columns up to a ratio of 433 "
+            f"now measure within 0.15% of Euler. Widening it is an engineering "
+            f"decision, so the default has been left where it was.",
             detail={
                 "load_case": load_case_id,
                 "slenderness": slenderness,

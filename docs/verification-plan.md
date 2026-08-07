@@ -190,6 +190,74 @@ arithmetic and does not depend on the mesh); and the extrapolated
 deflection still lands on the stiff side of beam theory, because refining
 cannot remove a physical difference between the two models.
 
+### V9 — Buckling validity boundary
+
+`tests/unit/test_buckling_load_scale.py`, plus the sweep recorded here.
+
+This one was expected to refine a bound. It found a defect instead, and
+the defect was in the most dangerous place in the software.
+
+**What was believed.** That solid tetrahedral elements stop being reliable
+for buckling once a member becomes slender, and that a limit of 150 on
+slenderness kept results safe.
+
+**What the sweep measured.** Slenderness has nothing to do with it. Three
+columns of different sizes, swept over section, length, mesh density and
+reference load:
+
+| Case | Slenderness | True factor | Reported | Verdict |
+|---|---|---|---|---|
+| 20×20×800 | 277 | 1.00 | 1.0017 | correct |
+| 20×20×800 | 277 | 0.36 | **8.98× high** | wrong |
+| 40×40×400 | 69 | 0.90 | 0.9985 | correct |
+| 40×40×400 | 69 | 0.50 | **8.44× high** | wrong |
+| 30×30×300 | 69 | 0.50 | **8.44× high** | wrong |
+| 8×8×500 | 433 | 2.36 | 1.0012 | correct |
+
+Same geometry, same mesh, same slenderness — only the reference load
+differs — and the answer flips. The trigger is the **buckling factor**:
+below about **0.52**, CalculiX skips the lowest mode and returns the second
+one. The threshold measured identically on every geometry tried. Mesh
+density is irrelevant (1 to 4 elements across the section, no change), and
+asking for more modes does not help — at twenty modes the true one is
+still absent.
+
+The tell is the mode series. A fixed-free column runs 1 : 9 : 25. When the
+lowest mode is skipped, the reported series is 1 : 2.77 — which is 25/9,
+the second and third modes with the first missing.
+
+**Why this mattered urgently.** The old guard watched slenderness, so it
+refused correct answers on slender members *and missed the real failure on
+stubby ones*. A 40 mm column at slenderness 69 — far inside the range the
+software called safe — reported a part that folds under half its load as
+having a margin of 4.2, silently.
+
+**The fix.** The buckling eigenvalue is exactly inversely proportional to
+the reference load, so the `*BUCKLE` step is now written with its loads
+divided by 1000 and the returned factors divided by 1000 again. Every
+factor lands far clear of the threshold and the conversion is exact. A part
+folding under a thousandth of its load still reports correctly.
+
+**After the fix**, every previously failing case measures within 0.15% of
+Euler:
+
+| Case | Slenderness | Before | After |
+|---|---|---|---|
+| 40×40×400 at factor 0.50 | 69 | 8.44× high | **0.9985** |
+| 40×40×400 at factor 0.30 | 69 | 8.44× high | **0.9985** |
+| 30×30×300 at factor 0.50 | 69 | 8.44× high | **0.9986** |
+| 20×20×800 at factor 0.36 | 277 | 8.98× high | **1.0017** |
+| 8×8×400 at factor 0.37 | 346 | 8.99× high | **1.0015** |
+| 8×8×500 at factor 0.24 | 433 | 9.00× high | **1.0012** |
+
+V3 is unchanged by this: 14.4086 against Euler's 14.3932, as before.
+
+**Still open, for a human.** `buckling.slenderness_limit` still defaults to
+150. That limit was calibrated against the defect above and is now
+conservative — the sweep goes to 433 without trouble. It has deliberately
+**not** been widened, because that is an engineering judgement rather than
+a measurement.
+
 ## Planned benchmarks
 
 This list is ordered by value. Each benchmark needs a documented source
@@ -224,12 +292,7 @@ the usual starting points. Because these values come from an external
 source, they are stronger evidence than a comparison against our own
 derivation.
 
-### V9 — Buckling validity boundary
-
-Sweep section size against slenderness. Find exactly where CalculiX's
-solid-element buckling stops being reliable. This would let
-`slenderness_limit` rest on a measured boundary, instead of the handful of
-points behind the current default.
+*(V9 is implemented — see above.)*
 
 ## Software regression tests
 

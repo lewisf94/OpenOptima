@@ -81,6 +81,17 @@ class BucklingTable:
         positive = [f for f in self.factors if f > 0.0]
         return min(positive) if positive else None
 
+    def rescaled(self, scale: float) -> BucklingTable:
+        """Every factor multiplied by ``scale``, keeping the order and sign.
+
+        Used to undo the deliberate load scaling on the ``*BUCKLE`` step. The
+        buckling eigenvalue is exactly inversely proportional to the reference
+        load, so this conversion loses nothing.
+        """
+        return BucklingTable(
+            factors=tuple(factor * scale for factor in self.factors), step=self.step
+        )
+
     @property
     def has_close_pair(self) -> bool:
         """Two nearly equal lowest modes.

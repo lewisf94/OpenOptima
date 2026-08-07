@@ -121,10 +121,16 @@ by review. They are documented in `docs/adr/` and guarded by tests.
    eigenvalue solve, not a real reaction. Associating reactions with load cases
    by dividing the record count summed it with the real one and reported a 100%
    equilibrium error on a sound model. Select reactions by step number.
-7. **CalculiX buckling silently returns the wrong mode family on slender solid
-   models**, off by a factor of nine in the unsafe direction, with a mode series
-   that does not follow any column pattern. Refining the mesh does not fix it.
-   This is why `results/buckling_check.py` exists.
+7. **CalculiX buckling silently skips the lowest mode and returns the second**,
+   about nine times too high in the unsafe direction, with nothing in its output
+   to say so. The trigger is *not* slenderness, which is what the code originally
+   guarded: it is the buckling factor itself, below about **0.52** against the
+   applied load. Measured identically at slenderness 69 and 277. Refining the
+   mesh does not fix it and neither does asking for more modes. Fixed at the root
+   by solving the `*BUCKLE` step against a load 1000x smaller and dividing back —
+   the eigenvalue is exactly inversely proportional to the reference load. Do not
+   remove that scaling. `results/buckling_check.py` and V9 in
+   `docs/verification-plan.md` carry the evidence.
 
 ## What an agent must not decide alone
 

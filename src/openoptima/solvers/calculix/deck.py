@@ -27,6 +27,22 @@ from .loads import (
 
 _ITEMS_PER_LINE = 8
 
+#: The ``*BUCKLE`` step is written with every load divided by this constant,
+#: and the factors CalculiX returns are divided by it again to recover the
+#: factor against the load the user applied.
+#:
+#: CalculiX skips the lowest buckling mode when the true factor falls below
+#: about 0.52, returning the second mode instead -- about nine times too high,
+#: in the unsafe direction, with nothing in its output to say so. Scaling the
+#: reference load down moves every factor up by the same constant, exactly,
+#: because the stress stiffness matrix is linear in the load. A part folding
+#: under a thousandth of its applied load still reports 1.0 here, which is
+#: comfortably clear of the threshold.
+#:
+#: 1000 is chosen to leave that much headroom while staying far from the range
+#: where the eigenvalues themselves would lose precision.
+BUCKLING_LOAD_SCALE = 1000.0
+
 
 @dataclass(frozen=True)
 class DeckArtifact:
@@ -223,11 +239,30 @@ def _write_buckling_step(
     pressures: list[tuple[int, int, float]],
     gravity: list[tuple[float, tuple[float, float, float]]],
 ) -> None:
-    """A ``*BUCKLE`` step carrying the same loads as the static step.
+    """A ``*BUCKLE`` step carrying the static step's loads, scaled down.
 
-    The eigenvalues CalculiX returns are multiples of *this* load, so the load
-    written here must match the static step exactly or the reported factor means
-    something different from what the user thinks.
+    The eigenvalues CalculiX returns are multiples of *this* step's load, so
+    the caller must divide them by :data:`BUCKLING_LOAD_SCALE` to recover the
+    factor against the load the user actually applied.
+
+    **Why the load is scaled at all.** CalculiX silently skips the lowest
+    buckling mode when the true factor against the applied load falls below
+    about 0.52, and returns the second mode instead -- roughly nine times too
+    high, in the unsafe direction, with nothing in the output to say so. It was
+    measured at exactly the same threshold on three different columns, at
+    slenderness 69 and 277 alike, so it is a property of the eigenvalue solve
+    and not of the geometry. Asking for more modes does not help: at twenty
+    modes the true one is still absent.
+
+    The buckling eigenvalue scales exactly inversely with the reference load --
+    the stress stiffness matrix is linear in it -- so solving against a load a
+    thousand times smaller multiplies every factor by a thousand and changes
+    nothing else. A design whose true factor is 0.001, folding under a
+    thousandth of its load, still comes back at 1.0 here: far above the
+    threshold. Dividing by the same constant afterwards is exact.
+
+    This is why the scale is applied here rather than by re-solving. It costs
+    nothing, and it makes the answer right instead of merely refusing it.
 
     Deliberately no ``*NODE FILE``: requesting mode shapes writes one extra
     displacement block per mode into the FRD, which would shift the block
@@ -246,20 +281,25 @@ def _write_buckling_step(
         for dof in condition.dofs:
             handle.write(f"{set_name}, {dof}, {dof}, {magnitude:.9g}\n")
 
+    # Every load in this step is scaled by the same constant, so the mode
+    # shapes are untouched and only the reported factors move -- by exactly
+    # that constant. See this function's docstring.
+    scale = 1.0 / BUCKLING_LOAD_SCALE
+
     handle.write("*CLOAD, OP=NEW\n")
     for tag in sorted(concentrated):
         vector = concentrated[tag]
         for dof in (1, 2, 3):
-            component = float(vector[dof - 1])
+            component = float(vector[dof - 1]) * scale
             if abs(component) > 0.0:
                 handle.write(f"{tag}, {dof}, {component:.9g}\n")
 
     handle.write("*DLOAD, OP=NEW\n")
     for element, face, magnitude in pressures:
-        handle.write(f"{element}, P{face}, {magnitude:.9g}\n")
+        handle.write(f"{element}, P{face}, {magnitude * scale:.9g}\n")
     for magnitude, direction in gravity:
         handle.write(
-            f"Eall, GRAV, {magnitude:.9g}, "
+            f"Eall, GRAV, {magnitude * scale:.9g}, "
             f"{direction[0]:.9g}, {direction[1]:.9g}, {direction[2]:.9g}\n"
         )
 
