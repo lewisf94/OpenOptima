@@ -181,7 +181,24 @@ def collect_metrics(
             )
 
     mass = mass_kg(volume_mm3, model.material)
-    allowable = model.material.allowable_stress
+
+    # A directional material has no single allowable stress, and von Mises is
+    # the wrong failure measure for one: it assumes equal strength in every
+    # direction, which is exactly what such a material is not. Reporting a
+    # factor of safety from it would look ordinary and be wrong in the unsafe
+    # direction for a printed part, whose weak through-layer direction is the
+    # one that usually governs. So it is withheld rather than guessed at, and
+    # the reason is said plainly.
+    allowable: float | None = getattr(model.material, "allowable_stress", None)
+    if allowable is None:
+        warnings.append(
+            "this material is stronger in some directions than others, so a "
+            "single factor of safety cannot be computed from von Mises stress "
+            "-- it assumes equal strength in every direction. Stresses and "
+            "displacements below are correct; the factor of safety is "
+            "withheld until directional strengths and a failure criterion "
+            "are supplied."
+        )
 
     # Buckling: the governing case is the one with the *lowest* factor, and a
     # case with no positive factor simply does not buckle under its load, so it
@@ -200,7 +217,11 @@ def collect_metrics(
     worst_stress = max((case.stress_measure for case in per_case), default=0.0)
     worst_raw = max((case.stress_raw_max for case in per_case), default=0.0)
     worst_displacement = max((case.displacement_max for case in per_case), default=0.0)
-    factor_of_safety = allowable / worst_stress if worst_stress > 0 else float("inf")
+    factor_of_safety = (
+        (allowable / worst_stress if worst_stress > 0 else float("inf"))
+        if allowable is not None
+        else None
+    )
 
     metrics: dict[str, float] = {
         "mass_kg": mass,
@@ -208,9 +229,10 @@ def collect_metrics(
         "displacement_max_mm": worst_displacement,
         "stress_max_mpa": worst_stress,
         "stress_raw_max_mpa": worst_raw,
-        "factor_of_safety": factor_of_safety,
         "stiffness_n_per_mm": 0.0,
     }
+    if factor_of_safety is not None:
+        metrics["factor_of_safety"] = factor_of_safety
 
     if worst_energy is not None:
         metrics["strain_energy_mj"] = worst_energy
@@ -230,7 +252,7 @@ def collect_metrics(
     for case in per_case:
         metrics[f"displacement_max_mm.{case.load_case_id}"] = case.displacement_max
         metrics[f"stress_max_mpa.{case.load_case_id}"] = case.stress_measure
-        if case.stress_measure > 0:
+        if allowable is not None and case.stress_measure > 0:
             metrics[f"factor_of_safety.{case.load_case_id}"] = allowable / case.stress_measure
         if case.strain_energy is not None:
             metrics[f"strain_energy_mj.{case.load_case_id}"] = case.strain_energy

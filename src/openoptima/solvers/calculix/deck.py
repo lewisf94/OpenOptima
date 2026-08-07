@@ -18,6 +18,7 @@ import numpy as np
 
 from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.model import AnalysisModel, ConstraintKind, LoadKind
+from ...domain.orthotropic import OrthotropicMaterial, local_axes
 from ...meshing.base import MeshData
 from .loads import (
     build_face_lookup,
@@ -101,12 +102,7 @@ def write_deck(
     # -- material ----------------------------------------------------------
     material = model.material
     with material_file.open("w", encoding="ascii") as handle:
-        handle.write(f"*MATERIAL, NAME={_safe(material.name)}\n")
-        handle.write("*ELASTIC\n")
-        handle.write(f"{material.elastic_modulus:.9g}, {material.poisson_ratio:.9g}\n")
-        handle.write("*DENSITY\n")
-        handle.write(f"{material.density:.9g}\n")
-        handle.write(f"*SOLID SECTION, ELSET=Eall, MATERIAL={_safe(material.name)}\n")
+        _write_material(handle, material)
 
     # -- steps -------------------------------------------------------------
     face_lookup = build_face_lookup(mesh.element_tags, mesh.connectivity)
@@ -310,6 +306,47 @@ def _write_buckling_step(
         )
 
     handle.write("*END STEP\n")
+
+
+def _write_material(handle, material) -> None:
+    """Write the material block, isotropic or orthotropic.
+
+    An isotropic material produces exactly the two-number ``*ELASTIC`` block it
+    always did. That matters: every verified benchmark in this project rests on
+    those decks, and this feature must not move any of them.
+    """
+    name = _safe(material.name)
+    handle.write(f"*MATERIAL, NAME={name}\n")
+
+    orientation = None
+    if isinstance(material, OrthotropicMaterial):
+        # CalculiX wants stiffness, in the order D1111, D1122, D2222, D1133,
+        # D2233, D3333, D1212, D1313, D2323. Engineering constants are
+        # compliance, so handing them over directly would be silently wrong --
+        # both are large positive numbers and the deck would look plausible.
+        constants = material.stiffness_matrix()
+        handle.write("*ELASTIC, TYPE=ORTHO\n")
+        handle.write(", ".join(f"{value:.9g}" for value in constants[:8]) + "\n")
+        handle.write(f"{constants[8]:.9g}\n")
+        orientation = f"OR_{name}"[:78]
+    else:
+        handle.write("*ELASTIC\n")
+        handle.write(f"{material.elastic_modulus:.9g}, {material.poisson_ratio:.9g}\n")
+
+    handle.write("*DENSITY\n")
+    handle.write(f"{material.density:.9g}\n")
+
+    if orientation is not None:
+        # The nine constants above are stated along the material's own axes,
+        # which are not the model's. Without this the solver would apply the
+        # weak through-layer direction along global z whatever direction the
+        # part was actually built in.
+        first, second = local_axes(material.build_direction)
+        handle.write(f"*ORIENTATION, NAME={orientation}\n")
+        handle.write(", ".join(f"{value:.9g}" for value in (*first, *second)) + "\n")
+        handle.write(f"*SOLID SECTION, ELSET=Eall, MATERIAL={name}, ORIENTATION={orientation}\n")
+    else:
+        handle.write(f"*SOLID SECTION, ELSET=Eall, MATERIAL={name}\n")
 
 
 def _safe(name: str) -> str:

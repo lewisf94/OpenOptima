@@ -332,6 +332,47 @@ conservative — the sweep goes to 433 without trouble. It has deliberately
 **not** been widened, because that is an engineering judgement rather than
 a measurement.
 
+### V10 — Orthotropic material is directional
+
+`tests/verification/test_orthotropic_material.py`
+
+A 3D-printed part is weaker between its layers than along them. Until this
+landed, OpenOptima assumed one stiffness in every direction, so a printed
+part could be reported as safe and then peel apart along its layers.
+
+The same bar, the same mesh, the same load — pulled once along the print
+layers and once through them. Only the build direction changes. That
+comparison is the strongest available: the ratio of the two answers is the
+ratio of the two moduli **exactly**, independent of load, length, section
+and mesh.
+
+| | |
+|---|---|
+| **Model** | 200 × 20 × 20 mm bar, 5 kN axial tension |
+| **Material** | 3500 MPa in the layer plane, 2100 MPa through the layers |
+| **Reference** | Extension of a bar, δ = FL/AE, and the modulus ratio |
+
+| | Measured | Expected | Error |
+|---|---|---|---|
+| Along the layers | 0.712080 mm | 0.714286 mm | **−0.31%** |
+| Through the layers | 1.188450 mm | 1.190476 mm | **−0.17%** |
+| Ratio | 1.668984 | 1.666667 | **+0.14%** |
+
+Reaction equals the applied 5 kN exactly in both. Tolerance 2% on the
+stretches, 1% on the ratio.
+
+**What this does not claim.** It verifies the *stiffness* is directional.
+It says nothing about strength: von Mises assumes equal strength in every
+direction and is the wrong failure measure for such a material. An
+orthotropic material without directional strengths therefore **withholds
+the factor of safety** rather than reporting a misleading one. Stresses
+and displacements are still reported and are correct.
+
+**Also checked, without a solver** (`tests/unit/test_material_deck.py`):
+an isotropic material still writes exactly the two-number `*ELASTIC` block
+it always did, with no orientation. Every verified benchmark in this
+document rests on those decks, and this feature must not move any of them.
+
 ## Planned benchmarks
 
 This list is ordered by value. Each benchmark needs a documented source
