@@ -53,6 +53,12 @@ These are not style preferences. Breaking one silently corrupts results.
   FRD file, a mesh or a solver log.
 - gmsh has process-global state. Always go through `geometry.gmsh_session`.
   Parallelism is by process, never by thread.
+- **Check for an existing library before writing a self-contained calculation.**
+  Topology optimisation, fatigue curves and printability geometry are already
+  solved by maintained, licence-compatible libraries; do not write them again.
+  `docs/adr/0009-build-versus-reuse.md` lists what to reuse, what genuinely does
+  not exist, and the test for deciding. Reuse saves writing the code, never the
+  verification — a library's number faces the same benchmark as ours.
 - Anything that can change a number belongs in the evaluation hash
   (`evaluation/cache.py`). If you add a physics setting, add it to
   `Project.setup_digest()` in the same commit, or stale results will be served

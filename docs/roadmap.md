@@ -35,6 +35,24 @@ gap. Until it does, a result for a printed part should be treated with
 real caution — the two things most likely to break such a part, layer
 adhesion and fatigue, are both invisible today.
 
+## How much of this needs writing
+
+Not all of it. Several items below are already solved by maintained
+libraries that this project can legally use, and the sensible move is to
+wrap them rather than write them again: topology optimisation, fatigue,
+and the geometry behind printability all have one.
+
+What no library provides is the part this project is actually built
+around — keeping a named face attached to the right surface while the
+shape changes, telling a bad design apart from a broken run, and proving
+every number against a published answer.
+
+[ADR 9](adr/0009-build-versus-reuse.md) records which is which, and the
+rule for deciding. One point from it applies to every item below:
+**reusing a library saves writing the code, not proving the answer.** A
+number from somebody else's library gets the same verification test as a
+number from ours.
+
 ## Now (v0.1) — done
 
 - Parametric geometry (OCC templates, optional CadQuery), and regions
@@ -156,6 +174,13 @@ about what a printer can make.
    part that does not fit the bed cannot be printed at any price — but
    the default should be a trade, not a refusal.
 
+   The geometry underneath this is already solved elsewhere.
+   [`trimesh`](https://github.com/mikedh/trimesh) measures the angle of
+   every surface against the build direction, and checks that a shape is
+   sealed. Use it rather than writing the same maths here. What belongs
+   here is turning its answer into a number the optimiser can trade
+   against.
+
 3. **Fatigue.** Failing after many load cycles, at a stress the part
    would easily survive if applied once. This is very often what
    actually breaks a part in service, and a drone arm is the textbook
@@ -177,6 +202,14 @@ about what a printer can make.
    - **An S-N curve** — a published table of how many cycles a material
      survives at a given stress.
    - **A way to add up damage** when more than one kind of cycle applies.
+
+   The last two are standard, published methods, and a maintained library
+   already implements them:
+   [`pylife`](https://github.com/boschresearch/pylife), from Bosch
+   Research, under a licence this project can use. It handles S-N curves
+   and damage summation, and works on results from a mesh. Bind to it
+   rather than writing the curve fitting and the damage arithmetic again.
+   See [ADR 9](adr/0009-build-versus-reuse.md).
 
    **One awkward problem has to be solved, not ignored.** Fatigue cracks
    start at the *peak* stress — and the peak is exactly the number this
@@ -263,6 +296,19 @@ about what a printer can make.
    parametric model, then tune and verify that properly. A topology
    result on its own is an idea, not a verified part.
 
+   **Do not write the optimiser.** One already exists that uses the same
+   solver: [`beso`](https://github.com/calculix/beso), which drives
+   CalculiX and is licensed compatibly. It takes a prepared analysis file
+   as its input, and that file is exactly what OpenOptima's deck writer
+   already produces. So this becomes an adapter around an existing tool,
+   not a new solver. See [ADR 9](adr/0009-build-versus-reuse.md).
+
+   One caution before its buckling mode is used here: `beso` can optimise
+   for buckling, and OpenOptima found a defect in CalculiX's buckling
+   solve that nothing in the wider ecosystem appears to guard against.
+   Whether `beso` hits the same defect is unknown, and must be checked
+   rather than assumed.
+
    **Scope it carefully. The optimisation is the easy part.** Its raw
    output is a density field — a fuzzy map of how much material belongs
    at each point in space, not a shape at all. Turning that into
@@ -271,6 +317,7 @@ about what a printer can make.
    minimum feature size the manufacturing process can actually make, and
    producing a watertight solid. That conversion is most of the work,
    and it is where most open-source topology tools stop being useful.
+   **That conversion is the part worth building here.**
 
    Whatever comes out must go back through the ordinary evaluation
    pipeline on a proper body-fitted mesh before any number from it is
