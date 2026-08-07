@@ -234,6 +234,36 @@ arithmetic and does not depend on the mesh); and the extrapolated
 deflection still lands on the stiff side of beam theory, because refining
 cannot remove a physical difference between the two models.
 
+### V7 — Load cases are independent, and enveloped
+
+`tests/verification/test_load_case_independence.py`, plus
+`tests/unit/test_load_case_envelope.py` for the arithmetic without a solver.
+
+Two properties, both of which fail silently if broken.
+
+**Independence.** Each load case is written as its own `*STEP` with `OP=NEW`
+on the loads and boundary conditions. Without `OP=NEW` the second case would
+carry the first one's load as well, and every case after the first would be
+analysed under a load nobody asked for. Nothing in the output would say so —
+the numbers would simply be too high, consistently.
+
+**Enveloping.** The reported metric is the worst case, never the mean.
+Averaging a failing case against a passing one hides the failure.
+
+The V1 cantilever is solved with two unrelated loads — 1 kN downwards and
+3 kN sideways, differing in direction *and* magnitude — then each case is
+solved again on its own. A two-case run and two single-case runs are the
+same physics, so the per-case numbers must agree to solver precision. They
+agree to within **1 part in 10⁶**, and each case reacts only against its own
+load: no sideways reaction on the downward case, none downward on the
+sideways one.
+
+Until this landed, the "never average across load cases" invariant in
+`AGENTS.md` had no test at all. The unit half pins the arithmetic with
+numbers chosen so a mean would land in the *safe* range while the truth is
+not: 60 and 180 MPa against a 200 MPa allowable give a true factor of safety
+of 1.11, where the average would report 1.67.
+
 ### V9 — Buckling validity boundary
 
 `tests/unit/test_buckling_load_scale.py`, plus the sweep recorded here.
@@ -309,11 +339,7 @@ and tolerance before anyone writes it.
 
 *(V4, V5, V6 and V9 are implemented — see above.)*
 
-### V7 — Multiple load cases
-
-Confirm that OpenOptima envelopes load cases, rather than averaging them.
-Also confirm that per-case metrics match single-case runs of the same
-loading.
+*(V7 is implemented — see above.)*
 
 ### V8 — NAFEMS benchmarks
 
@@ -350,6 +376,9 @@ has broken before:
 | An infeasible design is still a convergence data point | `tests/unit/test_convergence_study.py` |
 | A cached result keeps its mesh summary and load cases | `tests/unit/test_result_store_roundtrip.py` |
 | Reactions are summed per direction, not across free ones | `tests/unit/test_reaction_assembly.py` |
+| Load cases are enveloped, never averaged | `tests/unit/test_load_case_envelope.py` |
+| A gentler extra load case cannot improve a result | `tests/unit/test_load_case_envelope.py` |
+| Buckle-step loads are scaled and scaled back exactly | `tests/unit/test_buckling_load_scale.py` |
 
 ## Running
 
