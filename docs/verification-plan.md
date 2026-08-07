@@ -88,6 +88,51 @@ range. The next useful piece of work here is finding exactly where that
 boundary lies. That needs a systematic sweep of section size against
 slenderness.
 
+### V6 — Mesh convergence of the cantilever
+
+`tests/verification/test_mesh_convergence.py`
+
+Every other benchmark compares one mesh against theory. This one compares
+a sequence of meshes against itself, and asks the question every result
+in this software depends on: have the numbers stopped changing?
+
+| | |
+|---|---|
+| **Model** | The V1 cantilever, run at four mesh densities |
+| **Meshes** | 3.16, 2.51, 1.99, 1.61 mm average element size |
+| **Elements** | 2 537, 5 045, 10 163, 19 298 (C3D10) |
+| **Reference** | Timoshenko, as V1, plus the sequence against itself |
+
+Two quantities from the same four solves behave in opposite ways:
+
+| Quantity | Behaviour | Moved in total | Extrapolated |
+|---|---|---|---|
+| Tip deflection | settles | **0.058%** | **2.8658 mm** (−0.49% vs Timoshenko) |
+| Raw peak von Mises | never settles | **19.8%** | none — no limit exists |
+
+The deflection climbed 2.8620 → 2.8636 mm, softening with refinement as a
+coarse mesh should. The raw peak climbed 147.3 → 183.7 MPa, and the steps
+got **larger** with each refinement. That is the stress singularity at the
+fully fixed face: the true elastic stress there is unbounded, so no mesh
+will ever converge, and refining only makes the number bigger.
+
+The ratio between those two spreads is about **340**. That single figure
+is the measured evidence behind the rule that OpenOptima must not optimise
+raw peak stress. A design search handed the peak would be searching the
+mesh, not the design.
+
+**A result neither V1 nor V6 could establish alone.** V1 measures −0.98%
+against beam theory at a single 5 mm mesh. Extrapolating to zero mesh size
+gives −0.49%. So roughly half of V1's discrepancy is mesh coarseness, and
+the other half is the genuine physical stiffening from suppressing Poisson
+contraction at the built-in end.
+
+Also checked: every mesh used second-order elements; the reaction force
+equalled the applied load at every density (equilibrium is exact
+arithmetic and does not depend on the mesh); and the extrapolated
+deflection still lands on the stiff side of beam theory, because refining
+cannot remove a physical difference between the two models.
+
 ## Planned benchmarks
 
 This list is ordered by value. Each benchmark needs a documented source
@@ -107,15 +152,6 @@ This benchmark uses the Lamé solution. It exercises the pressure load
 path (`*DLOAD` element faces), which V1 does not touch. This benchmark has
 high value, because pressure loading is currently verified only by unit
 tests of the face lookup.
-
-### V6 — Mesh convergence study
-
-This benchmark does not compare against theory. It compares a design
-against itself: run one design at 4–5 mesh densities. Record how
-displacement, strain energy, reaction, and the various stress measures
-converge. This produces the evidence behind the guidance in
-`engineering-assumptions.md`, and gives users a defensible default mesh
-size.
 
 ### V7 — Multiple load cases
 
@@ -158,6 +194,10 @@ has broken before:
 | Negative buckling eigenvalues are not failures | `tests/unit/test_buckling.py` |
 | Buckle-step reactions excluded from the equilibrium check | `tests/unit/test_buckling.py` |
 | Untrustworthy buckling refused, not reported | `tests/unit/test_buckling.py` |
+| A runaway quantity is never reported as converging | `tests/unit/test_convergence_maths.py` |
+| Convergence levels never share a cache identity | `tests/unit/test_convergence_study.py` |
+| An infeasible design is still a convergence data point | `tests/unit/test_convergence_study.py` |
+| A cached result keeps its mesh summary and load cases | `tests/unit/test_result_store_roundtrip.py` |
 
 ## Running
 
