@@ -235,6 +235,33 @@ warning, do not proceed.**
   concentration converges slowly. Peak stress at a singularity never
   converges at all.
 
+## Where the time goes
+
+Measured on one evaluation of the L-bracket at 55 272 elements, 92.1 s
+total:
+
+| | Time | Share |
+|---|---|---|
+| CalculiX solving | 75.1 s | **82%** |
+| Gmsh meshing | 10.4 s | 11% |
+| Reading solver output | 2.9 s | 3% |
+| Writing the solver deck | 2.1 s | 2% |
+| Building the geometry | 1.1 s | 1% |
+| Everything else in Python | ~0.5 s | <1% |
+
+**93% of the time is already inside compiled code.** OpenOptima never
+calculates elements itself. It writes a text file, hands it to CalculiX,
+and reads the answer back.
+
+This is recorded because it settles a question that comes up often:
+whether to speed the software up by rewriting its Python arithmetic into
+array operations. The measurement says no. Even making every line of
+Python instant would save under 7%, while running designs in parallel —
+which already happens — gives a factor equal to the number of cores.
+
+If a run is too slow, the levers that actually matter are the mesh
+density, the number of designs, and the number of cores. Not the Python.
+
 ## Multiple load cases
 
 OpenOptima always **envelopes** load cases — it takes the worst result

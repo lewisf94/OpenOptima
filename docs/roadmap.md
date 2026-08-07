@@ -202,6 +202,28 @@ about what a printer can make.
    weakness does, so leaving it out makes the answer optimistic — the
    dangerous direction.
 
+5. **Initial imperfections, and what to do instead.** Linear buckling
+   assumes a perfectly straight part loaded exactly down its centre. Real
+   parts have a slight bow and slightly off-centre loads, and both make a
+   part buckle sooner than the calculation says.
+
+   The textbook fix is to model it: nudge the mesh by a fraction of the
+   buckling shape, then re-solve allowing for large movement. That needs
+   **nonlinear analysis**, which OpenOptima does not do, and it brings
+   three problems for a design search. A nonlinear solve is far slower. It
+   can fail to converge, which inside a 500-design run means a design
+   fails for a reason that has nothing to do with the design. And the size
+   of the imperfection to assume is a judgement: too small is optimistic,
+   too large fails everything.
+
+   In practice engineers do not model it. They set a higher buckling
+   margin, which is why buckling margins are conventionally well above
+   stress margins. That is an acceptance criterion, so it belongs to the
+   engineer and not to this software.
+
+   Recorded so the question is not reopened without this context. If it is
+   done, it belongs behind nonlinear analysis, not in front of it.
+
 ## Later (v0.4+) — breadth
 
 1. **CFD plugin — cold plates.** A cold plate is a component that removes
