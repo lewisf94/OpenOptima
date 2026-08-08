@@ -5,6 +5,10 @@ build/
 dist/
 .venv/
 venv/
+.venv-build/
+
+# Locally installed third-party solver binaries -- not project source
+tools/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

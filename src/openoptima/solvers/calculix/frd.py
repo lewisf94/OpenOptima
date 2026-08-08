@@ -10,15 +10,27 @@ The format is fixed-width FORTRAN output.  Record types used here:
 ``  -3``     end of block
 ===========  ==================================================================
 
-Values are 12 characters wide.  We slice by column rather than splitting on
-whitespace because CalculiX happily writes ``-1.23456E+05-9.87654E+04`` with no
-separator when a value fills its field, and a naive ``split()`` silently merges
-two numbers into one.
+Values are fixed-width, but the width is **not portable**: CalculiX built with
+a Windows Fortran runtime writes a 3-digit exponent (``E-003``) where a Linux
+build writes 2 (``E-03``), so the field is 12 or 13 characters depending on
+which compiler produced the executable, and there is no separator between
+adjacent values either way -- CalculiX happily writes
+``-1.23456E+05-9.87654E+04`` when a value fills its field, and a naive
+``split()`` silently merges two numbers into one.
+
+So values are extracted by pattern instead of by a hardcoded column count: a
+number always starts with an optional sign and exactly one digit before the
+decimal point, which is enough to find where the next one begins even when
+two are jammed together with no separator. This was found by a wrong node
+displacement 300x too large -- with a 3-digit exponent, a negative value in a
+field after a positive one shifted every later field on the line by one
+character, and the misread numbers were large enough to look like a real (if
+alarming) result rather than garbage. See ``tests/unit/test_frd_parser.py``.
 """
 
 from __future__ import annotations
 
-import contextlib
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +39,7 @@ import numpy as np
 
 _NODE_ID_START = 3
 _NODE_ID_END = 13
-_VALUE_WIDTH = 12
+_VALUE_PATTERN = re.compile(r"[+-]?\d\.\d+E[+-]\d+?(?=\s*[+-]?\d\.\d+E|\s*$)")
 
 
 @dataclass
@@ -52,23 +64,7 @@ class ResultBlock:
 
 
 def _parse_values(line: str, start: int) -> list[float]:
-    values: list[float] = []
-    position = start
-    while position + _VALUE_WIDTH <= len(line):
-        chunk = line[position : position + _VALUE_WIDTH].strip()
-        position += _VALUE_WIDTH
-        if not chunk:
-            continue
-        try:
-            values.append(float(chunk))
-        except ValueError:
-            break
-    # Trailing partial field (CalculiX sometimes trims the final blanks).
-    remainder = line[position:].strip()
-    if remainder:
-        with contextlib.suppress(ValueError):
-            values.append(float(remainder))
-    return values
+    return [float(match) for match in _VALUE_PATTERN.findall(line[start:])]
 
 
 def parse_frd(path: str | Path) -> list[ResultBlock]:

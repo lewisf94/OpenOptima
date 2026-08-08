@@ -83,6 +83,29 @@ def test_as_array_orders_rows_by_requested_node(tmp_path):
     assert array[1].tolist() == [1.0, 2.0, 3.0]
 
 
+def test_three_digit_exponent_does_not_corrupt_adjacent_values(tmp_path):
+    """CalculiX built with a Windows Fortran runtime writes ``E-003``, not
+    ``E-03``. That makes a negative value one character wider than the field
+    a fixed-width slice assumed, which shifted every later value on the line
+    and turned a 0.006 mm node displacement into a bogus 37.9 mm one -- a
+    result that looked alarming rather than obviously wrong. See the module
+    docstring in ``frd.py``.
+    """
+    path = tmp_path / "job.frd"
+    path.write_text(
+        "    1C\n"
+        "    1UUSER\n"
+        " -4  DISP        4    1\n"
+        " -5  D1          1    2    1    0\n"
+        " -5  D2          1    2    2    0\n"
+        " -5  D3          1    2    3    0\n"
+        " -1      3676-6.49358E-0037.88340E-0072.36900E-003\n"
+        " -3\n"
+    )
+    disp = blocks_named(parse_frd(path), "DISP")[0]
+    assert disp.values[3676] == pytest.approx([-6.49358e-3, 7.88340e-7, 2.36900e-3])
+
+
 def test_multiple_steps_produce_multiple_blocks(tmp_path):
     path = tmp_path / "job.frd"
     path.write_text(FRD_SAMPLE + FRD_SAMPLE)

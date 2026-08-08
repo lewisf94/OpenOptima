@@ -36,21 +36,21 @@ geometry:
       type: continuous
       minimum: 5.0
       maximum: 20.0
-      default: 10.0
+      default: 19.0
       unit: mm
     - id: thickness_v
       label: Vertical plate thickness
       type: continuous
       minimum: 5.0
       maximum: 20.0
-      default: 10.0
+      default: 19.0
       unit: mm
     - id: fillet_radius
       label: Internal fillet radius
       type: continuous
       minimum: 3.0
       maximum: 25.0
-      default: 8.0
+      default: 17.0
       unit: mm
 
 # Regions are found by geometry, never by face number, so they survive every
