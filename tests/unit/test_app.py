@@ -108,6 +108,85 @@ class TestServing:
         assert info.value.code == 404
 
 
+class TestVariableOverrides:
+    """Editing a variable's range in the browser, without touching the YAML."""
+
+    PROJECT = str(EXAMPLES / "l_bracket" / "project.yaml")
+
+    def test_a_range_can_be_narrowed_for_this_run_only(self, app):
+        _status, data = post(
+            app,
+            "/api/open",
+            {
+                "path": self.PROJECT,
+                "variable_overrides": {"thickness_h": {"minimum": 12.0, "maximum": 18.0}},
+            },
+        )
+        thickness_h = next(v for v in data["variables"] if v["id"] == "thickness_h")
+        assert (thickness_h["minimum"], thickness_h["maximum"]) == (12.0, 18.0)
+        # Other variables, and the file on disk, are untouched.
+        thickness_v = next(v for v in data["variables"] if v["id"] == "thickness_v")
+        assert thickness_v["minimum"] == 5.0
+
+    def test_a_default_outside_the_new_range_is_shown_clamped(self, app):
+        """The project's own default (19 mm) can land outside an edited range.
+
+        `doctor` and a real run both clamp it silently (`DesignVariable.clamp`,
+        used by `DesignSpace.decode`), so the page must show the value that
+        will actually be evaluated -- not the stale one from the file, which
+        would otherwise display a "default" above the "maximum" next to it.
+        """
+        _status, data = post(
+            app,
+            "/api/open",
+            {
+                "path": self.PROJECT,
+                "variable_overrides": {"thickness_h": {"minimum": 12.0, "maximum": 18.0}},
+            },
+        )
+        thickness_h = next(v for v in data["variables"] if v["id"] == "thickness_h")
+        assert thickness_h["default"] == 18.0
+
+    def test_an_unknown_variable_is_a_clear_error_not_a_crash(self, app):
+        with pytest.raises(urllib.error.HTTPError) as info:
+            post(
+                app,
+                "/api/open",
+                {
+                    "path": self.PROJECT,
+                    "variable_overrides": {"not_a_variable": {"minimum": 1, "maximum": 2}},
+                },
+            )
+        assert info.value.code == 400
+        assert "not_a_variable" in json.loads(info.value.read())["error"]
+
+    def test_an_inverted_range_is_a_clear_error_not_a_crash(self, app):
+        with pytest.raises(urllib.error.HTTPError) as info:
+            post(
+                app,
+                "/api/open",
+                {
+                    "path": self.PROJECT,
+                    "variable_overrides": {"thickness_h": {"minimum": 18, "maximum": 12}},
+                },
+            )
+        assert info.value.code == 400
+        assert "above its maximum" in json.loads(info.value.read())["error"]
+
+    def test_doctor_runs_against_the_overridden_range(self, app):
+        pytest.importorskip("gmsh")
+        _status, data = post(
+            app,
+            "/api/doctor",
+            {
+                "path": self.PROJECT,
+                "variable_overrides": {"thickness_h": {"minimum": 12.0, "maximum": 18.0}},
+            },
+        )
+        smallest = next(p for p in data["probes"] if p["label"] == "smallest")
+        assert smallest["design"]["thickness_h"] == 12.0
+
+
 class TestStaticFileSafety:
     """A crafted path must not read arbitrary files off the disk."""
 

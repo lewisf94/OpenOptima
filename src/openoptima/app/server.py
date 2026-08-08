@@ -17,12 +17,14 @@ import contextlib
 import json
 import socket
 import threading
+from dataclasses import replace
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 from ..domain.model import SolverSpecification
+from ..domain.variables import DesignSpace, VariableType
 from ..evaluation.evaluator import default_job_count
 from ..evaluation.runspace import tool_versions
 from ..geometry.occ.templates import available_templates
@@ -201,7 +203,8 @@ class Handler(BaseHTTPRequestHandler):
         path = Path(body.get("path", "")).expanduser()
         if not path.is_file():
             raise ProjectLoadError(f"no project file at {path}")
-        return load_project(path), path
+        project = load_project(path)
+        return _with_variable_overrides(project, body.get("variable_overrides")), path
 
     def _open(self, body: dict[str, Any]) -> None:
         try:
@@ -253,7 +256,11 @@ def _describe(project, path: Path) -> dict[str, Any]:
                 "label": v.display_name,
                 "minimum": v.minimum,
                 "maximum": v.maximum,
-                "default": v.effective_default(),
+                # Clamped: an edited range can leave the project's own default
+                # outside it, and doctor/run silently clamp when that happens
+                # (DesignSpace.decode -> DesignVariable.clamp) -- show the value
+                # that will actually be used, not the stale one from the file.
+                "default": v.clamp(v.effective_default()),
                 "unit": v.unit,
             }
             for v in project.design_space
@@ -276,6 +283,39 @@ def _describe(project, path: Path) -> dict[str, Any]:
         },
         "budget": project.optimisation.algorithm.evaluation_budget,
     }
+
+
+def _with_variable_overrides(project, raw: Any):
+    """Apply edited numeric variable bounds to this run without rewriting YAML."""
+    if raw is None:
+        return project
+    if not isinstance(raw, dict):
+        raise ProjectLoadError("variable_overrides must be an object")
+    unknown = set(raw) - set(project.design_space.ids)
+    if unknown:
+        raise ProjectLoadError(f"unknown design variable(s): {', '.join(sorted(unknown))}")
+    variables = []
+    for variable in project.design_space:
+        change = raw.get(variable.id)
+        if change is None:
+            variables.append(variable)
+            continue
+        if variable.type not in (VariableType.CONTINUOUS, VariableType.INTEGER):
+            raise ProjectLoadError(f"{variable.display_name} does not have a numeric range")
+        if not isinstance(change, dict):
+            raise ProjectLoadError(f"range for {variable.display_name} must be an object")
+        try:
+            minimum, maximum = float(change["minimum"]), float(change["maximum"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProjectLoadError(
+                f"range for {variable.display_name} needs numeric limits"
+            ) from exc
+        if not all(value == value and abs(value) != float("inf") for value in (minimum, maximum)):
+            raise ProjectLoadError(f"range for {variable.display_name} must be finite")
+        if minimum > maximum:
+            raise ProjectLoadError(f"minimum for {variable.display_name} is above its maximum")
+        variables.append(replace(variable, minimum=minimum, maximum=maximum))
+    return replace(project, design_space=DesignSpace(tuple(variables)))
 
 
 def _encode(value: Any) -> Any:

@@ -7,7 +7,9 @@
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
-  const node = Object.assign(document.createElement(tag), props);
+  const { dataset, ...properties } = props;
+  const node = Object.assign(document.createElement(tag), properties);
+  if (dataset) Object.entries(dataset).forEach(([key, value]) => { node.dataset[key] = value; });
   kids.flat().forEach((k) => node.append(k?.nodeType ? k : document.createTextNode(k)));
   return node;
 };
@@ -116,11 +118,14 @@ function renderProject() {
     el("tbody", {}, p.variables.map((v) =>
       el("tr", {},
         el("td", {}, v.label),
-        el("td", { className: "num" }, num(v.minimum)),
-        el("td", { className: "num" }, num(v.maximum)),
+        el("td", { className: "num" }, el("input", { type: "number", value: v.minimum,
+          step: "any", dataset: { variable: v.id, bound: "minimum" }, "aria-label": `${v.label} minimum` })),
+        el("td", { className: "num" }, el("input", { type: "number", value: v.maximum,
+          step: "any", dataset: { variable: v.id, bound: "maximum" }, "aria-label": `${v.label} maximum` })),
         el("td", {}, v.unit || ""))))
   );
-  body.append(el("h3", {}, "Sizes the software may change"), sizes);
+  body.append(el("h3", {}, "Sizes the software may change"), sizes,
+    el("p", { className: "hint" }, "Edit these limits to define the designs this run may explore. The project file is not changed."));
 
   const rules = el("ul", {}, p.constraints.map((c) => el("li", {}, c)));
   body.append(
@@ -148,6 +153,19 @@ function renderProject() {
   }
 }
 
+function variableOverrides() {
+  const overrides = {};
+  document.querySelectorAll("input[data-variable]").forEach((input) => {
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) throw new Error(`Enter a number for ${input.dataset.variable}.`);
+    (overrides[input.dataset.variable] ||= {})[input.dataset.bound] = value;
+  });
+  for (const [id, range] of Object.entries(overrides)) {
+    if (range.minimum > range.maximum) throw new Error(`The minimum for ${id} is above its maximum.`);
+  }
+  return overrides;
+}
+
 // ── 2. check ─────────────────────────────────────────────────────────────
 $("run-doctor").onclick = async () => {
   const button = $("run-doctor");
@@ -156,7 +174,9 @@ $("run-doctor").onclick = async () => {
   const target = $("doctor-result");
   target.innerHTML = "";
   try {
-    const report = await api("/api/doctor", { path: state.project.path });
+    const report = await api("/api/doctor", {
+      path: state.project.path, variable_overrides: variableOverrides(),
+    });
     target.append(el("div", { className: "banner " + (report.ok ? "good" : "bad") },
       report.ok
         ? "All checks passed. This part is ready to run."
@@ -209,6 +229,7 @@ $("start").onclick = async () => {
       path: state.project.path,
       kind: $("kind").value,
       budget: Number($("budget").value) || null,
+      variable_overrides: variableOverrides(),
     });
     state.job = job;
     $("progress").classList.remove("hidden");
