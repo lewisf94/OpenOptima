@@ -526,9 +526,27 @@ function renderResults(job) {
         return el("tr", { className: isKnee ? "highlight" : "" },
           el("td", {}, note),
           ...metrics.map((m) => el("td", { className: "num" }, num(entry.metrics[m]))),
-          ...state.project.variables.map((v) =>
-            el("td", { className: "num" }, num(entry.design[v.id], 4))));
+          ...state.project.variables.map((v) => {
+            const pin = (entry.pinned || {})[v.id];
+            return el("td", { className: "num" + (pin ? " pinned" : "") },
+              num(entry.design[v.id], 4),
+              // A value on its own limit was chosen by the limit, not by the
+              // search. Marked here and explained under the table.
+              pin ? el("abbr", { title: pin.note },
+                pin.bound === "minimum" ? " ↓" : " ↑") : "");
+          }));
       })))));
+
+  const pins = new Map();
+  job.front.forEach((entry) => {
+    Object.entries(entry.pinned || {}).forEach(([id, pin]) => pins.set(id, pin));
+  });
+  if (pins.size) {
+    body.append(el("p", { className: "hint" },
+      "↓ and ↑ mark a size that ended up on the smallest or largest value you "
+      + "allowed. Those were decided by your limits, not by the search — widen "
+      + "the range and run again to see whether something better lies beyond it."));
+  }
 
   if (job.highlights.knee_run_id) {
     body.append(el("p", { className: "hint" },

@@ -192,10 +192,13 @@ def write_deck(
                 handle.write("*DLOAD, OP=NEW\n")
                 for element, face, magnitude in pressures:
                     handle.write(f"{element}, P{face}, {magnitude:.9g}\n")
-                for magnitude, direction in gravity:
+                # Named `axis` rather than `direction`: the same name is bound
+                # to a numpy array earlier in this function, and reusing it
+                # here made the type ambiguous.
+                for magnitude, axis in gravity:
                     handle.write(
                         f"Eall, GRAV, {magnitude:.9g}, "
-                        f"{direction[0]:.9g}, {direction[1]:.9g}, {direction[2]:.9g}\n"
+                        f"{axis[0]:.9g}, {axis[1]:.9g}, {axis[2]:.9g}\n"
                     )
             else:
                 handle.write("*DLOAD, OP=NEW\n")

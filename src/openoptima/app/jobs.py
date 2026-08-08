@@ -195,14 +195,22 @@ def _label(metric: str) -> str:
 
 
 def _front_entry(project: Project, result) -> dict[str, Any]:
+    design = result.design.as_dict()
     return {
         "run_id": result.run_id,
-        "design": result.design.as_dict(),
+        "design": design,
         "metrics": {name: value for name, value in result.metrics.items() if "." not in name},
         "objectives": [
             {"metric": o.metric, "label": o.display_name, "value": result.metric(o.metric)}
             for o in project.objectives
         ],
+        # Values sitting on a limit the user set, rather than on an optimum.
+        # The page marks these, because "3 mm is best" and "3 mm is as small as
+        # you let me go" are different answers.
+        "pinned": {
+            pin.variable_id: {"bound": pin.bound, "note": pin.describe()}
+            for pin in project.design_space.pinned_variables(design)
+        },
         "warnings": result.warnings,
     }
 

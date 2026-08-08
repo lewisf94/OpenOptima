@@ -99,6 +99,9 @@ th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--
 th { color: var(--muted); font-weight: 600; font-size: .8rem; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.highlight { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* A size that ran into the limit it was given rather than finding an optimum. */
+td.pinned { color: var(--no); font-weight: 600; }
+td.pinned abbr { cursor: help; text-decoration: none; }
 
 .check { display: flex; gap: .6rem; padding: .45rem 0; align-items: flex-start; }
 .check .mark { font-weight: 700; }

@@ -93,6 +93,40 @@ class DesignVariable:
         index = int(min(max(round(float(value)), 0), len(self.choices) - 1))
         return self.choices[index]
 
+    def pinned_bound(self, value: Any) -> str | None:
+        """Which of this variable's own limits the value is sitting on, if any.
+
+        A design that lands exactly on a limit is the optimiser saying it would
+        have gone further if allowed. That is worth telling the engineer,
+        because the number was then chosen by the limit rather than by the
+        physics -- see :meth:`DesignSpace.pinned_variables`.
+
+        Compared against the values actually reachable rather than the stated
+        limits: a step size can stop the optimiser short of the maximum, and
+        that is still pinned.
+        """
+        if self.type not in (VariableType.CONTINUOUS, VariableType.INTEGER):
+            return None
+        if self.minimum is None or self.maximum is None:
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if math.isnan(numeric) or math.isinf(numeric):
+            return None
+        span = float(self.maximum) - float(self.minimum)
+        if span <= 0:
+            # Nothing to choose, so nothing to report. A variable fixed to one
+            # value is not the optimiser being held back.
+            return None
+        tolerance = max(span * 1e-6, 1e-9)
+        if abs(numeric - float(self.clamp(self.minimum))) <= tolerance:
+            return "minimum"
+        if abs(numeric - float(self.clamp(self.maximum))) <= tolerance:
+            return "maximum"
+        return None
+
     def validate(self, value: Any) -> None:
         if self.type in (VariableType.CONTINUOUS, VariableType.INTEGER):
             numeric = float(value)
@@ -138,6 +172,28 @@ class DesignVariable:
 
 
 @dataclass(frozen=True)
+class BoundPin:
+    """A chosen value sitting on the limit it was given, not on an optimum."""
+
+    variable_id: str
+    label: str
+    value: float
+    bound: str
+    limit: float
+    unit: str = ""
+
+    def describe(self) -> str:
+        units = f" {self.unit}" if self.unit else ""
+        direction = "smallest" if self.bound == "minimum" else "largest"
+        wanted = "smaller" if self.bound == "minimum" else "larger"
+        return (
+            f"{self.label} is {self.value:g}{units}, the {direction} value allowed. "
+            f"The limit chose this number, not the physics -- the search would "
+            f"have gone {wanted} if it could."
+        )
+
+
+@dataclass(frozen=True)
 class DesignSpace:
     """The ordered set of variables an optimiser may change."""
 
@@ -175,6 +231,41 @@ class DesignSpace:
     def bounds(self) -> tuple[list[float], list[float]]:
         pairs = [v.optimiser_bounds() for v in self.variables]
         return [p[0] for p in pairs], [p[1] for p in pairs]
+
+    def pinned_variables(self, design: Mapping[str, Any]) -> tuple[BoundPin, ...]:
+        """Every value in this design that is sitting on one of its own limits.
+
+        Worth reporting because it changes what the answer means. "The best
+        fillet radius is 3 mm" and "3 mm is the sharpest corner you allowed me"
+        are different statements, and only the second one tells the engineer
+        that widening the range might find a better part.
+
+        It matters most where a limit is protecting the result rather than the
+        design. Minimising mass pushes an internal fillet towards its smallest
+        allowed radius, because a bigger fillet means more material -- so the
+        search walks towards the sharpest corner permitted, which is also where
+        the stress measure is least trustworthy.
+        """
+        pins: list[BoundPin] = []
+        for variable in self.variables:
+            if variable.id not in design:
+                continue
+            bound = variable.pinned_bound(design[variable.id])
+            if bound is None:
+                continue
+            limit = variable.minimum if bound == "minimum" else variable.maximum
+            assert limit is not None
+            pins.append(
+                BoundPin(
+                    variable_id=variable.id,
+                    label=variable.display_name,
+                    value=float(design[variable.id]),
+                    bound=bound,
+                    limit=float(limit),
+                    unit=variable.unit,
+                )
+            )
+        return tuple(pins)
 
     def defaults(self) -> DesignVector:
         return self.decode({v.id: v.effective_default() for v in self.variables})

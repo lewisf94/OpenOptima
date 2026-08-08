@@ -20,6 +20,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ...config import remembered_solver
 from ...domain.failures import EvaluationFailure, FailureCode
@@ -341,7 +342,7 @@ def run_calculix(
     )
 
 
-def _process_isolation_kwargs() -> dict[str, object]:
+def _process_isolation_kwargs() -> dict[str, Any]:
     """Put the solver in its own process group so it can be killed as a unit.
 
     The mechanism differs by platform and neither option exists on the other:
@@ -364,15 +365,20 @@ def _terminate(process: subprocess.Popen) -> None:
         _terminate_windows(process)
         return
 
+    # Process groups are POSIX-only. Unreachable on Windows -- the branch above
+    # returns -- but mypy checks both platforms, so the names need suppressing.
     try:
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)  # type: ignore[attr-defined]
     except (ProcessLookupError, PermissionError, OSError):
         process.terminate()
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            os.killpg(  # type: ignore[attr-defined]
+                os.getpgid(process.pid),  # type: ignore[attr-defined]
+                signal.SIGKILL,  # type: ignore[attr-defined]
+            )
         except (ProcessLookupError, PermissionError, OSError):
             process.kill()
 

@@ -1,6 +1,8 @@
 # 8. An untrustworthy buckling factor is a failure, not a warning
 
-**Status:** accepted
+**Status:** accepted. The decision stands; the diagnosis in *Context* below was
+wrong and is corrected in *Update* at the end. Read that section before acting
+on the slenderness numbers in this document.
 
 ## Context
 
@@ -59,3 +61,34 @@ the analysis.
 
 The limit of 150 rests on a handful of measured points. Establishing the real
 boundary is item V9 in the verification plan.
+
+## Update: the trigger was not slenderness
+
+V9 was carried out and the diagnosis above turned out to be wrong.
+
+Slenderness was a coincidence, not a cause. The same strut was measured failing
+at slenderness 69 and passing at 277, and vice versa. What actually predicts the
+failure is **the buckling factor itself**: below roughly **0.52** against the
+applied load, CalculiX silently skips the lowest mode and returns the second —
+about nine times too high, in the unsafe direction, with nothing in its output
+to say so. That explains the 1 : 1.95 : 3.20 mode series recorded above: it is a
+correct series with its first term missing.
+
+It also explains why nothing helped. Refining the mesh does not fix it, and
+asking for more modes does not surface the missing one, because the mode was
+never computed.
+
+**It is now fixed at the root** rather than guarded against. The `*BUCKLE` step
+is solved against a reference load 1000 times smaller and the result divided
+back. The eigenvalue is exactly inversely proportional to the reference load, so
+this is an identity, not an approximation — and it moves the factor well clear
+of the 0.52 threshold where the solver misbehaves. Do not remove that scaling.
+
+The slenderness guard in `results/buckling_check.py` was **not** removed. It no
+longer carries the weight it was given here, but a cheap independent check
+against beam theory is worth keeping, and it catches a different family of
+problems. Treat it as a secondary safeguard, not as the reason the numbers can
+be trusted.
+
+The evidence is in `results/buckling_check.py` and V9 of
+`docs/verification-plan.md`. The trap is recorded as item 7 in `AGENTS.md`.

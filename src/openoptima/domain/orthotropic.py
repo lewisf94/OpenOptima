@@ -320,7 +320,7 @@ def local_axes(
         seed[0] * normal[1] - seed[1] * normal[0],
     )
     magnitude = math.sqrt(sum(component**2 for component in first))
-    first = tuple(component / magnitude for component in first)
+    first = (first[0] / magnitude, first[1] / magnitude, first[2] / magnitude)
 
     second = (
         normal[1] * first[2] - normal[2] * first[1],

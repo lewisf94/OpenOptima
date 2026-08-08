@@ -447,6 +447,33 @@ rule. It stops at the first step that is not worth it.
 
 ## 5. Things that will confuse you if nobody explains them
 
+### A size marked ↓ or ↑: the answer hit your limit
+
+Sometimes a winning design has a size sitting exactly on the smallest or
+largest value you allowed. OpenOptima marks those with ↓ or ↑ in the results
+table, and says so in the report.
+
+This matters more than it looks. There is a real difference between:
+
+- "3 mm is the best fillet radius", and
+- "3 mm is the sharpest corner you let me cut, and I would have gone
+  sharper."
+
+Only the second one is true when the value is on the limit. The number was
+chosen by your limit, not by the physics. **Widen the range and run it again**
+to find out whether something better is sitting just outside.
+
+If the limit is there for a good reason — the smallest radius your supplier's
+cutter can make, a maximum size that has to fit in a housing — then the answer
+is right, and the mark is only telling you which of your own decisions
+produced it.
+
+Watch this one especially on fillet radii. Making a part lighter means taking
+material out, and an internal corner fillet is material. So the search always
+pushes fillets towards the smallest you allow — which is also the corner shape
+where the stress numbers are least trustworthy. See the singularity section
+below.
+
 ### "Mesh" and why elements are curved
 
 A computer cannot calculate directly on a smooth shape. OpenOptima chops

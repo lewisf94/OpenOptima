@@ -44,7 +44,7 @@ dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",
     "ruff>=0.5",
-    "mypy>=1.10",
+    "mypy>=1.15",
     "types-PyYAML",
 ]
 
@@ -98,6 +98,12 @@ ignore = [
 python_version = "3.11"
 files = ["src/openoptima"]
 ignore_missing_imports = true
-warn_unused_ignores = true
+# Deliberately off. This project has both Windows-only branches (ctypes.windll
+# for the desktop app) and POSIX-only ones (os.killpg to stop a runaway
+# solver). A suppression that is unused on one platform is required on the
+# other, so with this on, `mypy src` reports a different set of problems on a
+# developer's Windows machine than it does in Linux CI -- and the difference is
+# always noise. Turning it off makes the check mean the same thing everywhere.
+warn_unused_ignores = false
 no_implicit_optional = true
 warn_redundant_casts = true

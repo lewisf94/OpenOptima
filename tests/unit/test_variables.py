@@ -137,3 +137,82 @@ def test_conditional_on_unknown_variable_is_rejected():
 def test_missing_bounds_are_rejected():
     with pytest.raises(ValueError, match="minimum and maximum"):
         DesignVariable(id="t")
+
+
+class TestPinnedBounds:
+    """Reporting a value that ended up on its own limit.
+
+    "The best fillet radius is 3 mm" and "3 mm is the sharpest corner you let
+    me cut" are different answers, and only the second one tells the engineer
+    that widening the range might find a better part. It matters most where the
+    limit is protecting the result rather than the design: minimising mass
+    pushes an internal fillet towards its smallest allowed radius, which is
+    also where the stress measure is least trustworthy.
+    """
+
+    def test_a_value_on_the_lower_limit_is_reported(self):
+        variable = DesignVariable(id="fillet", minimum=3.0, maximum=25.0, unit="mm")
+        assert variable.pinned_bound(3.0) == "minimum"
+
+    def test_a_value_on_the_upper_limit_is_reported(self):
+        variable = DesignVariable(id="fillet", minimum=3.0, maximum=25.0)
+        assert variable.pinned_bound(25.0) == "maximum"
+
+    def test_a_value_in_between_is_not(self):
+        variable = DesignVariable(id="fillet", minimum=3.0, maximum=25.0)
+        assert variable.pinned_bound(12.0) is None
+
+    def test_a_value_merely_close_to_the_limit_is_not(self):
+        """Near the edge is a real answer. Only sitting on it is not."""
+        variable = DesignVariable(id="fillet", minimum=3.0, maximum=25.0)
+        assert variable.pinned_bound(3.05) is None
+
+    def test_a_variable_fixed_to_one_value_is_never_pinned(self):
+        """Nothing to choose is not the search being held back."""
+        variable = DesignVariable(id="length", minimum=40.0, maximum=40.0)
+        assert variable.pinned_bound(40.0) is None
+
+    def test_a_step_that_stops_short_of_the_maximum_still_counts(self):
+        """The optimiser cannot reach 10.0 here, so 9.0 is its real ceiling."""
+        variable = DesignVariable(id="t", minimum=1.0, maximum=10.0, step=2.0)
+        assert variable.pinned_bound(9.0) == "maximum"
+
+    def test_a_categorical_has_no_bounds_to_sit_on(self):
+        variable = DesignVariable(
+            id="profile", type=VariableType.CATEGORICAL, choices=("round", "square")
+        )
+        assert variable.pinned_bound("round") is None
+
+    def test_nonsense_values_do_not_raise(self):
+        variable = DesignVariable(id="t", minimum=1.0, maximum=10.0)
+        assert variable.pinned_bound(float("nan")) is None
+        assert variable.pinned_bound(None) is None
+
+    def test_the_design_space_reports_every_pinned_variable(self):
+        design_space = DesignSpace(
+            (
+                DesignVariable(id="fillet", minimum=3.0, maximum=25.0, unit="mm", label="Fillet"),
+                DesignVariable(id="thickness", minimum=5.0, maximum=20.0, unit="mm"),
+                DesignVariable(id="width", minimum=10.0, maximum=60.0),
+            )
+        )
+        pins = design_space.pinned_variables({"fillet": 3.0, "thickness": 20.0, "width": 31.0})
+
+        assert {pin.variable_id: pin.bound for pin in pins} == {
+            "fillet": "minimum",
+            "thickness": "maximum",
+        }
+
+    def test_the_explanation_names_the_variable_and_says_what_it_means(self):
+        design_space = DesignSpace(
+            (DesignVariable(id="fillet", minimum=3.0, maximum=25.0, unit="mm", label="Fillet"),)
+        )
+        (pin,) = design_space.pinned_variables({"fillet": 3.0})
+        text = pin.describe()
+        assert "Fillet" in text
+        assert "3 mm" in text
+        assert "smallest value allowed" in text
+
+    def test_a_variable_missing_from_the_design_is_skipped(self):
+        design_space = DesignSpace((DesignVariable(id="fillet", minimum=3.0, maximum=25.0),))
+        assert design_space.pinned_variables({}) == ()

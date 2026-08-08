@@ -14,6 +14,7 @@ import numpy as np
 from ..domain.objectives import Direction
 from ..domain.project import Project
 from ..domain.results import EvaluationResult
+from ..domain.variables import BoundPin
 from ..optimisation.pareto import (
     apply_trade_rules,
     knee_point,
@@ -264,17 +265,47 @@ def build_report(study: StudyResult, project: Project) -> str:
 
 
 def _design_block(result: EvaluationResult, project: Project) -> str:
+    pinned = {
+        pin.variable_id: pin
+        for pin in project.design_space.pinned_variables(result.design.as_dict())
+    }
     lines = ["```"]
     for variable in project.design_space:
         value = result.design.get(variable.id)
         unit = f" {variable.unit}" if variable.unit else ""
-        lines.append(f"{variable.display_name:<32} {value}{unit}")
+        pin = pinned.get(variable.id)
+        note = f"   <- at its {pin.bound}" if pin else ""
+        lines.append(f"{variable.display_name:<32} {value}{unit}{note}")
     lines.append("")
     for metric in ("mass_kg", "displacement_max_mm", "stress_max_mpa", "factor_of_safety"):
         if metric in result.metrics:
             lines.append(f"{metric:<32} {_format_value(result.metrics[metric])}")
     lines.append("```")
-    return "\n".join(lines) + "\n"
+    block = "\n".join(lines) + "\n"
+    if pinned:
+        block += "\n" + _pinned_note(tuple(pinned.values())) + "\n"
+    return block
+
+
+def _pinned_note(pins: tuple[BoundPin, ...]) -> str:
+    """Explain what a value sitting on its own limit actually means.
+
+    Without this the reader sees a number and assumes the search chose it. It
+    did not: it went as far as it was allowed and stopped. That is worth
+    knowing, because widening the range may well find a better part.
+    """
+    lines = ["**Some of these values are sitting on the limits you set.**", ""]
+    for pin in pins:
+        lines.append(f"- {pin.describe()}")
+    lines.append("")
+    lines.append(
+        "Widen the range and run again to find out whether there is something "
+        "better beyond it. If a limit is there for a reason -- a minimum fillet "
+        "your supplier can cut, a maximum size that has to fit -- then the "
+        "answer is right, and this is only telling you the limit is what "
+        "decided it."
+    )
+    return "\n".join(lines)
 
 
 def write_report(study: StudyResult, project: Project, path: Path) -> Path:

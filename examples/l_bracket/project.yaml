@@ -74,7 +74,13 @@ regions:
       within_box: { xmin: 119.0, ymin: -1.0, zmin: -1.0, xmax: 121.0, ymax: 61.0, zmax: 91.0 }
 
   - name: fillet_surface
-    description: Internal corner fillet — refined, and excluded from the stress measure
+    # Refined but NOT excluded. The fillet has a real radius, so the stress
+    # there is a real stress that this part has to survive -- it is the whole
+    # reason the fillet exists. Excluding it would hide the one number that
+    # decides the design. Only `mounting_face` is excluded, because a fixed
+    # face is a true singularity where the peak grows without bound however
+    # fine the mesh gets. See `stress_evaluation` below.
+    description: Internal corner fillet — mesh-refined, and counted in the stress measure
     selector:
       surface_type: cylinder
       within_box: { xmin: -1.0, ymin: -1.0, zmin: -1.0, xmax: 46.0, ymax: 61.0, zmax: 46.0 }
