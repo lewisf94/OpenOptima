@@ -137,6 +137,17 @@ by review. They are documented in `docs/adr/` and guarded by tests.
    the eigenvalue is exactly inversely proportional to the reference load. Do not
    remove that scaling. `results/buckling_check.py` and V9 in
    `docs/verification-plan.md` carry the evidence.
+8. **The browser process the app launches is not the browser process that shows
+   the window.** Launching Edge with a fresh profile directory starts a process
+   that prepares the profile, hands the window to a *different* process, and
+   exits after about half a second — reliably, not occasionally. Waiting on it
+   to decide the app is still open therefore shut the server down before the
+   window had even appeared, and the user's first ever launch showed
+   "127.0.0.1 refused to connect". The `First Run` sentinel does not prevent
+   the hand-off. The page says whether it is alive instead, by pinging
+   `/api/alive`; see `app/launcher.py::_supervise`. A brand-new profile also
+   makes Edge run its welcome flow in an ordinary browser window, so the
+   profile is seeded as already set up before first launch.
 
 ## What an agent must not decide alone
 

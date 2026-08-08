@@ -649,6 +649,16 @@ $("open-custom").onclick = () => {
   if (path) openProject(path);
 };
 
+// ── keep-alive ───────────────────────────────────────────────────────────
+// The application quits when this page stops calling, which is how closing
+// the window shuts the server down. It cannot be done by watching the browser
+// process instead: launching Edge with a new profile starts a process that
+// hands the window to another one and exits half a second later, so waiting
+// on it quit the app before the window had even appeared. See
+// `launcher._supervise`.
+setInterval(() => { fetch("/api/alive").catch(() => {}); }, 2000);
+fetch("/api/alive").catch(() => {});
+
 loadStatus().catch(() => {});
 loadSolver().catch(() => {});
 loadProjects().catch((error) => {

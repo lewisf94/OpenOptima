@@ -17,6 +17,7 @@ import contextlib
 import json
 import socket
 import threading
+import time
 from dataclasses import replace
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,6 +67,17 @@ class AppState:
         self.root = root
         self.runner = JobRunner()
         self.solver_install = BackgroundInstall()
+        #: When the page was last heard from, and whether it has ever been
+        #: heard from at all. The launcher shuts the application down when the
+        #: page goes quiet, so this is how closing the window stops the server.
+        #: See `launcher._supervise` for why the browser process itself cannot
+        #: be used for that.
+        self.last_seen = 0.0
+        self.ever_seen = False
+
+    def touch(self) -> None:
+        self.last_seen = time.monotonic()
+        self.ever_seen = True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -108,6 +120,10 @@ class Handler(BaseHTTPRequestHandler):
     # -- routing -------------------------------------------------------------
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
+        # Any request at all proves the page is still there.
+        self.state.touch()
+        if path == "/api/alive":
+            return self._json({"ok": True})
         if path == "/" or path == "/index.html":
             return self._static("index.html")
         if path == "/favicon.ico":
@@ -134,6 +150,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?")[0]
+        self.state.touch()
         body = self._body()
         if path == "/api/open":
             return self._open(body)
@@ -368,11 +385,22 @@ def _encode(value: Any) -> Any:
     return str(value)
 
 
-def create_server(root: Path, port: int) -> ThreadingHTTPServer:
+class AppServer(ThreadingHTTPServer):
+    """The server, with the shared state hung off it.
+
+    The launcher needs to see when the page was last heard from, to know
+    whether the window is still open.
+    """
+
+    app_state: AppState
+
+
+def create_server(root: Path, port: int) -> AppServer:
     state = AppState(root)
     handler = partial(Handler, state=state)
-    server = ThreadingHTTPServer((HOST, port), handler)  # type: ignore[arg-type]
+    server = AppServer((HOST, port), handler)
     server.daemon_threads = True
+    server.app_state = state
     return server
 
 

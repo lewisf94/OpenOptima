@@ -16,7 +16,10 @@ the network call with a stand-in.
 
 from __future__ import annotations
 
+import json
 import re
+import subprocess
+import sys
 import threading
 import time
 import zipfile
@@ -358,6 +361,111 @@ class TestProfileDirectory:
         profile = launcher._profile_directory()
         assert tmp_path in profile.parents
         assert profile.is_dir()
+
+
+class TestStayingAliveWhileTheWindowIsOpen:
+    """Regression tests for the app quitting before its window appeared.
+
+    Launching Edge with a fresh profile starts a process that prepares the
+    profile, hands the actual window to a different process and exits about
+    half a second later. The launcher used to wait on that process, so it shut
+    the server down almost immediately and the window that then opened showed
+    "127.0.0.1 refused to connect" -- on the very first launch, which is the
+    worst possible time for it. The page's own pings are the signal now.
+    """
+
+    def _server(self, tmp_path):
+        from openoptima.app.server import create_server, find_free_port
+
+        return create_server(tmp_path, find_free_port())
+
+    def test_the_launcher_waits_even_though_the_browser_has_exited(self, tmp_path, monkeypatch):
+        """The exact failure: browser gone, page not loaded yet, do not quit."""
+        server = self._server(tmp_path)
+        dead = subprocess.Popen([sys.executable, "-c", ""])
+        dead.wait()
+        assert dead.poll() is not None, "the stand-in browser should have exited"
+
+        finished = threading.Event()
+        monkeypatch.setattr(launcher, "_FIRST_CONTACT_SECONDS", 3.0)
+        threading.Thread(
+            target=lambda: (launcher._supervise(server, dead), finished.set()), daemon=True
+        ).start()
+
+        # It must still be waiting a second later, not have given up.
+        assert not finished.wait(timeout=1.0), "quit while the window was still opening"
+        server.server_close()
+
+    def test_it_stops_once_the_page_goes_quiet(self, tmp_path, monkeypatch):
+        server = self._server(tmp_path)
+        monkeypatch.setattr(launcher, "_QUIET_SECONDS", 1.0)
+        server.app_state.touch()  # the page has loaded and then stopped calling
+
+        finished = threading.Event()
+        threading.Thread(
+            target=lambda: (launcher._supervise(server, None), finished.set()), daemon=True
+        ).start()
+
+        assert finished.wait(timeout=8.0), "the app must exit once the window is closed"
+        server.server_close()
+
+    def test_it_gives_up_if_the_page_never_loads(self, tmp_path, monkeypatch):
+        """A window that never appears must not leave the server running forever."""
+        server = self._server(tmp_path)
+        monkeypatch.setattr(launcher, "_FIRST_CONTACT_SECONDS", 1.0)
+
+        finished = threading.Event()
+        threading.Thread(
+            target=lambda: (launcher._supervise(server, None), finished.set()), daemon=True
+        ).start()
+
+        assert finished.wait(timeout=8.0)
+        server.server_close()
+
+    def test_any_request_counts_as_the_page_being_alive(self, tmp_path):
+        from openoptima.app.server import AppState
+
+        state = AppState(tmp_path)
+        assert state.ever_seen is False
+        state.touch()
+        assert state.ever_seen is True
+        assert state.last_seen > 0
+
+
+class TestSeedingTheBrowserProfile:
+    """A profile Edge has never seen makes it run its welcome flow.
+
+    That flow opens in an ordinary browser window with tabs and an address
+    bar, so the first thing a new user saw was a browser asking them to accept
+    terms and sign in -- not the application.
+    """
+
+    def test_a_new_profile_is_marked_as_already_set_up(self, tmp_path, monkeypatch):
+        if launcher.os.name == "nt":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+        profile = launcher._profile_directory()
+
+        assert (profile / "First Run").is_file()
+        assert (profile / "Default" / "Preferences").is_file()
+        state = json.loads((profile / "Local State").read_text(encoding="utf-8"))
+        assert state["browser"]["first_run_finished"] is True
+
+    def test_an_existing_profile_is_left_alone(self, tmp_path, monkeypatch):
+        """Whatever the user has changed since first launch is theirs to keep."""
+        if launcher.os.name == "nt":
+            monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        else:
+            monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+        profile = launcher._profile_directory()
+        (profile / "Local State").write_text('{"mine": true}', encoding="utf-8")
+
+        launcher._profile_directory()
+
+        assert json.loads((profile / "Local State").read_text(encoding="utf-8")) == {"mine": True}
 
 
 class TestWindowlessLogging:

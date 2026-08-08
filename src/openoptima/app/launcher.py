@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import multiprocessing
 import os
 import shutil
@@ -33,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import settings_directory
-from .server import HOST, create_server, find_free_port
+from .server import HOST, AppServer, create_server, find_free_port
 
 #: Opened at a size that shows the whole interface without scrolling.
 _WINDOW_SIZE = (1180, 820)
@@ -131,7 +132,66 @@ def _profile_directory() -> Path:
         base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
     profile = base / "OpenOptima" / "window"
     profile.mkdir(parents=True, exist_ok=True)
+    _seed_profile(profile)
     return profile
+
+
+def _seed_profile(profile: Path) -> None:
+    """Mark a brand-new profile as already set up.
+
+    A profile Edge has never seen makes it run its welcome flow: accept terms,
+    choose a theme, sign in, set as default. That flow opened in an ordinary
+    browser window with tabs and an address bar -- so the first thing a new
+    user saw was not the application at all, but a browser asking them
+    questions. ``--no-first-run`` does not prevent it and neither does the
+    ``First Run`` sentinel file on its own.
+
+    Writing these settings before the first launch skips all of it, and the
+    user gets the application window straight away.
+
+    Only ever written once. If the file already exists the profile has been
+    used, and whatever the user has changed since is theirs to keep.
+    """
+    sentinel = profile / "First Run"
+    if sentinel.exists():
+        return
+    defaults = profile / "Default"
+    try:
+        defaults.mkdir(parents=True, exist_ok=True)
+        (profile / "Local State").write_text(
+            json.dumps({"browser": {"first_run_finished": True, "has_seen_welcome_page": True}}),
+            encoding="utf-8",
+        )
+        (defaults / "Preferences").write_text(
+            json.dumps(
+                {
+                    "browser": {
+                        "has_seen_welcome_page": True,
+                        "should_reset_check_default_browser": False,
+                    },
+                    "profile": {"exit_type": "Normal", "exited_cleanly": True},
+                    "distribution": {
+                        "make_chrome_default": False,
+                        "make_chrome_default_for_user": False,
+                        "skip_first_run_ui": True,
+                        "suppress_first_run_bubble": True,
+                        "import_history": False,
+                        "import_search_engine": False,
+                        "import_bookmarks": False,
+                        "do_not_create_desktop_shortcut": True,
+                        "do_not_create_quick_launch_shortcut": True,
+                        "do_not_create_taskbar_shortcut": True,
+                        "do_not_launch_chrome": True,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        sentinel.write_text("")
+    except OSError:
+        # A profile we could not prepare still works; the user just sees the
+        # welcome flow once. Not a reason to refuse to start.
+        pass
 
 
 def open_window(url: str) -> subprocess.Popen[bytes] | None:
@@ -147,6 +207,8 @@ def open_window(url: str) -> subprocess.Popen[bytes] | None:
         f"--window-size={width},{height}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--no-service-autorun",
+        "--disable-sync",
     ]
     try:
         # Argument list, never a shell string: an install path contains spaces.
@@ -189,6 +251,49 @@ def main(argv: list[str] | None = None) -> int:
                 f"OpenOptima could not start.\n\nWhat went wrong has been written to:\n{log}"
             )
         raise
+
+
+#: How long the page may go quiet before the app decides the window is gone.
+#: It pings every two seconds, so this tolerates a few missed ones -- a laptop
+#: waking from sleep, or a browser throttling a background tab.
+_QUIET_SECONDS = 12.0
+
+#: How long to wait for the page to appear at all before giving up. Generous
+#: on purpose: on a brand-new profile the user has to click through Edge's
+#: welcome screens first, and that is not a fast job.
+_FIRST_CONTACT_SECONDS = 600.0
+
+
+def _supervise(server: AppServer, window: subprocess.Popen[bytes] | None) -> None:
+    """Stay running while the page is alive, then stop.
+
+    **Waiting on the browser process does not work**, which cost a release to
+    find out. Launching Edge with a fresh profile directory starts a process
+    that sets the profile up, hands the actual window to a *different* process
+    and exits about half a second later -- reliably, not occasionally. Waiting
+    on it therefore returned almost immediately, the server shut down, and the
+    window that then appeared showed "127.0.0.1 refused to connect". The user
+    saw the app fail on the very first launch, which is the worst possible
+    time. The `First Run` sentinel file does not prevent the hand-off either.
+
+    So the page itself says whether it is still there: it pings `/api/alive`
+    every couple of seconds, and any other request counts too. When the pings
+    stop, the window has been closed and the application exits with it.
+    """
+    state = server.app_state
+    started = time.monotonic()
+    while True:
+        time.sleep(0.5)
+        if state.ever_seen:
+            if time.monotonic() - state.last_seen > _QUIET_SECONDS:
+                return
+        elif time.monotonic() - started > _FIRST_CONTACT_SECONDS:
+            print("the page never loaded; giving up")
+            return
+        elif window is not None and window.poll() is not None:
+            # The browser is gone and nothing ever loaded. Keep waiting: this
+            # is the normal hand-off described above, not a failure.
+            window = None
 
 
 def _wait_until_dismissed(url: str) -> None:
@@ -249,10 +354,10 @@ def _run(argv: list[str] | None, *, windowless: bool = False) -> int:
             webbrowser.open(url)
 
     try:
-        if window is not None:
+        if not args.no_browser:
             print("Close the OpenOptima window to stop it.")
-            window.wait()
-        elif windowless and not args.no_browser:
+            _supervise(server, window)
+        elif windowless:
             _wait_until_dismissed(url)
         else:
             print("Close this window to stop it.")
