@@ -1,15 +1,49 @@
 # Building the Windows application
 
+Two steps. The first makes the program, the second wraps it in an installer.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
+iscc packaging\installer.iss
 ```
 
-That produces `dist\OpenOptima\OpenOptima.exe`. To make an installer, run
-`iscc packaging\installer.iss` with [Inno Setup](https://jrsoftware.org/isinfo.php).
+The first produces `dist\OpenOptima\OpenOptima.exe`, which runs but has to be
+started from its folder. The second produces
+`dist\OpenOptima-0.1.0-setup.exe` — the file a user double-clicks. It needs
+[Inno Setup](https://jrsoftware.org/isinfo.php), which is free
+(`winget install JRSoftware.InnoSetup`).
 
 Requires Python 3.11 or newer on `PATH`. Everything else is fetched into a
 throwaway virtual environment, so whatever happens to be installed on the build
 machine cannot leak into the build.
+
+## What the user gets
+
+Installing needs no administrator password: it goes into the user's own profile
+and the app only ever writes to their Documents folder. Afterwards OpenOptima
+is in the Start menu, so Windows search finds it by name, and it can be pinned
+to the taskbar from there like any other program. Optionally a desktop icon.
+
+There is no console window. That is set in the spec and explained there; the
+short version is that a black box appearing behind the application is what
+makes a packaged Python program look unfinished, and the app has had a real
+window of its own since it stopped opening a browser tab.
+
+Nothing is printed anywhere the user can see, so anything the app would have
+printed goes to `%LOCALAPPDATA%\OpenOptima\openoptima.log` instead, and a
+startup failure raises a message box naming that file. **Ask for that log
+first** when somebody reports the app not starting.
+
+## The icon
+
+`packaging/icon.ico` is committed, and `scripts/make_icon.py` regenerates it
+from the same shape as the interface's `favicon.svg`. It carries every size
+Windows asks for, down to 16 pixels for the taskbar.
+
+The application window is drawn by Edge, which takes *its* taskbar icon from
+the page's favicon rather than from the executable, so the same script also
+writes `favicon.png` next to the SVG. Both are needed: the executable's icon is
+what the Start menu shows, the favicon is what the running window shows.
 
 ## What the build script does
 

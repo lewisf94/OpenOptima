@@ -360,6 +360,41 @@ class TestProfileDirectory:
         assert profile.is_dir()
 
 
+class TestWindowlessLogging:
+    """The frozen app has no console, so printing has to go somewhere.
+
+    PyInstaller's windowed mode leaves ``sys.stdout`` and ``sys.stderr`` as
+    ``None``. Every print and every traceback then vanishes, including the one
+    that would explain why the app just failed to start -- so a failure looks
+    like nothing happening at all. These pin the replacement.
+    """
+
+    def test_nothing_is_redirected_when_there_is_a_console(self, config_dir):
+        """Running from a terminal must keep behaving like a terminal."""
+        assert launcher._redirect_output_to_log() is None
+
+    def test_output_goes_to_a_log_file_when_there_is_no_console(self, config_dir, monkeypatch):
+        monkeypatch.setattr(launcher.sys, "stdout", None)
+        monkeypatch.setattr(launcher.sys, "stderr", None)
+
+        path = launcher._redirect_output_to_log()
+
+        assert path is not None
+        # Close the handle the function installed, or Windows keeps the file
+        # locked and tmp_path cannot be cleaned up.
+        launcher.sys.stdout.close()
+        assert path.parent == config_dir
+        assert "OpenOptima started" in path.read_text(encoding="utf-8")
+
+    def test_a_log_that_cannot_be_written_does_not_stop_the_app(self, monkeypatch):
+        """No writable folder is a reason to skip logging, not to refuse to run."""
+        monkeypatch.setattr(launcher.sys, "stdout", None)
+        monkeypatch.setattr(launcher.sys, "stderr", None)
+        monkeypatch.setattr(launcher, "log_path", lambda: (_ for _ in ()).throw(OSError("nope")))
+
+        assert launcher._redirect_output_to_log() is None
+
+
 class TestOpenWindow:
     def test_returns_none_when_no_browser_is_found(self, monkeypatch):
         monkeypatch.setattr(launcher, "_window_browser", lambda: None)

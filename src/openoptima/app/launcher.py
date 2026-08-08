@@ -19,6 +19,7 @@ still used, so the app degrades rather than refusing to start.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import multiprocessing
 import os
 import shutil
@@ -26,13 +27,61 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
+from ..config import settings_directory
 from .server import HOST, create_server, find_free_port
 
 #: Opened at a size that shows the whole interface without scrolling.
 _WINDOW_SIZE = (1180, 820)
+
+
+def log_path() -> Path:
+    directory = settings_directory()
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / "openoptima.log"
+
+
+def _redirect_output_to_log() -> Path | None:
+    """Give a windowed build somewhere to print. Returns the file, or None.
+
+    The frozen application has no console, which means PyInstaller leaves
+    ``sys.stdout`` and ``sys.stderr`` set to ``None`` and every print and every
+    traceback goes nowhere at all. Without this, an app that fails on startup
+    shows the user precisely nothing: no window, no error, no clue.
+
+    Does nothing when a console is present, so running from a terminal still
+    behaves normally.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return None
+    try:
+        path = log_path()
+        handle = path.open("a", encoding="utf-8", buffering=1)
+    except OSError:
+        # Nowhere writable. Carry on silently rather than refusing to start
+        # over a log file.
+        return None
+    sys.stdout = handle
+    sys.stderr = handle
+    print(f"\n--- OpenOptima started {datetime.now():%Y-%m-%d %H:%M:%S} ---")
+    return path
+
+
+def _show_error(message: str) -> None:
+    """Report a startup failure when there is no console to report it in."""
+    if os.name != "nt":
+        return
+    # A message box that will not open must not mask the error it was trying to
+    # report, which is already in the log by this point.
+    with contextlib.suppress(Exception):  # pragma: no cover - Windows only
+        import ctypes
+
+        # 0x10 is MB_ICONERROR.
+        ctypes.windll.user32.MessageBoxW(None, message, "OpenOptima", 0x10)  # type: ignore[attr-defined]
 
 
 def _window_browser() -> str | None:
@@ -128,6 +177,45 @@ def main(argv: list[str] | None = None) -> int:
     # the optimiser spawns would relaunch the whole application.
     multiprocessing.freeze_support()
 
+    log = _redirect_output_to_log()
+    try:
+        return _run(argv, windowless=log is not None)
+    except SystemExit:
+        raise
+    except BaseException:
+        traceback.print_exc()
+        if log is not None:
+            _show_error(
+                f"OpenOptima could not start.\n\nWhat went wrong has been written to:\n{log}"
+            )
+        raise
+
+
+def _wait_until_dismissed(url: str) -> None:
+    """Keep a windowless build alive with something the user can actually close.
+
+    Reached only when neither Edge nor Chrome was found and OpenOptima has
+    fallen back to the default browser. That tab is not ours, so it gives us
+    nothing to wait on, and the frozen build has no console window to close
+    either. Without this the server would keep running invisibly after the user
+    believes they have finished, stoppable only through Task Manager.
+    """
+    if os.name != "nt":  # pragma: no cover - Windows is the frozen target
+        while True:
+            time.sleep(0.5)
+    import ctypes
+
+    ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+        None,
+        f"OpenOptima is running in your browser at\n{url}\n\n"
+        "Leave this message open while you use it.\n"
+        "Click OK to shut OpenOptima down.",
+        "OpenOptima",
+        0x40,  # MB_ICONINFORMATION
+    )
+
+
+def _run(argv: list[str] | None, *, windowless: bool = False) -> int:
     parser = argparse.ArgumentParser(
         prog="openoptima-app", description="Run OpenOptima as a desktop application."
     )
@@ -164,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
         if window is not None:
             print("Close the OpenOptima window to stop it.")
             window.wait()
+        elif windowless and not args.no_browser:
+            _wait_until_dismissed(url)
         else:
             print("Close this window to stop it.")
             while True:

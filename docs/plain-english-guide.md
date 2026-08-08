@@ -74,12 +74,20 @@ be?"*
 
 On Windows:
 
-1. Install OpenOptima.
-2. Open **OpenOptima** from the Start menu.
+1. Double-click `OpenOptima-setup.exe` and follow the prompts. It does not ask
+   for an administrator password, and it only installs into your own account.
+2. Press the Windows key, type `openoptima`, and press Enter.
+
+To keep it handy, right-click it in the Start menu and choose **Pin to
+taskbar**.
 
 OpenOptima opens in its own window, with its own button on the taskbar. It
 shows four steps: choose a part, check the setup, run it, read the results.
 You do not need to type anything. Closing the window shuts OpenOptima down.
+
+If it ever fails to start, you get a message box pointing at a log file. That
+file is at `%LOCALAPPDATA%\OpenOptima\openoptima.log` — paste it into a bug
+report and it will usually say exactly what went wrong.
 
 The window is drawn by Microsoft Edge, which is already on every Windows
 computer, but it is not a browser tab: there is no address bar and nothing

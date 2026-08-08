@@ -72,7 +72,16 @@ exe = EXE(
     a.scripts,
     exclude_binaries=True,
     name="OpenOptima",
-    console=True,   # keep the console: it shows the URL and any startup error
+    # No console window. A black box appearing behind the application is the
+    # single thing that makes a packaged Python program look unfinished, and
+    # the app has had its own window since it stopped opening a browser tab.
+    #
+    # The console used to be the only place a startup failure was visible, so
+    # it is not simply switched off: a windowed build has sys.stdout set to
+    # None, and `launcher._redirect_output_to_log` gives it a log file instead
+    # and shows a message box naming that file if the app cannot start. Turning
+    # this back on without keeping that is how a silent failure gets shipped.
+    console=False,
     icon=str(ROOT / "packaging" / "icon.ico") if (ROOT / "packaging" / "icon.ico").exists() else None,
 )
 
