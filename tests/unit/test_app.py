@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from openoptima import config
 from openoptima.app.jobs import JobRunner
 from openoptima.app.server import HOST, create_server, find_free_port
 
@@ -185,6 +186,69 @@ class TestVariableOverrides:
         )
         smallest = next(p for p in data["probes"] if p["label"] == "smallest")
         assert smallest["design"]["thickness_h"] == 12.0
+
+
+class TestSolverSetupEndpoints:
+    """The routes behind the first-run setup panel.
+
+    What is pinned here is the routing and the error handling, not whether this
+    particular machine happens to have a solver -- that varies, and a test that
+    depended on it would pass or fail for the wrong reason. Nothing here goes
+    near the network: no test asks the server to install anything.
+
+    Every test redirects the settings file at pytest's own folder first. The
+    server runs inside this process, so without that, a request to forget the
+    solver would wipe the developer's own remembered choice.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolated_settings(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(config._DIRECTORY_ENV_VAR, str(tmp_path))
+
+    def test_status_always_answers_with_the_full_shape(self, app):
+        """The setup panel reads every one of these keys on first paint."""
+        _status, data = get(app, "/api/solver")
+        for key in (
+            "available",
+            "path",
+            "version",
+            "message",
+            "chosen_by_user",
+            "can_install",
+            "install_note",
+            "download",
+        ):
+            assert key in data, f"the setup panel needs {key}"
+        assert isinstance(data["available"], bool)
+
+    def test_a_fresh_server_reports_no_install_running(self, app):
+        _status, data = get(app, "/api/solver/install")
+        assert data["state"] == "idle"
+        assert data["fraction"] == 0.0
+
+    def test_an_empty_path_is_a_clear_error_not_a_crash(self, app):
+        with pytest.raises(urllib.error.HTTPError) as info:
+            post(app, "/api/solver/locate", {"path": "   "})
+        assert info.value.code == 400
+
+    def test_a_path_that_does_not_exist_names_itself_in_the_error(self, app, tmp_path):
+        missing = tmp_path / "nowhere" / "ccx.exe"
+        with pytest.raises(urllib.error.HTTPError) as info:
+            post(app, "/api/solver/locate", {"path": str(missing)})
+        assert info.value.code == 400
+        assert "nowhere" in json.loads(info.value.read())["error"]
+
+    def test_a_folder_with_no_solver_in_it_is_rejected(self, app, tmp_path):
+        """Pointing at a folder is allowed, but only if a solver is inside it."""
+        with pytest.raises(urllib.error.HTTPError) as info:
+            post(app, "/api/solver/locate", {"path": str(tmp_path)})
+        assert info.value.code == 400
+        assert "folder" in json.loads(info.value.read())["error"]
+
+    def test_forgetting_is_harmless_when_nothing_was_remembered(self, app):
+        status, data = post(app, "/api/solver/forget", {})
+        assert status == 200
+        assert "available" in data
 
 
 class TestStaticFileSafety:

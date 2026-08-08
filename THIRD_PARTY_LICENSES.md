@@ -39,7 +39,14 @@ rather than open source under the OSI definition, so it is not used.
   communicates only through files and a command line.
 - gmsh is **imported as a library**, which is the stronger coupling and the main
   driver of the licence choice.
+- **OpenOptima does not redistribute CalculiX.** The desktop app can offer to
+  download it, but the file comes from the CalculiX project's own repository
+  straight to the user's machine, exactly as it would if they fetched it by
+  hand. The download keeps CalculiX's `LICENSE.txt` alongside the program. See
+  `app/solver_setup.py` and `packaging/README.md`.
 - If you bundle binaries into an installer, you must also make the corresponding
-  source available under the terms of each licence.
+  source available under the terms of each licence — for that exact build,
+  including any packager patches, published where the binary is published and
+  kept there for as long as the binary is.
 - Keep this file, `LICENSE`, and the upstream copyright notices intact in any
   redistribution.

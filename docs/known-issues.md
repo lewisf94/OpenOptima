@@ -47,16 +47,51 @@ evaluates as feasible with some margin (0.37 mm deflection, factor of safety
 has room to explore both lighter and stronger designs. The minimum/maximum
 range was left unchanged.
 
-## Windows installer: CalculiX is a manual prerequisite
+## Windows installer: CalculiX was a manual prerequisite — FIXED
 
-**Status:** packaging gap.
+**Status:** fixed. First-run setup added to the desktop app.
 
-The Windows app can start with Gmsh available, but it cannot run an analysis
-until a separate CalculiX `ccx.exe` installation is found or the user sets
-`OPENOPTIMA_CCX`.  This led to a blocking "CalculiX not found" error on first
-use.  The installer should either ship a licence-compliant CalculiX runtime
-alongside OpenOptima, or provide an explicit first-run setup flow that installs
-or locates it and verifies the solver before enabling a study.
+**What went wrong.** OpenOptima builds the part and chops it into small pieces
+itself, but the stress calculation is done by a separate free program called
+CalculiX. The Windows app started without it and then stopped dead with
+"CalculiX not found" the moment anyone pressed Start. The only way forward was
+to find CalculiX on the internet, install it, and set an environment variable
+called `OPENOPTIMA_CCX` — which is not a reasonable thing to ask of somebody
+who has just double-clicked an installer.
 
-Any bundled solver must retain its licence and notices and satisfy the GPL
-source-availability obligations for the version redistributed.
+**What it does now.** When no solver is found, the app opens on a setup panel
+offering two routes, neither of which needs an administrator password:
+
+- **"Install it for me"** downloads CalculiX from the CalculiX project's own
+  Windows repository, checks it against a known checksum, unpacks the seven
+  files the solver actually needs plus its licence, and runs it once to prove
+  it works before remembering it. About 26 MB to download, roughly 10 MB on
+  disk, usually under a minute.
+- **"I already have it"** takes a path to an existing copy. A folder is
+  enough — it looks inside for the program. Either way the choice is checked
+  by actually running the program, so a copy that will not work is caught on
+  the setup screen rather than halfway through a study.
+
+The choice is remembered in a small settings file
+(`%LOCALAPPDATA%\OpenOptima\settings.json`), so it is a one-off.
+
+**Why the download rather than shipping CalculiX inside the installer.**
+CalculiX is licensed under the GPL. Putting the binary in our installer would
+make OpenOptima a redistributor, which carries a standing obligation to keep
+the matching source code available for as long as the installer is
+downloadable. Downloading it to the user's own machine, from its own home,
+carries no such obligation: the file arrives exactly as it would if the user
+fetched it by hand.
+
+Bundling remains a reasonable future option for people with no internet
+connection or a firewall that blocks GitHub. It is not hard — the packaging
+already picks up anything placed in `packaging/solver/` — but it needs a
+complete corresponding-source bundle published alongside the installer, and
+that is a decision for a human. See `packaging/README.md`.
+
+**Verifying a solver is not optional.** On Windows, `ccx.exe` is a small
+program sitting beside seven runtime DLL files. A copy separated from those
+DLLs exists, is the right size, and dies instantly with a Windows error code
+and no message at all. Checking the file name would have left the user with a
+solver that failed much later, inside a run. So both routes run the program and
+ask it for its version, which takes about a second.

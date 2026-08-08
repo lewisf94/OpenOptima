@@ -77,11 +77,49 @@ On Windows:
 1. Install OpenOptima.
 2. Open **OpenOptima** from the Start menu.
 
-OpenOptima opens in your browser. It shows four steps: choose a part,
-check the setup, run it, read the results. You do not need to type
-anything.
+OpenOptima opens in its own window, with its own button on the taskbar. It
+shows four steps: choose a part, check the setup, run it, read the results.
+You do not need to type anything. Closing the window shuts OpenOptima down.
+
+The window is drawn by Microsoft Edge, which is already on every Windows
+computer, but it is not a browser tab: there is no address bar and nothing
+to get lost in. If Edge and Chrome are both missing, OpenOptima falls back to
+opening a normal browser tab rather than refusing to start.
 
 On other systems, running `openoptima-app` does the same thing.
+
+### The first time: the stress solver
+
+OpenOptima builds your part and chops it into small pieces itself, but the
+stress calculation is done by a separate free program called **CalculiX**.
+Without CalculiX, OpenOptima can show you a part but cannot work out a single
+number about it.
+
+If you do not have CalculiX, the app opens on a setup panel with two choices.
+Neither needs an administrator password, and either one is a once-only job.
+
+- **"Install it for me"** fetches CalculiX from the CalculiX project itself.
+  About 26 MB to download, about 10 MB kept on disk, usually under a minute.
+  OpenOptima keeps it in its own folder and does not change anything else on
+  your computer.
+- **"I already have it"** takes the location of a copy you already have. The
+  folder is enough — it looks inside for the program.
+
+Either way, OpenOptima **runs the program once** before accepting it, and
+shows you the version it got back. This is worth knowing about, because there
+is a way to have a copy of CalculiX that looks perfectly fine and does not
+work: on Windows the solver is a small program that needs seven other files
+next to it, and a copy moved away from those files exists, is the right size,
+and dies instantly with no message. Running it is the only check worth
+anything. It takes about a second and it happens here, on the setup screen,
+rather than an hour into a run.
+
+Your choice is remembered, so you will not see the panel again. If you ever
+want to change it, the panel reappears with a **"Use a different one"**
+button.
+
+If you prefer the command line, you can point at a copy yourself by setting an
+environment variable called `OPENOPTIMA_CCX` to the location of the program.
 
 The rest of this section covers the command line. It does exactly the same
 work, if you prefer typing instead.

@@ -16,6 +16,15 @@
 
 <main>
 
+  <!-- ── stress solver ──────────────────────────────────────────────────
+       Hidden unless there is something to say: either no solver was found,
+       or the user chose one by hand and may want to change it. It sits above
+       step 1 because without a solver the numbered steps cannot finish. -->
+  <section class="step hidden" id="step-solver">
+    <h2>The stress solver</h2>
+    <div id="solver-body"></div>
+  </section>
+
   <!-- ── 1. choose a part ───────────────────────────────────────────── -->
   <section class="step" id="step-project">
     <h2><span class="step-badge">1</span> Choose a part</h2>

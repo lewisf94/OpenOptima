@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...config import remembered_solver
 from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.model import SolverSpecification
 
@@ -94,26 +95,47 @@ def _windows_search_paths() -> list[Path]:
 def _bundled_search_paths() -> list[Path]:
     """A solver shipped alongside OpenOptima itself.
 
-    A frozen Windows build places ``ccx.exe`` next to the executable, so the
-    user installs one thing rather than two.
+    ``sys._MEIPASS`` comes first and is the one that actually matters.
+    PyInstaller 6 no longer puts bundled data next to the executable: a
+    one-folder build lands it in an ``_internal`` subfolder, and a one-file
+    build unpacks it to a temporary directory. ``_MEIPASS`` points at the right
+    place in both, whereas looking beside the executable is correct for neither.
+
+    The remaining candidates are kept because they cost nothing and cover the
+    older layout and a solver dropped in by hand next to the exe. Getting this
+    wrong is quiet rather than loud -- a shipped solver simply would not be
+    found, and the app would fall back to asking the user to install one they
+    already have.
     """
-    candidates: list[Path] = []
     import sys
 
+    candidates: list[Path] = []
+    name = "ccx.exe" if WINDOWS else "ccx"
+
     if getattr(sys, "frozen", False):  # PyInstaller and friends
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / "solver" / name)
         base = Path(sys.executable).parent
-        candidates.append(base / "solver" / "ccx.exe")
-        candidates.append(base / "ccx.exe")
+        candidates.append(base / "_internal" / "solver" / name)
+        candidates.append(base / "solver" / name)
+        candidates.append(base / name)
     here = Path(__file__).resolve().parents[3]
-    candidates.append(here / "solver" / ("ccx.exe" if WINDOWS else "ccx"))
+    candidates.append(here / "solver" / name)
     return candidates
 
 
 def find_executable(specification: SolverSpecification) -> str | None:
     """Locate the CalculiX binary.
 
-    Order: the project file, then ``OPENOPTIMA_CCX``, then a solver bundled with
-    this installation, then PATH, then the platform's usual install locations.
+    Order: the project file, then ``OPENOPTIMA_CCX``, then the solver the user
+    chose in the app, then one bundled with this installation, then PATH, then
+    the platform's usual install locations.
+
+    The user's own choice sits above the bundled solver on purpose. Somebody
+    who has gone to the trouble of pointing at a particular build -- a newer
+    version, or one they compiled -- means it, and silently preferring the
+    shipped copy would ignore them without saying so.
     """
     if specification.executable:
         candidate = Path(specification.executable)
@@ -129,6 +151,10 @@ def find_executable(specification: SolverSpecification) -> str | None:
         found = shutil.which(from_env)
         if found:
             return found
+
+    chosen = remembered_solver()
+    if chosen:
+        return chosen
 
     for candidate in _bundled_search_paths():
         if candidate.exists():
@@ -148,19 +174,66 @@ def find_executable(specification: SolverSpecification) -> str | None:
 
 
 def installation_hint() -> str:
-    """Platform-appropriate advice when the solver is missing."""
+    """Platform-appropriate advice when the solver is missing.
+
+    Written for somebody at a command line who has just been stopped dead. The
+    desktop app is offered first on Windows because it is the only route that
+    does not ask them to find, download and unpack anything themselves.
+    """
+    existing = (
+        "Or point OpenOptima at a copy you already have, by setting the "
+        f"{_EXECUTABLE_ENV_VAR} environment variable or solver.executable in the "
+        "project file."
+    )
     if WINDOWS:
         return (
-            "CalculiX (ccx.exe) not found. Install CalculiX for Windows from "
-            "bConverged, or point OpenOptima at an existing copy by setting the "
-            f"{_EXECUTABLE_ENV_VAR} environment variable or solver.executable in "
-            "the project file. PrePoMax also ships a usable ccx.exe."
+            "CalculiX (ccx.exe) not found. OpenOptima cannot work out any stresses "
+            "without it: it is a separate free program that does the stress "
+            "calculation. Run 'openoptima-app' and it will offer to install "
+            f"CalculiX for you. {existing} PrePoMax and bConverged's CalculiX for "
+            "Windows both include a usable ccx.exe."
         )
     return (
-        "CalculiX (ccx) not found. Install it (Debian/Ubuntu: "
-        "'apt install calculix-ccx'; macOS: 'brew install calculix') or set "
-        f"{_EXECUTABLE_ENV_VAR} or solver.executable in the project file."
+        "CalculiX (ccx) not found. OpenOptima cannot work out any stresses without "
+        "it: it is a separate free program that does the stress calculation. "
+        "Install it with 'apt install calculix-ccx' on Debian or Ubuntu, or "
+        f"'brew install calculix' on macOS. {existing}"
     )
+
+
+def verify_executable(candidate: str | Path) -> tuple[bool, str]:
+    """Check a candidate really is a working CalculiX solver, before storing it.
+
+    Running it is the only check worth anything. A Windows CalculiX is a small
+    executable beside seven runtime DLLs, and a copy separated from those DLLs
+    exists, is the right size, and dies instantly with a Windows error code and
+    no message. Asking it for its version catches that in about a second, where
+    trusting the file name would leave the user with a solver that fails much
+    later, in the middle of a study.
+    """
+    path = Path(candidate).expanduser()
+    if not path.exists():
+        return False, f"There is nothing at {path}."
+    if not path.is_file():
+        return False, f"{path} is a folder, not the solver program itself."
+
+    # cgx is the CalculiX viewer and sits next to ccx in every distribution, so
+    # it is the easiest wrong file to pick.
+    stem = path.stem.lower()
+    if stem.startswith("cgx"):
+        return False, (
+            f"{path.name} is the CalculiX viewer, not the solver. "
+            "Look for ccx.exe in the same folder."
+        )
+
+    version = solver_version(str(path))
+    if not version:
+        return False, (
+            f"{path.name} would not run. On Windows this usually means it has "
+            "been copied away from the DLL files that came with it -- point at "
+            "the ccx.exe still sitting in its original folder."
+        )
+    return True, version
 
 
 def solver_version(executable: str) -> str:

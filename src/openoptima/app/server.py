@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from ..config import forget_solver, remember_solver
 from ..domain.model import SolverSpecification
 from ..domain.variables import DesignSpace, VariableType
 from ..evaluation.evaluator import default_job_count
@@ -30,7 +31,9 @@ from ..evaluation.runspace import tool_versions
 from ..geometry.occ.templates import available_templates
 from ..schema.loader import ProjectLoadError, load_project
 from ..solvers import create_solver
+from ..solvers.calculix.runner import verify_executable
 from .jobs import JobRunner
+from .solver_setup import BackgroundInstall, SolverInstallError, solver_status
 
 STATIC_ROOT = Path(__file__).parent / "static"
 
@@ -62,6 +65,7 @@ class AppState:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.runner = JobRunner()
+        self.solver_install = BackgroundInstall()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -122,6 +126,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/current":
             job = self.state.runner.current()
             return self._json(job.to_dict() if job else {"state": "idle"})
+        if path == "/api/solver":
+            return self._json(solver_status())
+        if path == "/api/solver/install":
+            return self._json(self.state.solver_install.state())
         return self._error("not found", 404)
 
     def do_POST(self) -> None:
@@ -141,7 +149,41 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/report":
             return self._report(body)
+        if path == "/api/solver/locate":
+            return self._locate_solver(body)
+        if path == "/api/solver/install":
+            return self._install_solver()
+        if path == "/api/solver/forget":
+            forget_solver()
+            return self._json(solver_status())
         return self._error("not found", 404)
+
+    # -- solver setup --------------------------------------------------------
+    def _locate_solver(self, body: dict[str, Any]) -> None:
+        raw = str(body.get("path", "")).strip().strip('"')
+        if not raw:
+            return self._error("choose the CalculiX program file first")
+        # A folder is the likely mistake, so look inside it rather than
+        # refusing: someone pointing at their CalculiX folder means the ccx in
+        # it, and making them find the exact file is needless friction.
+        candidate = Path(raw).expanduser()
+        if candidate.is_dir():
+            for relative in ("ccx.exe", "bin/ccx.exe", "ccx"):
+                if (candidate / relative).is_file():
+                    candidate = candidate / relative
+                    break
+        ok, message = verify_executable(candidate)
+        if not ok:
+            return self._error(message)
+        remember_solver(candidate)
+        return self._json(solver_status())
+
+    def _install_solver(self) -> None:
+        try:
+            self.state.solver_install.start()
+        except SolverInstallError as exc:
+            return self._error(str(exc), 409)
+        return self._json(self.state.solver_install.state())
 
     # -- static files --------------------------------------------------------
     def _static(self, relative: str) -> None:

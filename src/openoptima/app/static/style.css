@@ -107,7 +107,7 @@ tr.highlight { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .check small { display: block; color: var(--muted); }
 
 .meter { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: .5rem 0; }
-#meter-fill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+#meter-fill, #install-fill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .progress-head { font-size: .9rem; }
 .tag { margin-left: .5rem; font-size: .78rem; color: var(--muted); }
 .tally { display: flex; gap: .5rem; margin: .5rem 0; flex-wrap: wrap; }
@@ -132,6 +132,20 @@ tr.highlight { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .chart .dot.knee { fill: var(--ok); }
 .chart .axis { stroke: var(--line); }
 .chart text { fill: var(--muted); font-size: 11px; }
+
+/* The two ways to get a solver, side by side on a wide window and stacked on
+   a narrow one, so neither reads as the fallback for the other. */
+.choices { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); }
+.choice { border: 1px solid var(--line); border-radius: var(--radius); padding: .9rem 1rem; }
+.choice h3 { margin-top: 0; }
+.choice .row { flex-wrap: wrap; }
+.choice input[type=text] { min-width: 0; flex: 1 1 14rem; }
+.path {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: .82rem; color: var(--muted); word-break: break-all; margin: .4rem 0 0;
+}
+.hint .bad { color: var(--err); }
+a { color: var(--accent); }
 
 .scroller { overflow-x: auto; }
 h3 { font-size: .95rem; margin: 1.2rem 0 .3rem; }

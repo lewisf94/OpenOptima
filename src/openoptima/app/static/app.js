@@ -14,7 +14,10 @@ const el = (tag, props = {}, ...kids) => {
   return node;
 };
 
-const state = { project: null, job: null, poll: null, status: null };
+const state = {
+  project: null, job: null, poll: null, status: null,
+  solver: null, installPoll: null,
+};
 
 const api = async (path, body) => {
   const options = body
@@ -55,13 +58,187 @@ async function loadStatus() {
     el("div", {}, `${status.cores} cores · gmsh ${versions.gmsh || "?"}`),
     status.solver_available
       ? el("div", {}, `Solver ready`)
-      : el("div", { className: "bad" }, "No stress solver found — see below")
+      : el("div", { className: "bad" }, "No stress solver — set one up below")
   );
-  if (!status.solver_available) {
-    $("step-project").prepend(
-      el("div", { className: "banner bad" },
-        el("b", {}, "OpenOptima cannot run analyses yet. "), status.solver_message)
-    );
+}
+
+// ── stress solver setup ──────────────────────────────────────────────────
+// Without a solver the app can build a part but cannot work out a single
+// stress, so this offers the two ways out: point at an existing copy, or let
+// OpenOptima fetch one.
+
+const INSTALL_STAGES = {
+  starting: "Getting ready…",
+  downloading: "Downloading CalculiX…",
+  unpacking: "Unpacking…",
+};
+
+async function loadSolver() {
+  state.solver = await api("/api/solver");
+  renderSolver();
+  if (state.solver.available) return;
+  // An install already under way survives a page reload, so pick it back up
+  // rather than showing an idle button next to a running download.
+  const progress = await api("/api/solver/install").catch(() => null);
+  if (progress && progress.state === "running") {
+    markInstalling();
+    pollInstall();
+  }
+}
+
+function renderSolver() {
+  const s = state.solver;
+  const section = $("step-solver");
+  const body = $("solver-body");
+  body.innerHTML = "";
+
+  if (s.available) {
+    // A solver found on its own needs no explaining. Only show the panel when
+    // the user picked this one, so they have a way to undo that choice.
+    if (!s.chosen_by_user) { section.classList.add("hidden"); return; }
+    section.classList.remove("hidden");
+    const change = el("button", { className: "secondary", type: "button" }, "Use a different one");
+    change.onclick = async () => {
+      change.disabled = true;
+      state.solver = await api("/api/solver/forget", {});
+      await loadStatus();
+      renderSolver();
+    };
+    body.append(
+      el("div", { className: "banner good" },
+        el("b", {}, "Ready. "),
+        s.version ? `CalculiX ${s.version} is doing the stress calculations.`
+          : "CalculiX is doing the stress calculations."),
+      el("p", { className: "path" }, s.path),
+      el("div", { className: "actions" }, change));
+    return;
+  }
+
+  section.classList.remove("hidden");
+  body.append(el("div", { className: "banner bad" },
+    el("b", {}, "OpenOptima cannot work out any stresses yet. "),
+    "It builds the part and chops it into small pieces itself, but the stress "
+    + "calculation is done by a separate free program called CalculiX. "
+    + "Either way below will fix it, and it is a one-off."));
+
+  const choices = el("div", { className: "choices" });
+
+  const d = s.download || {};
+  const fetchIt = el("div", { className: "choice" }, el("h3", {}, "Install it for me"));
+  if (s.can_install) {
+    const button = el("button", { className: "primary", type: "button", id: "install-start" },
+      "Install it for me");
+    button.onclick = () => startInstall();
+    fetchIt.append(
+      el("p", { className: "hint" },
+        `Downloads CalculiX ${d.version || ""} (about ${d.megabytes || "25"} MB) from the `
+        + "CalculiX project itself and keeps it in OpenOptima's own folder. Nothing else "
+        + "on this computer is changed and no administrator password is needed. "
+        + "Usually under a minute."),
+      el("div", { className: "actions" }, button),
+      el("div", { id: "install-progress", className: "hidden" },
+        el("div", { className: "meter" }, el("div", { id: "install-fill" })),
+        el("p", { className: "hint", id: "install-note" }, "")),
+      el("p", { className: "hint" },
+        "CalculiX is free software under the GPL licence. Its source code is at ",
+        el("a", { href: d.source || "https://github.com/calculix",
+          target: "_blank", rel: "noreferrer" }, d.source || "github.com/calculix"), "."));
+  } else {
+    fetchIt.append(el("p", { className: "hint" }, s.install_note || s.message || ""));
+  }
+  choices.append(fetchIt);
+
+  const input = el("input", { type: "text", id: "solver-path",
+    placeholder: "C:\\CalculiX\\bin\\ccx.exe" });
+  const locate = el("button", { className: "secondary", type: "button" }, "Use this one");
+  locate.onclick = async () => {
+    const target = $("locate-result");
+    target.innerHTML = "";
+    const path = input.value.trim();
+    if (!path) {
+      target.append(el("div", { className: "banner bad" }, "Type or paste the location first."));
+      return;
+    }
+    locate.disabled = true;
+    try {
+      state.solver = await api("/api/solver/locate", { path });
+      await loadStatus();
+      renderSolver();
+    } catch (error) {
+      target.append(el("div", { className: "banner bad" }, error.message));
+      locate.disabled = false;
+    }
+  };
+  choices.append(el("div", { className: "choice" },
+    el("h3", {}, "I already have it"),
+    el("p", { className: "hint" },
+      "Paste where CalculiX is. The folder is enough — OpenOptima will look inside "
+      + "it for the program. It is checked by actually running it, so a copy that "
+      + "will not work is caught now rather than halfway through a run."),
+    el("div", { className: "row" }, input, locate),
+    el("div", { id: "locate-result" })));
+
+  body.append(choices);
+}
+
+function markInstalling() {
+  const button = $("install-start");
+  if (button) { button.disabled = true; button.textContent = "Installing…"; }
+  const progress = $("install-progress");
+  if (progress) progress.classList.remove("hidden");
+}
+
+async function startInstall() {
+  markInstalling();
+  try {
+    await api("/api/solver/install", {});
+  } catch (error) {
+    // Already running is not a problem — follow the one that exists.
+    if (!/already running/i.test(error.message)) return showInstallError(error.message);
+  }
+  pollInstall();
+}
+
+function pollInstall() {
+  clearInterval(state.installPoll);
+  state.installPoll = setInterval(async () => {
+    let progress;
+    try {
+      progress = await api("/api/solver/install");
+    } catch {
+      return; /* transient; the next tick will retry */
+    }
+    if (progress.state === "running") return showInstallProgress(progress);
+    clearInterval(state.installPoll);
+    if (progress.state === "error") return showInstallError(progress.message);
+    if (progress.state === "done") {
+      state.solver = await api("/api/solver");
+      await loadStatus();
+      renderSolver();
+    }
+  }, 700);
+}
+
+function showInstallProgress(progress) {
+  const percent = Math.round((progress.fraction || 0) * 100);
+  const fill = $("install-fill");
+  if (fill) fill.style.width = percent + "%";
+  const note = $("install-note");
+  if (note) {
+    note.textContent = (INSTALL_STAGES[progress.stage] || "Working…")
+      + (progress.stage === "downloading" ? ` ${percent}%` : "");
+  }
+}
+
+function showInstallError(message) {
+  const button = $("install-start");
+  if (button) { button.disabled = false; button.textContent = "Try again"; }
+  const fill = $("install-fill");
+  if (fill) fill.style.width = "0%";
+  const note = $("install-note");
+  if (note) {
+    note.textContent = "";
+    note.append(el("span", { className: "bad" }, message));
   }
 }
 
@@ -473,6 +650,7 @@ $("open-custom").onclick = () => {
 };
 
 loadStatus().catch(() => {});
+loadSolver().catch(() => {});
 loadProjects().catch((error) => {
   $("project-list").textContent = "Could not list parts: " + error.message;
 });
