@@ -262,6 +262,48 @@ which already happens — gives a factor equal to the number of cores.
 If a run is too slow, the levers that actually matter are the mesh
 density, the number of designs, and the number of cores. Not the Python.
 
+## Materials that are not equally strong in every direction
+
+A 3D-printed part is weaker *between* its layers than *along* them, because
+the layers are fused rather than continuous. It therefore has no single
+allowable stress, and von Mises stress cannot describe it: von Mises
+assumes equal strength in every direction, which is exactly what such a
+material is not.
+
+Where you give directional strengths, OpenOptima computes a factor of
+safety from a proper criterion instead. Two are available.
+
+| Criterion | Use when |
+|---|---|
+| `hoffman` (default) | general use. Accounts for stresses acting together, and for a material being stronger in compression than in tension |
+| `max_stress` | Hoffman refuses your material, see below |
+
+**Hoffman has a hard limit, and OpenOptima refuses rather than hides it.**
+The criterion cannot describe a material whose weakest direction is less
+than **half** its strongest. Past that point its failure surface stops
+being closed: it predicts that one particular combination of stresses —
+pulling along the layers while pressing across them — never causes
+failure at all, at any magnitude. That is not a conservative error. It is
+an infinitely optimistic one, and nothing in the arithmetic reveals it.
+So OpenOptima refuses the material and tells you to use `max_stress`,
+which is always well posed. Many real prints fall on the wrong side of
+this line.
+
+Two further points that are easy to get wrong, and are handled for you:
+
+- **The stress is rotated into the material's own axes first.** "Pulled
+  across the layers" is meaningless in the model's global axes. CalculiX
+  writes its results file in global axes even when the material has a
+  local orientation, so the rotation happens in OpenOptima.
+- **The factor of safety is not one over the square root of the failure
+  index.** The criterion mixes squared and plain stress terms, so the
+  multiplier that reaches failure comes from solving a quadratic. The
+  shortcut is wrong in the unsafe direction, by about 6 per cent on a
+  typical printed material and more as tension and compression diverge.
+
+The directional strengths are **design decisions**, exactly like
+`allowable_stress_mpa`. OpenOptima will not infer them.
+
 ## Multiple load cases
 
 OpenOptima always **envelopes** load cases — it takes the worst result

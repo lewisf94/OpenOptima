@@ -37,21 +37,36 @@ adhesion and fatigue, are both invisible today.
 
 ## How much of this needs writing
 
-Not all of it. Several items below are already solved by maintained
-libraries that this project can legally use, and the sensible move is to
-wrap them rather than write them again: topology optimisation, fatigue,
-and the geometry behind printability all have one.
+Not all of it, and that changes the shape of everything below.
 
-What no library provides is the part this project is actually built
-around — keeping a named face attached to the right surface while the
-shape changes, telling a bad design apart from a broken run, and proving
-every number against a published answer.
+**OpenOptima is the control system, not the calculator.** Its job is to
+connect CAD, meshing, solving, optimisation, fatigue, topology and
+manufacturing rules into one automated system, and to check every number
+that comes out of them. The specialist calculations belong to specialist
+software that already exists and is maintained.
 
-[ADR 9](adr/0009-build-versus-reuse.md) records which is which, and the
-rule for deciding. One point from it applies to every item below:
-**reusing a library saves writing the code, not proving the answer.** A
-number from somebody else's library gets the same verification test as a
-number from ours.
+So the question for each item below is not "how do we implement this?"
+It is:
+
+1. What already does this?
+2. What does OpenOptima need to connect to it?
+3. How would we verify it?
+
+That produces far less code and a more credible result.
+[`capability-audit.md`](capability-audit.md) answers those three
+questions for every item here, and nothing new should be started until
+it has an entry there.
+
+What no other software provides is the part this project is actually
+built around: keeping a named face attached to the right surface while
+the shape changes, telling a bad design apart from a broken run, and
+proving every number against a published answer.
+
+One rule applies to every item below. **Reusing a tool saves writing the
+code, not proving the answer.** An external tool is a calculation
+provider, never an authority — "beso says this is optimal" is not
+"OpenOptima verified this", and only the second is a claim this software
+may make.
 
 ## Now (v0.1) — done
 
@@ -273,7 +288,10 @@ about what a printer can make.
    behind the same adapter as CalculiX. This would broaden what
    OpenOptima can do, and let OpenOptima cross-check its own results
    against a second, independent solver.
-3. **Topology optimisation — the second way of designing a part.**
+3. **Integrate topology optimisation through an external solver — the second
+   way of designing a part.** Note the wording. This item is not "implement
+   topology optimisation"; the algorithm is somebody else's, and the
+   integration and the checking are ours.
    Unlike the rest of OpenOptima, which adjusts a few chosen dimensions,
    topology optimisation decides where material should exist at all,
    without assuming a shape in advance. You give it the space the part

@@ -71,20 +71,44 @@ principle. It would have been a reasonable starting point on day one.
 
 ## Decision
 
-Before building anything that a library might already do, check. Prefer the
-library when all three hold:
+**OpenOptima is an orchestration, validation and design-space layer around
+existing engineering software. It is not a place to implement engineering
+mathematics.**
 
-1. it is a self-contained calculation with published references behind it;
-2. its licence fits a GPL-3.0 project;
-3. its output can be checked against the same benchmark our own code would face.
+It owns: CAD parameterisation, design-space definition, region tracking,
+optimisation strategy, analysis orchestration, failure classification,
+constraint handling, engineering validation, result provenance, conversion
+between tools, and how a result is presented.
 
-Build here when the work touches the parts no library owns — the design space,
-region resolution, failure classification, the evaluation record — or when
-adopting a library would mean giving up a verification already held.
+Existing tools own: solving, topology algorithms, fatigue mathematics, mesh
+and geometry mathematics, and any established published calculation with a
+maintained implementation.
+
+Before building any non-trivial engineering capability, audit it in
+`docs/capability-audit.md` and record one of four verdicts:
+
+1. **Use** — run the existing tool as a separate program (topology
+   optimisation).
+2. **Wrap** — depend on the library and adapt its input and output (fatigue).
+3. **Build on** — use it as a component for one calculation (mesh geometry).
+4. **Build** — write it here, because nothing suitable exists, or because
+   adopting something would mean giving up a verification already held.
+
+Two rules qualify all four:
+
+- **Read the licence in the package metadata, not the README badge.** A
+  surrogate-optimisation library was found advertising Apache-2.0 in its
+  README while declaring PolyForm Noncommercial in `setup.py`. Depending on it
+  would have made this project non-commercial, which the roadmap rules out by
+  name.
+- **Verification never transfers.** See below.
 
 **Verification does not transfer.** A number from a library gets the same
 benchmark test as a number written here. Reuse saves writing the code; it does
-not save proving the answer.
+not save proving the answer. An external tool is a calculation provider, never
+an authority: "beso reports this topology as optimal" is not the same claim as
+"OpenOptima verified this design", and the second one is the only one this
+software may make.
 
 ## Consequences
 

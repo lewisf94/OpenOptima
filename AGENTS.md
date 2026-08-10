@@ -53,12 +53,23 @@ These are not style preferences. Breaking one silently corrupts results.
   FRD file, a mesh or a solver log.
 - gmsh has process-global state. Always go through `geometry.gmsh_session`.
   Parallelism is by process, never by thread.
-- **Check for an existing library before writing a self-contained calculation.**
-  Topology optimisation, fatigue curves and printability geometry are already
-  solved by maintained, licence-compatible libraries; do not write them again.
-  `docs/adr/0009-build-versus-reuse.md` lists what to reuse, what genuinely does
-  not exist, and the test for deciding. Reuse saves writing the code, never the
-  verification — a library's number faces the same benchmark as ours.
+- **OpenOptima is the control system, not the calculator.** It owns CAD
+  parameterisation, the design space, region tracking, orchestration, failure
+  classification, constraint handling, verification, provenance and the
+  presentation of a result. Established engineering mathematics belongs to
+  established tools: CalculiX solves, Gmsh meshes, pymoo searches, beso does
+  topology, pyLife does fatigue, trimesh does mesh geometry.
+- **Search before you build any non-trivial engineering capability.** Audit it
+  in `docs/capability-audit.md` first — every roadmap item has an entry, and a
+  new one needs an entry before it needs code. Verdicts are use, wrap, build,
+  or blocked. Two rules inside that:
+  - **Read the licence in the package metadata, not the README badge.** One
+    surrogate-optimisation library advertises Apache-2.0 and ships
+    PolyForm Noncommercial. Using it would have made this project
+    non-commercial.
+  - **Reuse saves writing the code, never the verification.** A library's
+    number faces the same published benchmark as ours, and inherits nothing
+    by being popular or maintained.
 - Anything that can change a number belongs in the evaluation hash
   (`evaluation/cache.py`). If you add a physics setting, add it to
   `Project.setup_digest()` in the same commit, or stale results will be served
@@ -160,6 +171,19 @@ by review. They are documented in `docs/adr/` and guarded by tests.
    imported lazily. `openoptima-app --self-check` imports them all and the
    Windows build script fails the build on it. Add anything new and lazily
    imported to `launcher._self_check_steps`.
+
+10. **CalculiX writes stress in a different coordinate system depending on
+    which file you read.** With an `*ORIENTATION` attached, `*EL PRINT` writes
+    the `.dat` file in the material's local axes, while `*EL FILE` writes the
+    `.frd` file in global axes. Measured on one element, isotropic material,
+    orientation rotated 45 degrees, uniaxial tension of 100 MPa: the `.dat`
+    file reports `50, 50, 0, -50` and the `.frd` file reports `100, 0, 0, 0`
+    for the identical state. Both are correct in their own frame. We read the
+    `.frd`, so anything that needs material axes — every directional failure
+    criterion — must rotate the tensor itself. Assuming the two agree is a
+    45-degree error that looks entirely plausible and changes which direction
+    a printed part appears weakest in. `results/directional.py` does the
+    rotation; `tests/unit/test_failure_criteria.py` guards it.
 
 ## What an agent must not decide alone
 
