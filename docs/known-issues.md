@@ -47,6 +47,22 @@ evaluates as feasible with some margin (0.37 mm deflection, factor of safety
 has room to explore both lighter and stronger designs. The minimum/maximum
 range was left unchanged.
 
+## Windows: console windows flashing during a run — FIXED
+
+**Status:** fixed.
+
+CalculiX is a console program, so Windows gave every single run its own black
+console window. A study runs thousands of them, so the user got windows
+flashing over whatever else they were doing for the entire run — and each one
+left behind a `conhost.exe` process that outlived the solver. One verification
+suite left 79 of them running.
+
+Nothing ever read those consoles: the solver's output is already captured to
+files in the run directory. They are now suppressed, for the solver itself, for
+the version check on the setup screen, and for the cleanup command used when a
+solver has to be killed. Verified: the same suite that left 79 now leaves none,
+and produces identical results.
+
 ## Windows app: every optimisation failed the moment you pressed Start — FIXED
 
 **Status:** fixed. Reported from a real installed build.

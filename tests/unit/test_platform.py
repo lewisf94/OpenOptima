@@ -139,3 +139,34 @@ class TestPathHandling:
         source = Path(runner.__file__).read_text(encoding="utf-8")
         assert "shell=True" not in source
         assert 'f"{executable}' not in source
+
+
+class TestNoConsoleWindows:
+    """The solver must not open a console window on Windows.
+
+    CalculiX is a console program, so without CREATE_NO_WINDOW every single run
+    gets one. A study runs thousands: the user gets black windows flashing over
+    whatever else they are doing for the whole run, and each one leaves a
+    `conhost.exe` behind that outlives the solver. One verification suite left
+    79 of them. Nothing ever reads that console -- the solver's output is
+    already captured to files.
+    """
+
+    def test_the_solver_is_started_without_a_console(self, monkeypatch):
+        monkeypatch.setattr(runner, "WINDOWS", True)
+        flags = runner._process_isolation_kwargs()["creationflags"]
+        assert flags & subprocess.CREATE_NO_WINDOW, "a study would flash thousands of windows"
+        assert flags & subprocess.CREATE_NEW_PROCESS_GROUP, (
+            "the solver must stay killable as a group"
+        )
+
+    def test_asking_the_solver_its_version_opens_no_console(self, monkeypatch):
+        """This one runs on the setup screen, where a flash looks like a fault."""
+        monkeypatch.setattr(runner, "WINDOWS", True)
+        assert runner._no_window_kwargs()["creationflags"] == subprocess.CREATE_NO_WINDOW
+
+    def test_posix_uses_a_session_instead(self, monkeypatch):
+        """CREATE_NO_WINDOW does not exist off Windows and must not be passed."""
+        monkeypatch.setattr(runner, "WINDOWS", False)
+        assert runner._process_isolation_kwargs() == {"start_new_session": True}
+        assert runner._no_window_kwargs() == {}

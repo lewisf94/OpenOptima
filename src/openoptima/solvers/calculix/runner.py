@@ -237,6 +237,14 @@ def verify_executable(candidate: str | Path) -> tuple[bool, str]:
     return True, version
 
 
+def _no_window_kwargs() -> dict[str, Any]:
+    """Stop Windows opening a console for a short-lived helper process.
+
+    ``CREATE_NO_WINDOW`` only exists in the Windows build of ``subprocess``.
+    """
+    return {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
+
+
 def solver_version(executable: str) -> str:
     try:
         result = subprocess.run(  # noqa: S603 - fixed argument list
@@ -245,6 +253,7 @@ def solver_version(executable: str) -> str:
             text=True,
             timeout=30,
             check=False,
+            **_no_window_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -349,9 +358,17 @@ def _process_isolation_kwargs() -> dict[str, Any]:
     ``start_new_session`` is POSIX-only and raises on Windows, while
     ``CREATE_NEW_PROCESS_GROUP`` is only defined in the Windows build of
     ``subprocess``.
+
+    ``CREATE_NO_WINDOW`` matters more than it looks. CalculiX is a console
+    program, so without it Windows gives every single run a console window.
+    A study runs thousands of them: the user gets black windows flashing over
+    whatever else they are doing for the whole run, and each one leaves a
+    ``conhost.exe`` behind that outlives the solver -- one test suite left 79.
+    Nothing reads that console; the solver's output is already captured to
+    files.
     """
     if WINDOWS:
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
     return {"start_new_session": True}
 
 
@@ -399,6 +416,8 @@ def _terminate_windows(process: subprocess.Popen) -> None:
             capture_output=True,
             timeout=30,
             check=False,
+            # No console window: see _process_isolation_kwargs.
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
     try:
         process.wait(timeout=10)
