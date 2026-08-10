@@ -12,7 +12,6 @@ ever run one of the two.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from openoptima.domain.model import SolverSpecification
@@ -29,10 +28,6 @@ class TestProcessIsolation:
 
     def test_windows_uses_a_new_process_group(self, monkeypatch):
         monkeypatch.setattr(runner, "WINDOWS", True)
-        # CREATE_NEW_PROCESS_GROUP only exists in the Windows build of
-        # subprocess, so on other platforms supply it to prove the branch.
-        if not hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
-            monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, raising=False)
         kwargs = runner._process_isolation_kwargs()
         assert "creationflags" in kwargs
         assert "start_new_session" not in kwargs, (
@@ -155,15 +150,13 @@ class TestNoConsoleWindows:
     def test_the_solver_is_started_without_a_console(self, monkeypatch):
         monkeypatch.setattr(runner, "WINDOWS", True)
         flags = runner._process_isolation_kwargs()["creationflags"]
-        assert flags & subprocess.CREATE_NO_WINDOW, "a study would flash thousands of windows"
-        assert flags & subprocess.CREATE_NEW_PROCESS_GROUP, (
-            "the solver must stay killable as a group"
-        )
+        assert flags & runner.CREATE_NO_WINDOW, "a study would flash thousands of windows"
+        assert flags & runner.CREATE_NEW_PROCESS_GROUP, "the solver must stay killable as a group"
 
     def test_asking_the_solver_its_version_opens_no_console(self, monkeypatch):
         """This one runs on the setup screen, where a flash looks like a fault."""
         monkeypatch.setattr(runner, "WINDOWS", True)
-        assert runner._no_window_kwargs()["creationflags"] == subprocess.CREATE_NO_WINDOW
+        assert runner._no_window_kwargs()["creationflags"] == runner.CREATE_NO_WINDOW
 
     def test_posix_uses_a_session_instead(self, monkeypatch):
         """CREATE_NO_WINDOW does not exist off Windows and must not be passed."""

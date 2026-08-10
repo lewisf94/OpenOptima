@@ -237,12 +237,20 @@ def verify_executable(candidate: str | Path) -> tuple[bool, str]:
     return True, version
 
 
-def _no_window_kwargs() -> dict[str, Any]:
-    """Stop Windows opening a console for a short-lived helper process.
+#: Win32 process-creation flags. These attributes exist only in the Windows
+#: build of ``subprocess``, so they are resolved once here with their
+#: documented values as the fallback. Naming them unconditionally is what lets
+#: the Windows behaviour be tested on any platform -- and it must be tested,
+#: because getting it wrong is invisible to whoever is not on Windows. The
+#: fallback is the real constant's value, never 0: a silent 0 would disable
+#: the flag rather than fail, which is the defect this guards.
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
-    ``CREATE_NO_WINDOW`` only exists in the Windows build of ``subprocess``.
-    """
-    return {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
+
+def _no_window_kwargs() -> dict[str, Any]:
+    """Stop Windows opening a console for a short-lived helper process."""
+    return {"creationflags": CREATE_NO_WINDOW} if WINDOWS else {}
 
 
 def solver_version(executable: str) -> str:
@@ -356,8 +364,7 @@ def _process_isolation_kwargs() -> dict[str, Any]:
 
     The mechanism differs by platform and neither option exists on the other:
     ``start_new_session`` is POSIX-only and raises on Windows, while
-    ``CREATE_NEW_PROCESS_GROUP`` is only defined in the Windows build of
-    ``subprocess``.
+    ``CREATE_NEW_PROCESS_GROUP`` is Windows-only.
 
     ``CREATE_NO_WINDOW`` matters more than it looks. CalculiX is a console
     program, so without it Windows gives every single run a console window.
@@ -368,7 +375,7 @@ def _process_isolation_kwargs() -> dict[str, Any]:
     files.
     """
     if WINDOWS:
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+        return {"creationflags": CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW}
     return {"start_new_session": True}
 
 
@@ -417,7 +424,7 @@ def _terminate_windows(process: subprocess.Popen) -> None:
             timeout=30,
             check=False,
             # No console window: see _process_isolation_kwargs.
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=CREATE_NO_WINDOW,
         )
     try:
         process.wait(timeout=10)

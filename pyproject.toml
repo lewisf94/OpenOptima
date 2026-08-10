@@ -43,7 +43,12 @@ cadquery = ["cadquery>=2.4"]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",
-    "ruff>=0.5",
+    # Pinned to a range, not left open. `ruff check .` is a gate that has to
+    # mean the same thing on every machine: an open lower bound let one
+    # developer's older ruff pass a file that a newer one rejected, so `main`
+    # was green on Windows and red on Linux at the same commit. Widen this
+    # deliberately, after running the new version, never by accident.
+    "ruff>=0.15,<0.16",
     "mypy>=1.15",
     "types-PyYAML",
 ]

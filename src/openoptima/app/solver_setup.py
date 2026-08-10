@@ -147,10 +147,13 @@ def unsupported_reason() -> str:
 def _download(destination: Path, progress: ProgressCallback | None) -> None:
     digest = hashlib.sha256()
     received = 0
-    request = urllib.request.Request(DOWNLOAD_URL, headers={"User-Agent": "OpenOptima"})
+    # https only, and a pinned host: the URL is a module constant, never
+    # anything a project file or a page can influence. Both calls need the
+    # suppression -- newer ruff audits the Request as well as the urlopen.
+    request = urllib.request.Request(  # noqa: S310
+        DOWNLOAD_URL, headers={"User-Agent": "OpenOptima"}
+    )
     try:
-        # https only, and a pinned host: the URL is a module constant, never
-        # anything a project file or a page can influence.
         with (
             urllib.request.urlopen(request, timeout=120) as response,  # noqa: S310
             destination.open("wb") as handle,
