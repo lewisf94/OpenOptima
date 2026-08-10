@@ -47,6 +47,38 @@ evaluates as feasible with some margin (0.37 mm deflection, factor of safety
 has room to explore both lighter and stronger designs. The minimum/maximum
 range was left unchanged.
 
+## Windows app: every optimisation failed the moment you pressed Start — FIXED
+
+**Status:** fixed. Reported from a real installed build.
+
+**What went wrong.** The app installed, opened, found its solver, checked a
+part — and then failed instantly on every run with:
+
+```
+PackageNotFoundError: No package metadata was found for moocore
+```
+
+Nothing was wrong with the engineering. The optimiser could not be *loaded*.
+pymoo imports a package called moocore to measure how good a set of trade-offs
+is, and moocore asks Python what version of itself is installed. The tool that
+packages OpenOptima into a Windows program does not include the small files
+that answer that question unless it is told to, so the answer was "there is no
+such package" and the import died.
+
+**Why nobody caught it.** The build already started the packaged app and
+checked it answered, precisely to catch this class of problem. But starting the
+app does not load the optimiser — that only happens when somebody presses
+Start. So the build passed, and the first person to find out was a user.
+
+**The fix, and the wider fix.** The packaging now includes the metadata. More
+importantly, `OpenOptima.exe --self-check` imports *everything* the app loads
+late — the optimiser, the mesher, the solver adapter, the geometry engine — and
+the Windows build fails if any of it is missing. Anything else added later that
+loads on demand must be added to that list; see `packaging/README.md`.
+
+Verified by running a real optimisation in the installed application: 22
+designs evaluated, 3 on the final trade-off menu.
+
 ## Windows installer: CalculiX was a manual prerequisite — FIXED
 
 **Status:** fixed. First-run setup added to the desktop app.

@@ -148,6 +148,18 @@ by review. They are documented in `docs/adr/` and guarded by tests.
    `/api/alive`; see `app/launcher.py::_supervise`. A brand-new profile also
    makes Edge run its welcome flow in an ordinary browser window, so the
    profile is seeded as already set up before first launch.
+9. **A frozen build has no package metadata unless you ask for it.** Some
+   libraries call `importlib.metadata.version()` on themselves at import time.
+   PyInstaller does not bundle `.dist-info` folders, so that raises
+   `PackageNotFoundError`. This shipped: pymoo imports moocore for its
+   hypervolume indicator, moocore looks up its own version, and every
+   optimisation died the instant the user pressed Start — while the app itself
+   started perfectly. Use `copy_metadata(..., recursive=True)` in the spec.
+   The wider lesson is that **starting the server proves almost nothing**: the
+   optimiser, the mesher, the solver adapter and the geometry provider are all
+   imported lazily. `openoptima-app --self-check` imports them all and the
+   Windows build script fails the build on it. Add anything new and lazily
+   imported to `launcher._self_check_steps`.
 
 ## What an agent must not decide alone
 

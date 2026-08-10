@@ -468,6 +468,42 @@ class TestSeedingTheBrowserProfile:
         assert json.loads((profile / "Local State").read_text(encoding="utf-8")) == {"mine": True}
 
 
+class TestSelfCheck:
+    """Proving the parts that are only imported once the app is really used.
+
+    Regression tests for a build that shipped with the optimiser unable to
+    import at all. pymoo needs moocore, moocore asks importlib.metadata what
+    version of itself is installed, and PyInstaller does not bundle the
+    .dist-info folders that answer unless told to. Nothing failed until the
+    user pressed Start, and the build's smoke test -- which only asked the
+    server for its status -- walked straight past it.
+    """
+
+    def test_it_covers_the_optimiser(self):
+        """The import that actually broke must be one of the things checked."""
+        labels = [label for label, _ in launcher._self_check_steps()]
+        assert "optimiser" in labels
+        assert "mesher" in labels
+        assert "solver adapter" in labels
+
+    def test_it_passes_in_a_working_environment(self, capsys):
+        pytest.importorskip("pymoo")
+        pytest.importorskip("gmsh")
+        assert launcher.self_check() == 0
+        assert "Everything the app needs" in capsys.readouterr().out
+
+    def test_a_broken_import_fails_loudly(self, monkeypatch, capsys):
+        def explode():
+            raise ImportError("no package metadata was found for moocore")
+
+        monkeypatch.setattr(launcher, "_self_check_steps", lambda: [("optimiser", explode)])
+
+        assert launcher.self_check() == 1
+        output = capsys.readouterr().out
+        assert "FAIL" in output
+        assert "moocore" in output, "the reason has to reach whoever is reading the build log"
+
+
 class TestWindowlessLogging:
     """The frozen app has no console, so printing has to go somewhere.
 

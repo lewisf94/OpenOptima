@@ -31,8 +31,35 @@ Write-Host "== Smoke-testing the built application =="
 $exe = "dist\OpenOptima\OpenOptima.exe"
 if (-not (Test-Path $exe)) { throw "build produced no executable" }
 
-# Start it, confirm it answers, then stop it. A build that starts and then dies
-# on the first real request is worse than one that fails to build.
+# Everything the app imports lazily. Asking the server for its status is not
+# enough on its own: the optimiser, the mesher, the solver adapter and the
+# geometry provider are all imported the first time somebody actually uses
+# them, so a build missing one of those starts perfectly and then dies in the
+# middle of a study.
+#
+# This is not hypothetical. A build shipped with the optimiser unable to import
+# at all -- pymoo needs moocore, moocore asks importlib.metadata for its own
+# version, and PyInstaller does not bundle .dist-info folders unless told to.
+# The status check walked straight past it. See copy_metadata in the spec.
+#
+# Run with Start-Process -Wait, not `&`. The executable is built for the
+# Windows GUI subsystem, so a shell does not wait for it and never sees its
+# exit code. For the same reason it cannot print to this console: it has no
+# stdout at all, and writes to its log instead. That is what gets read back.
+Write-Host "-- runtime imports"
+$checkHome = Join-Path $env:TEMP "openoptima-build-check"
+Remove-Item -Recurse -Force $checkHome -ErrorAction SilentlyContinue
+$env:OPENOPTIMA_CONFIG_DIR = $checkHome
+$check = Start-Process -FilePath $exe -ArgumentList "--self-check" -PassThru -Wait
+Get-Content (Join-Path $checkHome "openoptima.log") -ErrorAction SilentlyContinue |
+    ForEach-Object { Write-Host ("   " + $_) }
+Remove-Item Env:\OPENOPTIMA_CONFIG_DIR -ErrorAction SilentlyContinue
+if ($check.ExitCode -ne 0) {
+    throw "the frozen build cannot import everything it needs at runtime; see above"
+}
+
+# Then start it and confirm it actually answers.
+Write-Host "-- serving"
 $proc = Start-Process -FilePath $exe -ArgumentList "--no-browser","--port","8791" -PassThru
 Start-Sleep -Seconds 12
 try {

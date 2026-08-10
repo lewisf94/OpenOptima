@@ -50,20 +50,39 @@ what the Start menu shows, the favicon is what the running window shows.
 1. Creates a clean virtual environment.
 2. Runs the unit tests, and refuses to build if they fail.
 3. Freezes the app with PyInstaller.
-4. **Starts the built executable and calls its API**, failing the build if gmsh
+4. **Runs `OpenOptima.exe --self-check`**, which imports everything the app
+   only reaches once somebody actually uses it, and fails the build if any of
+   it is missing.
+5. **Starts the built executable and calls its API**, failing the build if gmsh
    cannot be loaded from inside the bundle.
 
-Step 4 matters more than it sounds. A frozen build that compiles cleanly and
-then dies on first use is the normal failure mode here, and it is very hard to
-diagnose on a user's machine. Two problems were found exactly this way during
-development:
+Steps 4 and 5 matter more than they sound. A frozen build that compiles cleanly
+and then dies on first use is the normal failure mode here, and it is very hard
+to diagnose on a user's machine. Three problems were found exactly this way:
 
 - pointing the spec at `launcher.py` produced a build that failed instantly with
   "attempted relative import with no known parent package", because PyInstaller
   runs its entry script as `__main__` with no package context. Hence
   `packaging/entry.py`;
 - gmsh's native library is not discovered by following imports, so it has to be
-  collected explicitly in the spec.
+  collected explicitly in the spec;
+- **the optimiser could not import at all**, and step 5 did not notice, because
+  starting the server does not touch it. pymoo imports moocore, moocore asks
+  `importlib.metadata` for its own version, and PyInstaller does not bundle the
+  `.dist-info` folders that answer unless told to — so every optimisation died
+  the moment the user pressed Start. Fixed with `copy_metadata` in the spec,
+  and step 4 exists so it cannot happen again silently.
+
+### Adding to the self-check
+
+`launcher._self_check_steps` lists what gets imported. **Anything imported
+lazily belongs in it** — that is precisely the set of things a frozen build can
+be missing without anybody noticing until a user hits it.
+
+The check has to be started with `Start-Process -Wait`, not `&`. The executable
+is built for the Windows GUI subsystem, so a shell neither waits for it nor
+sees its exit code, and it has no stdout to print to. It writes to its log
+instead, and the build script reads that back.
 
 ## Size
 

@@ -18,13 +18,31 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
 
 ROOT = Path(SPECPATH).parent
 WINDOWS = sys.platform == "win32"
 
 datas = [(str(ROOT / "src" / "openoptima" / "app" / "static"), "openoptima/app/static")]
 datas += collect_data_files("gmsh")
+
+# Some packages ask what version of themselves is installed, at import time,
+# via importlib.metadata. PyInstaller does not bundle the .dist-info folders
+# that answers that question, so the import raises PackageNotFoundError and the
+# whole optimiser falls over.
+#
+# This shipped once. moocore, which pymoo imports for its hypervolume
+# indicator, does exactly this -- and because the failure happens on the first
+# real optimisation rather than at startup, the build's own smoke test walked
+# straight past it. That test now imports the optimiser too; see
+# packaging/build_windows.ps1.
+#
+# recursive=True because a dependency of a dependency can do the same thing.
+for package in ("moocore", "pymoo"):
+    try:
+        datas += copy_metadata(package, recursive=True)
+    except Exception:  # noqa: BLE001 - an optional extra that is not installed
+        pass
 
 # Bundled examples, so a new user has something to open immediately.
 for example in (ROOT / "examples").glob("*/project.yaml"):

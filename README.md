@@ -162,18 +162,28 @@ direction the part was built in. Verified to within 0.14% — see
 
 ### Windows: the app
 
-To install:
+1. Download `OpenOptima-setup.exe` and run it. No administrator password is
+   needed — it installs into your own account.
+2. Press the Windows key, type `openoptima`, press Enter. Right-click it in
+   the Start menu to pin it to the taskbar.
 
-1. Download the installer.
-2. Run the installer.
-3. Open OpenOptima from the Start menu.
+OpenOptima opens in **its own window**, with its own taskbar button — not a
+browser tab. It shows four steps: choose a part, check the setup, run it, read
+the results. You need no terminal and no Python installation. Closing the
+window shuts it down.
 
-OpenOptima opens in your browser and shows four steps: choose a part,
-check the setup, run it, read the results. You do not need a terminal or
-a Python installation.
+**The first time, it will offer to set up the stress solver.** OpenOptima
+builds the part and meshes it itself, but the structural calculation is done by
+CalculiX, a separate free program. If you do not have it, the app offers to
+download it for you — about 26 MB, under a minute, no administrator password —
+or to use a copy you already have. Either way it runs the program once to check
+it works before accepting it, and remembers the choice, so this is a one-off.
 
-To build the installer yourself, run `packaging\build_windows.ps1`. See
-[`packaging/README.md`](packaging/README.md).
+If the app ever fails to start, it says where to find its log:
+`%LOCALAPPDATA%\OpenOptima\openoptima.log`.
+
+To build the installer yourself, run `packaging\build_windows.ps1` and then
+`iscc packaging\installer.iss`. See [`packaging/README.md`](packaging/README.md).
 
 ### Everything else: pip
 
@@ -188,6 +198,11 @@ brew install calculix                  # macOS
 # OpenOptima
 pip install -e ".[optimise]"
 ```
+
+On Windows you do not have to find CalculiX yourself: run `openoptima-app` and
+it will offer to install one. If you already have a copy anywhere, point at it
+with the `OPENOPTIMA_CCX` environment variable or `solver.executable` in the
+project file.
 
 Gmsh comes from PyPI and includes its own OpenCASCADE geometry engine. You
 do not need a separate CAD installation. CadQuery is optional
@@ -467,6 +482,7 @@ Each defect now has a test that fails without its fix.
 | [**Plain-English guide**](docs/plain-english-guide.md) | **start here** — no jargon, explains every term |
 | [Engineering assumptions](docs/engineering-assumptions.md) | **read before trusting a number** |
 | [Verification plan](docs/verification-plan.md) | every benchmark, tolerance and measured value |
+| [Known issues](docs/known-issues.md) | defects found, and what was done about each |
 | [Architecture](docs/architecture.md) | how the pieces fit, and why |
 | [Roadmap](docs/roadmap.md) | what is next, including topology optimisation |
 | [Agent backlog](docs/agent-backlog.md) | scoped work, each with a definition of done |

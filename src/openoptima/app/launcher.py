@@ -32,6 +32,7 @@ import traceback
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from ..config import settings_directory
 from .server import HOST, AppServer, create_server, find_free_port
@@ -221,6 +222,81 @@ def open_window(url: str) -> subprocess.Popen[bytes] | None:
         return None
 
 
+#: Everything the application only reaches once somebody actually uses it.
+#: Each entry is a label and something to run that must not raise.
+def _self_check_steps() -> list[tuple[str, Any]]:
+    def geometry() -> object:
+        from ..geometry.occ.provider import OccGeometryProvider
+
+        return OccGeometryProvider
+
+    def solver() -> object:
+        from ..domain.model import SolverSpecification
+        from ..solvers import create_solver
+
+        return create_solver(SolverSpecification(name="calculix"))
+
+    def optimiser() -> object:
+        # The exact chain that shipped broken: pymoo imports moocore for its
+        # hypervolume indicator, and moocore asks importlib.metadata what
+        # version of itself is installed. A frozen build without the .dist-info
+        # folder raises PackageNotFoundError here -- and not before.
+        from pymoo.algorithms.moo.nsga2 import NSGA2
+        from pymoo.operators.sampling.lhs import LHS
+        from pymoo.optimize import minimize
+        from pymoo.termination.default import DefaultMultiObjectiveTermination
+
+        return (NSGA2, LHS, minimize, DefaultMultiObjectiveTermination)
+
+    def mesher() -> object:
+        import gmsh
+
+        return gmsh
+
+    def problem() -> object:
+        from ..optimisation.problem import StructuralProblem
+
+        return StructuralProblem
+
+    return [
+        ("geometry", geometry),
+        ("mesher", mesher),
+        ("solver adapter", solver),
+        ("optimiser", optimiser),
+        ("optimiser problem", problem),
+    ]
+
+
+def self_check() -> int:
+    """Prove the parts that are only imported once the app is really working.
+
+    A frozen build that starts and then dies on first use is the normal failure
+    mode for this application, and it is very hard to diagnose on somebody
+    else's machine. Starting the server proves almost nothing: the optimiser,
+    the mesher, the solver adapter and the geometry provider are all imported
+    lazily, so without this the first person to find out one is missing is a
+    user, an hour into a study.
+
+    Exactly that happened. The build shipped with the optimiser unable to
+    import, and the smoke test -- which only asked the server for its status --
+    walked straight past it.
+    """
+    failures = 0
+    for label, step in _self_check_steps():
+        try:
+            step()
+        except Exception as exc:
+            failures += 1
+            print(f"FAIL  {label}: {type(exc).__name__}: {exc}")
+        else:
+            print(f"ok    {label}")
+    if failures:
+        print(f"\n{failures} of {len(_self_check_steps())} checks failed.")
+        return 1
+    print("\nEverything the app needs at runtime imports correctly.")
+    return 0
+
+
 def default_root() -> Path:
     """Where to look for parts.
 
@@ -332,7 +408,15 @@ def _run(argv: list[str] | None, *, windowless: bool = False) -> int:
         action="store_true",
         help="open in the default browser instead of its own window",
     )
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="check that everything needed at runtime can be imported, then exit",
+    )
     args = parser.parse_args(argv)
+
+    if args.self_check:
+        return self_check()
 
     root = Path(args.root).expanduser().resolve() if args.root else default_root()
     port = args.port or find_free_port()
