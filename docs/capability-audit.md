@@ -101,6 +101,39 @@ project owner's: run in a directory with no spaces in its path; carry a local
 patched copy under the LGPL; or fix it upstream. Running in a space-free
 directory works as an immediate measure whichever is chosen.
 
+### 2D analysis and 2D topology optimisation — Build (and the limit is ours)
+
+Analysing a part as a flat shape rather than a solid body.
+
+**beso already does both.** Its element handling covers shells (`S3`, `S6`,
+`S4`, `S8R` and more), plane stress (`CPS*`), plane strain (`CPE*`),
+axisymmetric (`CAX*`) and membranes, alongside every 3D solid type. So a 2D
+topology run needs nothing added to beso.
+
+**OpenOptima cannot currently produce a 2D model at all.** The mesher asks gmsh
+only for three-dimensional elements and accepts only `C3D4` and `C3D10`
+tetrahedra. Everything downstream — the deck writer, the region resolver, the
+load application — assumes a solid body with faces.
+
+So this is our work, not a reuse question. What it needs:
+
+- a mesher path that produces surface elements;
+- **a decision the user must make and OpenOptima must not guess**: whether the
+  part is *plane stress* (a thin plate, free to thin down under load) or
+  *plane strain* (a slice through something long, held by the material either
+  side of it). The same shape and load give different answers, and picking
+  wrongly is silent;
+- regions resolved from edges rather than faces;
+- verification benchmarks of its own. A 3D benchmark proves nothing about 2D.
+
+**Why it is worth doing.** A 2D solve is far cheaper than a 3D one, so it
+suits exploring a shape before committing to a full run. Many real parts are
+genuinely two-dimensional as well: anything cut from plate, and any extruded
+profile of constant section.
+
+**Verdict: build, and only after 3D topology is integrated and verified.**
+Doing 2D first would mean two unproven things at once.
+
 ### Fatigue — Wrap
 
 Failing after many load cycles, at a stress the part would survive if applied

@@ -406,8 +406,32 @@ about what a printer can make.
   stress measure, its mesh quality, and its provenance (the record of
   what produced it). Any feature that hides that information makes
   OpenOptima worse, not better.
-- **A non-commercial licence.** That would make this project
-  source-available, not open source.
+- **A licence that bans business use.** This one needs explaining,
+  because the words are misleading.
+
+  OpenOptima is free, and always will be. "Open source" does not mean
+  "not for business use" — it means the opposite. An open-source licence
+  lets *anybody* use the software, including a company using it to design
+  a part it sells. Permitting that is part of the definition. GPL-3.0,
+  the licence this project uses, guarantees four freedoms to everyone: to
+  run it, to read how it works, to change it, and to pass it on. It never
+  asks who you are or what you are using it for.
+
+  Some licences do add that restriction — "you may read this code but you
+  may not make money with it". PolyForm Noncommercial is one. Software
+  under those terms is called **source-available**: you can see the
+  source, but it is not open source, because it discriminates on who may
+  use it.
+
+  OpenOptima will not adopt one, and — this is the part that bites in
+  practice — **it cannot depend on a library that uses one either.**
+  GPL-3.0 requires us to pass every freedom on to whoever receives the
+  software. We cannot pass on a freedom a dependency has taken away. One
+  such library has already been refused for this reason; see
+  [`capability-audit.md`](capability-audit.md).
+
+  Free to use and open source are both true here. Neither of them means
+  non-commercial.
 
 ## Where help is most valuable
 
