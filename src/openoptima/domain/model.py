@@ -309,3 +309,10 @@ class AnalysisModel:
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     element_order: int = 2
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
+    #: Which failure criterion to use for a material with directional
+    #: strengths: ``hoffman`` or ``max_stress``. Ignored for an isotropic
+    #: material, which uses its single allowable stress instead. Hoffman is
+    #: the better answer where it applies, but it cannot describe a material
+    #: whose weakest direction is under half its strongest -- and it says so
+    #: rather than guessing. See ``domain/failure_criteria.py``.
+    failure_criterion: str = "hoffman"

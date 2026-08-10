@@ -26,6 +26,11 @@ class LoadCaseFields:
     displacement: np.ndarray  # (N, 3) mm
     von_mises: np.ndarray  # (N,) MPa
     reaction_force: tuple[float, float, float]  # N
+    #: Full stress tensor, (N, 6) as sxx, syy, szz, sxy, syz, szx, in MPa and
+    #: in the model's **global** axes. Von Mises throws away the directions,
+    #: which is all an isotropic material needs; a directional material needs
+    #: them back, so they are kept. None when the solver produced no stress.
+    stress_tensor: np.ndarray | None = None
     strain_energy: float | None = None  # mJ
     #: Buckling load factors, lowest first. Empty when buckling was not run.
     #: Negative values mean the load would have to reverse to buckle it.

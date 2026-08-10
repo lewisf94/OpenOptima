@@ -79,6 +79,9 @@ class Project:
     solver: SolverSpecification = field(default_factory=SolverSpecification)
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
+    #: Failure criterion for a material with directional strengths. Has no
+    #: effect on an isotropic material, which uses its allowable stress.
+    failure_criterion: str = "hoffman"
     preferences: PreferenceModel = field(default_factory=PreferenceModel)
     optimisation: OptimisationSettings = field(default_factory=OptimisationSettings)
     unit_system_name: str = "mm_N_MPa_t"
@@ -129,6 +132,7 @@ class Project:
             stress_evaluation=self.stress_evaluation,
             element_order=self.mesh.element_order,
             buckling=self.buckling,
+            failure_criterion=self.failure_criterion,
         )
 
     def objective_metrics(self) -> tuple[str, ...]:
@@ -215,6 +219,10 @@ class Project:
                 "slenderness_limit": self.buckling.slenderness_limit,
             },
             "solver": {"name": self.solver.name},
+            # Changing the failure criterion changes the reported factor of
+            # safety, so a result computed under the old one is not a cache
+            # hit for the new one.
+            "failure_criterion": self.failure_criterion,
         }
         text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]

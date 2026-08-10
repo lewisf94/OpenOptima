@@ -19,12 +19,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..domain.failure_criteria import criterion_for
 from ..domain.model import AnalysisModel, Material, StressEvaluation
+from ..domain.orthotropic import InadmissibleMaterial, OrthotropicMaterial
 from ..domain.regions import RegionMap
 from ..domain.results import LoadCaseResult
 from ..meshing.base import MeshData
 from ..solvers.base import AnalysisResults, LoadCaseFields
 from .buckling_check import check_buckling_plausibility
+from .directional import DirectionalResult, directional_margin
 
 
 @dataclass(frozen=True)
@@ -145,6 +148,60 @@ def load_case_metrics(
     )
 
 
+def directional_margins(
+    model: AnalysisModel,
+    results: AnalysisResults,
+    mesh: MeshData,
+    regions: RegionMap,
+    evaluation: StressEvaluation,
+) -> tuple[dict[str, DirectionalResult], list[str]]:
+    """Factor of safety per load case for a material with directional strength.
+
+    Returns an empty result, and a warning saying why, in every case where the
+    answer cannot be trusted: no directional strengths given, no stress tensor
+    from the solver, or a criterion that cannot describe this material. None of
+    those is guessed at.
+    """
+    material = model.material
+    if not isinstance(material, OrthotropicMaterial):
+        return {}, [
+            "this material has no allowable stress and is not a directional "
+            "material, so no factor of safety can be computed. Stresses and "
+            "displacements are unaffected."
+        ]
+    if material.strength is None:
+        return {}, [
+            "this material is stronger in some directions than others, so a "
+            "single factor of safety cannot be computed from von Mises stress "
+            "-- it assumes equal strength in every direction. Stresses and "
+            "displacements below are correct. Supply directional strengths to "
+            "get a factor of safety."
+        ]
+
+    try:
+        criterion = criterion_for(model.failure_criterion, material.strength)
+    except InadmissibleMaterial as exc:
+        # The criterion cannot bound this material. Refused rather than
+        # reported, because the number it would return is an unbounded margin
+        # in the unsafe direction -- see domain/failure_criteria.py.
+        return {}, [f"no factor of safety: {exc}"]
+
+    margins: dict[str, DirectionalResult] = {}
+    warnings: list[str] = []
+    for fields in results.load_cases:
+        if fields.stress_tensor is None:
+            warnings.append(
+                f"load case {fields.load_case_id!r} produced no stress tensor, "
+                f"so no factor of safety could be computed for it"
+            )
+            continue
+        mask = excluded_node_mask(mesh, regions, evaluation, fields.node_tags)
+        margins[fields.load_case_id] = directional_margin(
+            criterion, material, fields.stress_tensor, evaluation, mask
+        )
+    return margins, warnings
+
+
 def collect_metrics(
     results: AnalysisResults,
     model: AnalysisModel,
@@ -184,21 +241,17 @@ def collect_metrics(
 
     # A directional material has no single allowable stress, and von Mises is
     # the wrong failure measure for one: it assumes equal strength in every
-    # direction, which is exactly what such a material is not. Reporting a
-    # factor of safety from it would look ordinary and be wrong in the unsafe
-    # direction for a printed part, whose weak through-layer direction is the
-    # one that usually governs. So it is withheld rather than guessed at, and
-    # the reason is said plainly.
+    # direction, which is exactly what such a material is not. Where
+    # directional strengths were supplied, a proper criterion answers it
+    # instead. Where they were not, the factor of safety is withheld rather
+    # than guessed at, and the reason is said plainly.
     allowable: float | None = getattr(model.material, "allowable_stress", None)
+    directional: dict[str, DirectionalResult] = {}
     if allowable is None:
-        warnings.append(
-            "this material is stronger in some directions than others, so a "
-            "single factor of safety cannot be computed from von Mises stress "
-            "-- it assumes equal strength in every direction. Stresses and "
-            "displacements below are correct; the factor of safety is "
-            "withheld until directional strengths and a failure criterion "
-            "are supplied."
+        directional, directional_warnings = directional_margins(
+            model, results, mesh, regions, model.stress_evaluation
         )
+        warnings.extend(directional_warnings)
 
     # Buckling: the governing case is the one with the *lowest* factor, and a
     # case with no positive factor simply does not buckle under its load, so it
@@ -233,6 +286,17 @@ def collect_metrics(
     }
     if factor_of_safety is not None:
         metrics["factor_of_safety"] = factor_of_safety
+    elif directional:
+        # Enveloped like everything else: the governing case is the one with
+        # the least margin left, never an average across cases.
+        metrics["factor_of_safety"] = min(r.factor_of_safety for r in directional.values())
+        metrics["failure_index"] = max(r.failure_index for r in directional.values())
+        metrics["failure_index_raw_max"] = max(
+            r.failure_index_raw_max for r in directional.values()
+        )
+        for case_id, result in directional.items():
+            metrics[f"factor_of_safety.{case_id}"] = result.factor_of_safety
+            metrics[f"failure_index.{case_id}"] = result.failure_index
 
     if worst_energy is not None:
         metrics["strain_energy_mj"] = worst_energy

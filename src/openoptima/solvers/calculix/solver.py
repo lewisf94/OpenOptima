@@ -106,8 +106,10 @@ class CalculiXSolver:
                         f"stress block for {load_case.id!r} has {stress.shape[1]} "
                         f"components, expected 6",
                     )
-                von_mises = von_mises_from_tensor(stress[:, :6])
+                tensor = stress[:, :6]
+                von_mises = von_mises_from_tensor(tensor)
             else:
+                tensor = None
                 von_mises = np.zeros(len(node_tags))
                 warnings.append(f"no stress output for load case {load_case.id!r}")
 
@@ -146,6 +148,7 @@ class CalculiXSolver:
                     node_tags=node_tags,
                     displacement=displacement,
                     von_mises=von_mises,
+                    stress_tensor=tensor,
                     reaction_force=reaction,
                     strain_energy=strain_energies.get(static_step_of(index)),
                     buckling_factors=factors,
