@@ -226,6 +226,26 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     design that cannot be reproduced from its own inputs cannot be defended,
     cached or verified.
 
+12. **A shape made of triangles has no curve to put a midside node on.** For
+    real CAD, `Mesh.SecondOrderLinear = 0` is right: it pushes each midside node
+    onto the true surface, so a fillet is meshed as a curve rather than a set of
+    flat facets. For a shape that arrived as an STL there *is* no true surface —
+    the triangles are the surface — and gmsh pushes the node onto its own
+    faceted stand-in instead. Measured on a real topology result: 6 of 2060
+    elements came out inside out, minimum scaled Jacobian **−0.2893**. Refining
+    to 4267 elements did not fix it. Straight midsides gave **+0.0851** with
+    none inverted and the identical volume. `meshing/sources.py` decides this
+    per route via `Loaded.curved_midsides`; do not "improve" the discrete path
+    by turning curvature back on.
+
+    Two more things about that route, both found the same way. gmsh splits one
+    flat face into several patches — the top face of a real result arrived as
+    five — so a selector asking for one face finds five equal candidates and
+    stops; `regions/discrete.py` merges touching coplanar patches first. And a
+    round face must be fitted to the **corner points**, not to the middles of
+    the triangles: the middles sit inside the true circle, and a 3.000 mm hole
+    fitted from them measures 2.967 mm. That is trap 3 again in a new guise.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

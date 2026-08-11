@@ -47,24 +47,49 @@ you the best designs it found, and what each one costs you.
 That loop is the core of OpenOptima. Everything else in this project makes
 that loop reliable, or helps you choose between the answers it gives you.
 
-### What it does not do: invent a shape
+### The main mode: better dimensions for a shape you describe
 
-OpenOptima changes the **dimensions** of a shape you describe. It does not
-change the shape itself. If you describe a rectangular arm with five
-dimensions, you get a rectangular arm with better dimensions. You never
-get a different kind of arm.
+OpenOptima's main mode changes the **dimensions** of a shape you describe.
+It does not change the shape itself. If you describe a rectangular arm with
+five dimensions, you get a rectangular arm with better dimensions. You
+never get a different kind of arm.
 
-This matters because of what people often expect. The organic,
-bone-like shapes you may have seen from "generative design" come from a
-different technique, called **topology optimisation**. That method starts
-from a solid block and deletes every part of it that is not carrying its
-weight, so it invents the shape rather than sizing one. OpenOptima does
-not do this yet. It is planned, as a second mode you would choose instead
-of this one — see [`roadmap.md`](roadmap.md).
+This matters because of what people often expect. The organic, bone-like
+shapes you may have seen from "generative design" come from a different
+technique, called **topology optimisation**. That method starts from a
+solid block and deletes every part of it that is not carrying its weight,
+so it invents the shape rather than sizing one.
 
-So the question OpenOptima answers today is *"I have a shape, what are the
-best dimensions for it?"* — not *"I have a problem, what shape should it
-be?"*
+### The second mode: let it invent the shape
+
+OpenOptima can do that too, as a separate command — `openoptima topology`.
+You give it a block of space the part may occupy, say how much of the
+material to keep, and it removes the rest.
+
+**Read this before you use it.** What comes back is a *proposal*, not a
+finished part:
+
+- **It is a shape, not an answer.** Deleting material makes a part weaker,
+  and how much weaker is not something the process itself tells you. You
+  have to analyse the shape afterwards. Add `--analyse` and it does exactly
+  that, and reports a real stress, deflection and factor of safety.
+- **It very often fails.** On the test case in this repository, the shape
+  that came back kept 49.7% of the material — and its factor of safety fell
+  from 1.15 to **0.63**. That means it breaks. Nothing in the topology run
+  says so, because it was asked for stiffness at a weight target and
+  nobody asked it about stress.
+- **It is blocky, and gets smoothed.** The raw result follows the edges of
+  the pieces the block was chopped into, like stairs. Those stairs are
+  smoothed off, which removes a little more material — measured at 0.3% on
+  the test case, and reported every time.
+- **Nobody can make it directly.** It comes out as a triangle mesh. You can
+  3D print it, but for machining or casting somebody has to redraw it.
+
+So there are two questions you can ask:
+
+- *"I have a shape, what are the best dimensions for it?"* — `optimise`.
+- *"I have a problem, roughly what shape should it be?"* — `topology`, then
+  redraw it, then `optimise`.
 
 ---
 
@@ -134,7 +159,7 @@ work, if you prefer typing instead.
 
 ### The commands
 
-This guide covers four commands. Run each one from your project folder.
+This guide covers five commands. Run each one from your project folder.
 
 ### `openoptima doctor`
 
@@ -185,6 +210,32 @@ openoptima optimise examples/l_bracket/project.yaml
 
 This is the main command. It explores first, then searches properly, then
 writes you a report.
+
+### `openoptima topology`
+
+```bash
+openoptima topology project.yaml --deck block.inp --keep 0.5 --analyse
+```
+
+Starts from a block of space and removes the material that is not earning
+its place. `--keep 0.5` means keep half of it. `--deck` points at the block
+of space, written as a CalculiX analysis file.
+
+`--analyse` is the important flag. Without it you get a shape and nothing
+else — no stress, no deflection, no factor of safety, because none has been
+worked out. With it, the shape is chopped up again and solved properly, and
+you get the same numbers you would get from `evaluate`.
+
+Two more options worth knowing:
+
+- `--feature-size 16` is the thinnest piece you will accept, in mm. Set it
+  to something you could actually make. Too small and you get spider webs.
+- `--cores 1` is the default and you should leave it there. On more than
+  one core, running the same problem twice gives two different shapes. That
+  is not a bug in this software — the stress solver's arithmetic differs in
+  its last few digits depending on how the work is shared out, and this
+  process turns those digits into keep-or-delete decisions that compound
+  over dozens of rounds.
 
 ---
 
@@ -701,10 +752,13 @@ detail.
 | **Second-order element** | A piece with curved edges. More accurate than straight-edged. |
 | **Selector** | The description used to find a face, e.g. "biggest flat face pointing at −X". |
 | **Singularity** | A place where the maths says stress is infinite. An artefact of idealised sharp corners. |
+| **Smoothing** | Taking the stair-steps off a shape a topology run produced. It removes a little material, and that is always reported. |
 | **Solver** | The program that does the stress calculation. |
 | **Sobol / Latin hypercube** | Ways of spreading trial designs out evenly rather than randomly. |
 | **Stress** | Force divided by the area carrying it. How hard the material is working. |
+| **Topology optimisation** | Starting from a block of space and deleting whatever is not carrying its weight, so the shape is invented rather than sized. |
 | **Trade rule** | Your stated exchange rate: "I will pay this much of X for that much of Y". |
+| **Triangle mesh (STL)** | A shape described only as a skin of triangles. No CAD behind it, so its faces have to be measured rather than looked up. |
 | **von Mises stress** | The standard single number for "how hard is this metal working", combining stresses in all directions. |
 
 ---
@@ -721,3 +775,6 @@ detail.
    just means those designs were no good. That is normal, and useful.
 5. **OpenOptima does not know about buckling or fatigue by default.**
    Check those separately, before you trust a lightweight result.
+
+And one more, if you use `topology`: **a shape is not a result.** Pass
+`--analyse`, or you have a picture and no idea whether it holds.

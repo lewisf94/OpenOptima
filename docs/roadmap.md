@@ -78,13 +78,18 @@ may make.
 - DOE, sensitivity, NSGA-II, Pareto front, knee point, preference model
 - SQLite storage, evaluation cache, run manifests, and provenance (a full
   record of what produced each result)
-- CLI (`doctor`, `evaluate`, `doe`, `optimise`, `report`, `templates`)
+- CLI (`doctor`, `evaluate`, `doe`, `optimise`, `topology`, `report`,
+  `templates`)
 - Cantilever verified to 0.98% against Timoshenko beam theory
 - Linear buckling, verified to 0.11% against Euler, with an automatic
   cross-check that refuses results outside its validated range
 - Desktop app: a local browser interface with setup checks, live
   progress, a Pareto chart and trade-off tables, packaged for Windows
   with PyInstaller
+- Topology optimisation, run through `beso`, with the result turned back
+  into a sealed shape and then **analysed** — so it reports a real stress
+  and factor of safety rather than only a picture. See item 3 under
+  "Later" for what this covers and what it still does not.
 
 ## Next (v0.2) — trust
 
@@ -289,9 +294,10 @@ about what a printer can make.
    OpenOptima can do, and let OpenOptima cross-check its own results
    against a second, independent solver.
 3. **Integrate topology optimisation through an external solver — the second
-   way of designing a part.** Note the wording. This item is not "implement
-   topology optimisation"; the algorithm is somebody else's, and the
-   integration and the checking are ours.
+   way of designing a part. Landed; what is left is noted at the end of
+   this item.** Note the wording. This item is not "implement topology
+   optimisation"; the algorithm is somebody else's, and the integration
+   and the checking are ours.
    Unlike the rest of OpenOptima, which adjusts a few chosen dimensions,
    topology optimisation decides where material should exist at all,
    without assuming a shape in advance. You give it the space the part
@@ -324,8 +330,11 @@ about what a printer can make.
    One caution before its buckling mode is used here: `beso` can optimise
    for buckling, and OpenOptima found a defect in CalculiX's buckling
    solve that nothing in the wider ecosystem appears to guard against.
-   Whether `beso` hits the same defect is unknown, and must be checked
-   rather than assumed.
+   **Measured, and `beso` does hit it**: a column whose real critical load
+   is 14 409 N was reported as surviving 127 569 N, 8.86 times too high in
+   the unsafe direction. Its buckling objective is therefore refused
+   outright rather than passed on. See V11 in
+   [`verification-plan.md`](verification-plan.md).
 
    **Scope it carefully. The optimisation is the easy part.** Its raw
    output is a density field — a fuzzy map of how much material belongs
@@ -339,7 +348,20 @@ about what a printer can make.
 
    Whatever comes out must go back through the ordinary evaluation
    pipeline on a proper body-fitted mesh before any number from it is
-   reported. A density field is not a verified result.
+   reported. A density field is not a verified result. **That is done**:
+   `openoptima topology --analyse` re-meshes the shape, puts the same
+   loads and supports back on, and reports a real stress, deflection and
+   factor of safety. On the test case that number matters — the shape kept
+   49.7% of the material and its factor of safety fell from 1.15 to 0.63,
+   which nothing in the topology run itself would have told anybody.
+
+   **What is still missing.** The result comes out as a triangle mesh, so
+   it can be printed but not machined or cast without somebody redrawing
+   it. Turning it back into a parametric CAD model is not automated and is
+   not planned to be. A rounded blend also cannot be found on a triangle
+   mesh, because it meets the faces it joins smoothly and leaves no crease
+   to find it by, so a selector that asks for a blend by its radius will
+   not match on a topology result.
 
 4. **Import CAD from SolidWorks, Fusion 360 or another package.** Both
    export STEP, which the geometry layer already reads, so a "use my own

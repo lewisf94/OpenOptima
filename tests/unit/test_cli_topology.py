@@ -121,3 +121,77 @@ class TestTheHelpSaysWhatItIsFor:
                 assert "load path" in (action.help or "")
                 return
         pytest.fail("no --removal-rate option found")
+
+
+class TestAFactorOfSafetyBelowOneIsSaidInWords:
+    """``Outcome: OK`` means the run finished, not that the design passes.
+
+    A project that declares no constraint on the factor of safety gets ``OK``
+    printed beside a factor of 0.64, which is exactly the caveat this project
+    must not hide in vocabulary. Measured on the real topology result: 0.644.
+    """
+
+    @staticmethod
+    def _steel(allowable=250.0):
+        from openoptima.domain.model import Material
+
+        return Material(
+            name="steel",
+            elastic_modulus=210000.0,
+            poisson_ratio=0.3,
+            density=7.85e-9,
+            allowable_stress=allowable,
+        )
+
+    @staticmethod
+    def _printed_plastic():
+        """A material with a different strength in each direction.
+
+        It carries no single allowable stress -- there is nothing sensible to
+        put there -- so its factor of safety comes from a failure criterion.
+        """
+        from openoptima.domain.orthotropic import OrthotropicMaterial
+
+        return OrthotropicMaterial(
+            name="printed nylon",
+            modulus=(2400.0, 2400.0, 1600.0),
+            poisson=(0.38, 0.38, 0.38),
+            shear_modulus=(600.0, 600.0, 870.0),
+            density=1.14e-9,
+            build_direction=(0.0, 0.0, 1.0),
+        )
+
+    def note(self, factor, material=None, capsys=None):
+        from openoptima.cli.main import _print_factor_of_safety_note
+
+        _print_factor_of_safety_note(
+            {"factor_of_safety": factor}, material if material is not None else self._steel()
+        )
+        return capsys.readouterr().out
+
+    def test_below_one_it_says_the_design_does_not_pass(self, capsys):
+        out = self.note(0.644, capsys=capsys)
+        assert "0.64" in out
+        assert "does not pass" in out
+        assert "250 MPa" in out
+
+    def test_just_above_one_it_says_the_margin_is_thin(self, capsys):
+        out = self.note(1.05, capsys=capsys)
+        assert "little margin" in out
+        assert "does not pass" not in out
+
+    def test_a_comfortable_factor_says_nothing(self, capsys):
+        assert self.note(2.4, capsys=capsys) == ""
+
+    def test_a_directional_material_is_not_told_it_has_an_allowable_stress(self, capsys):
+        """With different strengths in each direction there is no single number."""
+        out = self.note(0.8, material=self._printed_plastic(), capsys=capsys)
+        assert "does not pass" in out
+        assert "MPa" not in out
+        assert "strengths you gave" in out
+
+    def test_nothing_is_printed_when_no_factor_was_computed(self, capsys):
+        from openoptima.cli.main import _print_factor_of_safety_note
+
+        _print_factor_of_safety_note({"mass_kg": 1.0}, self._steel())
+        assert capsys.readouterr().out == ""

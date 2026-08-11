@@ -32,6 +32,44 @@ def _workspace(project_root: Path, override: str | None) -> Path:
     return Path(override).resolve() if override else project_root / "openoptima_work"
 
 
+def _print_factor_of_safety_note(metrics: dict[str, float], material) -> None:
+    """Say in words what a factor of safety below 1 means.
+
+    ``Outcome: OK`` means the run finished, not that the design passes, and a
+    project that declares no constraint on the factor of safety gets ``OK``
+    beside a factor of 0.64. That is exactly the caveat this project must not
+    hide in vocabulary, so it is stated plainly.
+
+    This states arithmetic, not a judgement. Whether a part is safe to make is
+    the engineer's decision, and so is the allowable stress it is measured
+    against -- all this says is which side of the user's own number the stress
+    landed on.
+    """
+    factor = metrics.get("factor_of_safety")
+    if factor is None:
+        return
+    # A material with one allowable stress is measured against that number. A
+    # material with different strengths in different directions has no single
+    # number to quote, and its factor comes from the failure criterion instead.
+    allowable = getattr(material, "allowable_stress", None)
+    against = (
+        f"the allowable stress you set ({allowable:g} MPa)"
+        if allowable
+        else "the strengths you gave for this material"
+    )
+    if factor < 1.0:
+        print(
+            f"\n  READ THIS: the factor of safety is {factor:.2f}. Below 1.00 means\n"
+            f"  the part is working HARDER than {against}.\n"
+            f"  This design does not pass on your own figure."
+        )
+    elif factor < 1.2:
+        print(
+            f"\n  Note: the factor of safety is {factor:.2f}, so the part is working\n"
+            f"  close to {against}. There is little margin left."
+        )
+
+
 def _progress_printer(quiet: bool):
     state = {"count": 0}
 
@@ -215,6 +253,7 @@ def command_evaluate(args: argparse.Namespace) -> int:
         print("\n  Constraint violations")
         for name, value in sorted(result.constraint_violations.items()):
             print(f"    {name:<40} {value:.4g}")
+    _print_factor_of_safety_note(result.metrics, project.material)
     if result.failure_code:
         print(f"\n  Failure: {result.failure_code.value}\n  {result.message}")
     for warning in result.warnings:
@@ -534,6 +573,7 @@ def command_topology(args: argparse.Namespace) -> int:
         print("\n  Constraint violations")
         for name, value in sorted(result.constraint_violations.items()):
             print(f"    {name:<40} {value:.4g}")
+    _print_factor_of_safety_note(result.metrics, project.material)
     if result.failure_code:
         print(f"\n  Failure: {result.failure_code.value}\n  {result.message}")
     for warning in result.warnings:

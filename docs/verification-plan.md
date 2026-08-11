@@ -484,6 +484,88 @@ solid — and the conversion refuses it. That refusal is correct and is
 tested separately. It is not monotonic: 50% comes out sound and 60% pinches
 again, so it depends on the shape rather than on how much material is left.
 
+**The loop closes: the shape is analysed and reports real numbers.** The
+optimised shape and the untouched block both go through the ordinary
+pipeline — re-meshed into solid elements, same loads and supports resolved
+by the same selectors, same solver:
+
+| | Solid block | Optimised |
+|---|---|---|
+| Volume | 4800.0 mm³ | 2384.5 mm³ |
+| Deflection | 0.1424 mm | 0.3310 mm |
+| Stiffness | 7022 N/mm | 3021 N/mm |
+| Stored energy | 69.1 mJ | 161.8 mJ |
+| Peak stress | 217.0 MPa | 400.0 MPa |
+| **Factor of safety** | **1.15** | **0.63** |
+
+It keeps 49.7% of the material and 43.0% of the stiffness — and it **stops
+passing**. At a 250 MPa allowable the factor of safety falls from 1.15 to
+0.63. Nothing in the topology run says that: beso was asked for stiffness
+at a mass target and delivered it, and stress was never part of the
+question. Whether to accept the trade is the engineer's decision, and this
+is the measurement that decision needs.
+
+The block figure here (69.1 mJ) is a separate measurement from the 71.6 mJ
+above. That one used beso's own hex mesh with the void elements deleted;
+this one uses a fresh tetrahedral mesh built from the surface. They agree
+to about 3%, which is a useful cross-check between two independent meshes.
+The optimised figures are **not** comparable across the two, because they
+are at different amounts of material kept.
+
+One check inside this deserves naming. The face the part bolts to comes
+back as **two separate pads**, because the optimiser removed the material
+between them. Both must be held. If the selectors had found only one, the
+part would be supported on half its mounting face and every number above
+would be wrong while looking entirely reasonable.
+
+### V13 — A shape made of triangles gives the same answer as CAD
+
+`tests/verification/test_discrete_surface_agreement.py`
+
+A shape reaches the analysis by one of two routes. The ordinary one is a
+CAD model, which knows that this face *is* a plane and that one *is* a 6 mm
+hole, because it was built that way. The other is a bag of triangles —
+what a topology optimisation hands back — where nothing is known and every
+face has to be measured.
+
+That second route exists so a topology result can be analysed at all. It
+is worth nothing unless it gives the same answer. A 60 x 20 x 4 mm steel
+bar is therefore meshed and solved twice, once from a BREP file and once
+from an STL of the same bar, with nothing else different:
+
+| Compared with CAD | 4 mm triangles | 2 mm triangles | 1 mm triangles |
+|---|---|---|---|
+| Volume | 0.000% | 0.000% | 0.000% |
+| Deflection | −0.004% | −0.006% | −0.008% |
+| Stored energy | −0.003% | −0.005% | −0.007% |
+| Peak stress | +1.691% | +1.832% | +0.233% |
+
+Deflection and stored energy agree to under a hundredth of a per cent.
+That is the important pair: they use the whole displacement field, so they
+say the two routes built the same structure and loaded it the same way.
+
+**Peak stress agrees less closely, and that is expected rather than
+tolerated.** It is a high percentile of a field that peaks where the bar is
+held, and the two runs place their mesh points differently, so they sample
+that peak slightly differently. The error also does not fall steadily as
+the triangles get finer, which is what sampling noise looks like; a real
+error in the triangle route would grow or shrink with the faceting.
+Tolerances: 0.2% on deflection and stored energy, 4% on stress.
+
+**A hole must survive the trip**, or a selector written for a bolt hole
+stops matching once the part comes back from a topology run. A plate with
+a 3.000 mm hole comes back with exactly the seven faces CAD would report,
+and the hole measures **3.0000 mm**. Fitting the middles of the triangles
+instead of their corner points gives 2.967 mm, and a 1.1% error in a hole
+radius is enough to pick the wrong hole.
+
+**What this route cannot do**, stated because it is a real limit and not a
+tolerance: a rounded blend between two faces cannot be found at all. A
+blend runs smoothly into the faces it joins, so there is no crease in the
+triangles to find it by, and it is measured as part of its neighbours. A
+selector that asks for a blend by its radius will not match on a shape made
+of triangles.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

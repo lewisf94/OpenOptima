@@ -72,24 +72,40 @@ of a shape you already drew.
 | Also has | Multiple load cases, orientation for directional material, and a casting-direction filter, which is the same maths a print-overhang rule needs |
 | Needs FreeCAD? | No. That is only its interface |
 
-**Closing the loop back to real numbers — what is left.** ADR 10 requires that
-a topology result is never reported until it has been re-analysed on a
-body-fitted mesh. The route was measured and it works, with one gap:
+**Closing the loop back to real numbers — done.** ADR 10 requires that a
+topology result is never reported until it has been re-analysed on a
+body-fitted mesh. It now is, through `openoptima topology --analyse`.
 
 | Step | State |
 |---|---|
 | Smoothed surface meshes into solid elements | **works** — gmsh produced 3972 quadratic tetrahedra from the real result |
 | The mounting and loaded faces survive smoothing | **works** — but only since flat faces were held; before that gmsh found none |
-| The shape becomes an ordinary `GeometryArtifact` | **no** — gmsh rebuilds it as its own discrete surfaces, not OpenCASCADE ones, so there is no BREP to hand the existing mesher |
-| Region resolution | **reusable** — `resolve_regions` takes plain `FaceSignature` objects and knows nothing about gmsh |
-| Deck, solver, metrics | **reusable unchanged** |
+| The shape becomes an ordinary `GeometryArtifact` | **no, and it did not need to** — see below |
+| Region resolution | **reused unchanged** — `resolve_regions` takes plain `FaceSignature` objects and knows nothing about gmsh |
+| Deck, solver, metrics | **reused unchanged** |
 
-So the gap is one piece: a `FaceSignature` builder that measures a *discrete*
-surface patch from its triangles rather than through OpenCASCADE, plus a mesh
-path that goes from surface straight to `MeshData`. `regions/signature.py`
-currently reads area, centroid and bounding box through `gmsh.model.occ`, which
-a discrete surface does not have. Everything downstream of that is already
-solver-agnostic and needs no change.
+The third row was the gap, and going through a BREP turned out to be the wrong
+way to close it. gmsh rebuilds an imported STL as its own discrete surfaces,
+not OpenCASCADE ones, so there is no BREP to export — that route is closed, not
+merely awkward. What the pipeline actually needs from a shape is a set of
+`FaceSignature` objects and a meshable volume, and both can be had from the
+triangles directly. `regions/discrete.py` measures them; `meshing/sources.py`
+builds the volume. Nothing downstream changed.
+
+**This was a build, and the audit rule says to say why.** Nothing existing does
+it. Mesh libraries segment a triangle mesh into patches — gmsh does it itself,
+via `classifySurfaces` — but a patch is not a face. gmsh handed back 57 patches
+for a part with 46 faces, splitting the top face into five pieces, because it
+cuts a surface until each piece is simple enough to describe. Turning patches
+back into the faces a selector was written against is the part nobody else does,
+because nobody else is trying to keep a *selector* valid across a rebuild. That
+is region resolution, which this audit already lists as ours.
+
+Verified as V13 in [`verification-plan.md`](verification-plan.md): the same bar
+through both routes agrees to under 0.01% on deflection and stored energy, and
+a 3.000 mm hole comes back as 3.0000 mm. One limit is real and stated rather
+than tolerated — a rounded blend cannot be found this way, because it meets the
+faces it joins smoothly and leaves no crease to find it by.
 
 **Verdict: do not write a topology optimiser.** Run beso as a separate
 program. ADR 10 records why it must be a separate program rather than an

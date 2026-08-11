@@ -121,17 +121,35 @@ to OpenOptima, and an optimiser will exploit every blind spot it is given.
 | **Plasticity and permanent bending** | The material is assumed to spring back fully. |
 | **Impact, heat, and thermal stress** | Not covered. |
 
-### It sizes a shape; it does not invent one
+### Sizing a shape and inventing one are two different commands
 
-OpenOptima changes the **dimensions** of a shape you describe. It does not
-change the shape itself. Describe a rectangular arm with five dimensions,
-and you get a rectangular arm with better dimensions.
+`openoptima optimise` changes the **dimensions** of a shape you describe.
+It does not change the shape itself. Describe a rectangular arm with five
+dimensions, and you get a rectangular arm with better dimensions.
 
 The organic, bone-like shapes associated with "generative design" come
-from a different method, called topology optimisation. That method decides
-where material should exist at all. OpenOptima does not do this yet. It is
-planned as a second mode you would choose instead of this one, and not as
-a replacement. See [`docs/roadmap.md`](docs/roadmap.md).
+from a different method, called topology optimisation, which decides where
+material should exist at all. That is `openoptima topology`. It runs
+[`beso`](https://github.com/calculix/beso) rather than a new optimiser of
+our own, turns the result into a sealed shape, and — with `--analyse` —
+puts it back through the ordinary analysis so it reports a real stress and
+factor of safety instead of only a picture.
+
+**Do not skip that last step.** On the test case in this repository the
+shape that came back kept 49.7 per cent of the material and its factor of
+safety fell from 1.15 to **0.63**. It breaks. Nothing in the topology run
+says so, because it was asked for stiffness at a weight target and nobody
+asked it about stress.
+
+Two limits worth knowing. The result is a triangle mesh, so it can be
+printed but needs redrawing before it can be machined or cast. And a
+rounded blend cannot be found on a triangle mesh — it meets the faces it
+joins smoothly, leaving no crease to find it by — so a region selector
+that asks for a blend by its radius will not match on a topology result.
+
+The two modes combine well, and that is probably the most useful
+workflow: find a shape with `topology`, redraw it as a parametric model,
+then size and verify it with `optimise`.
 
 ### 3D printing: partly supported
 
@@ -484,7 +502,8 @@ Each defect now has a test that fails without its fix.
 | [Verification plan](docs/verification-plan.md) | every benchmark, tolerance and measured value |
 | [Known issues](docs/known-issues.md) | defects found, and what was done about each |
 | [Architecture](docs/architecture.md) | how the pieces fit, and why |
-| [Roadmap](docs/roadmap.md) | what is next, including topology optimisation |
+| [Roadmap](docs/roadmap.md) | what is next |
+| [Capability audit](docs/capability-audit.md) | what we reuse, what we build, and why |
 | [Agent backlog](docs/agent-backlog.md) | scoped work, each with a definition of done |
 | [File formats](docs/file-formats.md) | the project file and the workspace layout |
 | [Technical writing standard](docs/technical-writing-standard.md) | the language rules all project text follows |

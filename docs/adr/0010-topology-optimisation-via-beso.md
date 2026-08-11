@@ -95,6 +95,33 @@ high in the unsafe direction. `beso` offers buckling as an objective, drives the
 same solver, and nothing in the wider ecosystem appears to guard against it.
 Assume it is affected until measured. See [ADR 8](0008-buckling-reliability.md).
 
+**Measured, and it is affected.** A column whose real critical load is 14 409 N
+was reported as surviving 127 569 N — 8.86 times too high, in the unsafe
+direction. `topology/config.py` refuses the objective outright, with the reason.
+See V11 in [`../verification-plan.md`](../verification-plan.md).
+
+## How the "never a reported result" rule is kept
+
+`openoptima topology --analyse` does it. The shape goes back through the
+ordinary pipeline: re-meshed into solid elements, the same region selectors
+re-resolved to put the same loads and supports back on, the same solver, the
+same metrics, the same constraint checks.
+
+Doing that needed one thing the project did not have. The pipeline took a CAD
+model and asked OpenCASCADE what each face was; a topology result has no CAD, so
+its faces are measured from the triangles instead (`regions/discrete.py`). The
+obvious alternative — rebuilding the shape as a BREP so the existing path could
+be reused — does not work: gmsh reconstructs an imported STL as its own discrete
+surfaces, and there is no OpenCASCADE model to export. That route is closed, not
+merely awkward.
+
+The two routes are checked against each other rather than assumed to agree.
+The same bar analysed both ways matches to under 0.01% on deflection and stored
+energy (V13). And the rule earns its keep on the first real case: the optimised
+cantilever kept 49.7% of the material and its factor of safety fell from 1.15 to
+**0.63**. It fails. Nothing in the topology run says so, because `beso` was
+asked for stiffness at a mass target and stress was never part of the question.
+
 ## Decision on the `shell=True` defect
 
 The `shell=True` defect breaks `beso` for any user whose path contains a

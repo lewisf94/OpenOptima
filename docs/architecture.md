@@ -110,6 +110,23 @@ and checks that every selector still resolves to exactly one face there.
 This way, a setup mistake appears before a study starts — not 200
 evaluations into one.
 
+**The same selectors also work on a shape with no CAD behind it.** A
+topology result arrives as a skin of triangles, so there is nothing to ask
+what a face is; every face is measured from the triangles instead
+(`regions/discrete.py`). That measurement has to put a face back together
+first, because gmsh splits one flat face into several pieces — on a real
+result, the top face of the part arrived as five. Once merged, the faces
+that come out are the same kind of object as the CAD ones, so
+`resolve_regions`, the deck writer, the solver and the metrics are all
+reused unchanged.
+
+The two routes are checked against each other, not assumed to agree: the
+same bar analysed both ways matches to under 0.01% on deflection and on
+stored energy (V13). Two things this route cannot do are stated in
+[`verification-plan.md`](verification-plan.md) rather than hidden: a
+rounded blend cannot be found at all, and a face that the optimiser has
+cut in two really is two faces afterwards.
+
 ### 2. A bad design and a broken run are different things
 
 ```
