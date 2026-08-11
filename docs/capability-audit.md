@@ -96,10 +96,12 @@ with `shell=True` and an argument list. That combination joins the arguments
 into one string, so any path containing a space breaks it — and the default
 Windows location is `C:\Users\First Last\Documents`. It also imports
 matplotlib at module level, which the Windows build deliberately excludes.
-Three options, and the choice carries licence obligations, so it is the
-project owner's: run in a directory with no spaces in its path; carry a local
-patched copy under the LGPL; or fix it upstream. Running in a space-free
-directory works as an immediate measure whichever is chosen.
+
+**Decided:** run beso's own working directory somewhere with no spaces in its
+path — regardless of where the project itself lives — and open the fix
+upstream in parallel. A local patched fork stays available if upstream does
+not take the fix, but is not the starting position. See
+[ADR 10](adr/0010-topology-optimisation-via-beso.md).
 
 ### 2D analysis and 2D topology optimisation — Build (and the limit is ours)
 

@@ -105,6 +105,35 @@ fine to develop on, but merge it to `main` yourself (fast-forward, no PR)
 once the required checks pass, rather than leaving it stranded waiting for
 review.
 
+## Model selection
+
+Work on this project happens across many separate sessions, sometimes on
+different Claude models. State which model fits **before** starting a new
+piece of work — one line, not a discussion — instead of picking silently.
+Where several small pieces of work are queued, group the ones that suit the
+same model into one sitting rather than switching back and forth: starting a
+fresh session to re-derive context costs more than most single tasks here do.
+
+**Use Opus 5** for anything that touches a computed number, or a defect that
+could: the deck writer, parsers, mesh handling, units, metrics, failure
+criteria, buckling, convergence, region resolution, and any new verification
+benchmark. Also for architecture decisions — a new ADR, or a change to what a
+layer is allowed to own. This is also the model for diagnosing a defect that
+produces a plausible but wrong answer: write a throwaway script and look at
+real output first, the same way every defect in the traps list below was
+actually found — never write the assertion before seeing the number it is
+supposed to catch.
+
+**Sonnet 5 is enough** for documentation, the roadmap, the capability audit,
+README work, recording a decision a human or an earlier session already made,
+configuration and CI fixes that do not touch physics, and mechanical wiring
+once a design is already settled elsewhere.
+
+A task that is mostly one and partly the other gets the more careful model
+for the part that touches a number, said explicitly rather than assumed. If
+it genuinely is not clear which side a task falls on, say that too, rather
+than guessing.
+
 ## Conventions
 
 - British spelling in prose and identifiers (`optimise`, `normalised`).

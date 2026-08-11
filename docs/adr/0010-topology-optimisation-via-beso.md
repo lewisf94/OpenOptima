@@ -1,6 +1,6 @@
 # 10. Topology optimisation runs an existing optimiser, in its own process
 
-**Status:** accepted, with one question for a human — see *Open question*.
+**Status:** accepted.
 
 ## Context
 
@@ -95,11 +95,12 @@ high in the unsafe direction. `beso` offers buckling as an objective, drives the
 same solver, and nothing in the wider ecosystem appears to guard against it.
 Assume it is affected until measured. See [ADR 8](0008-buckling-reliability.md).
 
-## Open question, for a human
+## Decision on the `shell=True` defect
 
-The `shell=True` defect will break `beso` for any user whose path contains a
-space, which is most Windows users. There are three ways out and the choice is
-not an agent's to make, because two of them carry licence obligations:
+The `shell=True` defect breaks `beso` for any user whose path contains a
+space, which is most Windows users. Three ways out existed, and two of them
+carry licence obligations, so this one was left for the project owner rather
+than chosen by an agent:
 
 1. **Run it in a space-free working directory.** Cheapest, no modification, but
    it is a workaround and it leaves the defect in place for everyone else.
@@ -108,4 +109,12 @@ not an agent's to make, because two of them carry licence obligations:
 3. **Fix it upstream.** Best outcome for everyone and costs a pull request, but
    it is not within our control how quickly it lands, if at all.
 
-Option 1 is a reasonable stopgap regardless of which of the others is chosen.
+**Decided: option 1 now, option 3 in parallel.** The adapter that eventually
+calls `beso` must force *its* working directory to a path with no spaces,
+independent of where the OpenOptima project itself lives on disk — the two are
+allowed to differ. A pull request carrying the underlying fix should also be
+opened upstream. Option 2 stays available if upstream does not take the fix,
+but is not the starting position.
+
+Nothing to build yet: no adapter calls `beso` as of this decision. This is
+recorded ahead of that code so the choice is not reopened when it is written.
