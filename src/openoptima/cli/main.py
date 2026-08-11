@@ -44,6 +44,14 @@ def _print_factor_of_safety_note(metrics: dict[str, float], material) -> None:
     the engineer's decision, and so is the allowable stress it is measured
     against -- all this says is which side of the user's own number the stress
     landed on.
+
+    **Never describe the part with a phrase that could be read as capability.**
+    An earlier wording said the part was "working HARDER than the allowable
+    stress", and a reader took that as a strength -- asking whether the part
+    would therefore be even better at a higher number. It reads as what the
+    part *can* take rather than what is being *demanded* of it, which inverts
+    the warning completely. State the demand as a percentage of the user's own
+    limit, where over 100% cannot be read as good news.
     """
     factor = metrics.get("factor_of_safety")
     if factor is None:
@@ -52,21 +60,35 @@ def _print_factor_of_safety_note(metrics: dict[str, float], material) -> None:
     # material with different strengths in different directions has no single
     # number to quote, and its factor comes from the failure criterion instead.
     allowable = getattr(material, "allowable_stress", None)
-    against = (
-        f"the allowable stress you set ({allowable:g} MPa)"
+    # "your limit", not "the allowable stress": the number is the engineer's
+    # decision, not a property of the material, and the wording should keep
+    # saying so every time it is quoted back.
+    limit = (
+        f"your limit for this material ({allowable:g} MPa)"
         if allowable
-        else "the strengths you gave for this material"
+        else "what the strengths you gave for this material allow"
     )
+    loaded = (
+        f"loaded to {100.0 / factor:.0f}% of {limit}" if factor > 0.0 else f"loaded past {limit}"
+    )
+
+    # Quote the stress the factor was actually computed from -- the percentile
+    # measure -- and never the raw peak. On the real topology result those are
+    # 388 and 400 MPa, and printing 400 beside a factor of 0.64 would be two
+    # numbers a reader cannot divide into each other.
+    stress = metrics.get("stress_max_mpa")
+    detail = f"\n  Stress reaches {stress:.0f} MPa." if stress and allowable else ""
+
     if factor < 1.0:
         print(
-            f"\n  READ THIS: the factor of safety is {factor:.2f}. Below 1.00 means\n"
-            f"  the part is working HARDER than {against}.\n"
+            f"\n  READ THIS: this part is {loaded}.{detail}\n"
+            f"  (Factor of safety {factor:.2f}. Anything below 1.00 is over the limit.)\n"
             f"  This design does not pass on your own figure."
         )
     elif factor < 1.2:
         print(
-            f"\n  Note: the factor of safety is {factor:.2f}, so the part is working\n"
-            f"  close to {against}. There is little margin left."
+            f"\n  Note: this part is {loaded}.{detail}\n"
+            f"  (Factor of safety {factor:.2f}.) There is little margin left."
         )
 
 

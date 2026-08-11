@@ -373,9 +373,16 @@ An **objective** is something to push as far as you can. A **constraint**
 is a line you must not cross. "As light as possible, but never below a
 factor of safety of 2."
 
-**Factor of safety** is how much margin you have. A factor of safety of
-2.0 means the stress is half of the allowable value you chose. A factor of
-safety below 1.0 means the part is overloaded.
+**Factor of safety** is how much margin you have. **Bigger is safer.** A
+factor of safety of 2.0 means the stress is half of the allowable value
+you chose. A factor of safety below 1.0 means the part is overloaded —
+0.64 means the part is loaded to 155% of your limit.
+
+Watch the direction of the stress number too, because it is the opposite
+way round. The limit is what the material may take; the stress is what the
+part is actually being asked to take. **A higher stress is worse, not
+better.** Your limit of 250 with a stress of 400 means the part is being
+asked for more than you said it may give.
 
 ---
 

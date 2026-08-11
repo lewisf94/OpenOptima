@@ -175,10 +175,53 @@ class TestAFactorOfSafetyBelowOneIsSaidInWords:
         assert "does not pass" in out
         assert "250 MPa" in out
 
+    def test_it_says_how_far_over_the_limit_the_part_is(self, capsys):
+        """A percentage over 100 cannot be read as good news; "working harder" can.
+
+        An earlier wording said the part was "working HARDER than the allowable
+        stress you set", and a reader took that as capability -- asking whether
+        the part would be better still at a higher number. It describes what the
+        part can take rather than what is demanded of it, which inverts the
+        warning. The percentage of the user's own limit does not invert.
+        """
+        out = self.note(0.644, capsys=capsys)
+        assert "155%" in out
+        assert "HARDER" not in out
+
     def test_just_above_one_it_says_the_margin_is_thin(self, capsys):
         out = self.note(1.05, capsys=capsys)
+        assert "95%" in out
         assert "little margin" in out
         assert "does not pass" not in out
+
+    def test_it_quotes_the_stress_the_factor_came_from_not_the_raw_peak(self, capsys):
+        """The factor is the allowable divided by the *percentile* stress.
+
+        Measured on the real topology result: the raw peak is 400.0 MPa and the
+        percentile measure the factor uses is 387.9 MPa. Printing 400 beside a
+        factor of 0.64 gives a reader two numbers that do not divide into each
+        other, and invites them to check the arithmetic and conclude the
+        software is wrong.
+        """
+        from openoptima.cli.main import _print_factor_of_safety_note
+
+        _print_factor_of_safety_note(
+            {
+                "factor_of_safety": 0.6444,
+                "stress_max_mpa": 387.9,
+                "stress_raw_max_mpa": 400.0,
+            },
+            self._steel(),
+        )
+        out = capsys.readouterr().out
+        assert "388 MPa" in out
+        assert "400" not in out
+
+    def test_a_factor_of_zero_does_not_divide_by_zero(self, capsys):
+        """Nothing printed would be the worst possible output for the worst case."""
+        out = self.note(0.0, capsys=capsys)
+        assert "does not pass" in out
+        assert "loaded past" in out
 
     def test_a_comfortable_factor_says_nothing(self, capsys):
         assert self.note(2.4, capsys=capsys) == ""
