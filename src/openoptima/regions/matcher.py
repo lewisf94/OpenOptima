@@ -29,8 +29,15 @@ from ..domain.regions import (
 from .signature import angle_between
 
 
-def _passes_filters(signature: FaceSignature, selector: RegionSelector) -> tuple[bool, str]:
-    """Hard filters.  Returns (passed, reason-if-not)."""
+def passes_filters(signature: FaceSignature, selector: RegionSelector) -> tuple[bool, str]:
+    """Hard filters.  Returns (passed, reason-if-not).
+
+    Public because ``describe.py`` builds selectors by testing candidate
+    filters against this exact function. Writing a second copy of this logic
+    there would be the obvious way to do it and the wrong one: the two would
+    drift, and a selector generated from a click would then match a different
+    set of faces from the one that resolves it. They have to be the same code.
+    """
     if (
         selector.surface_type is not SurfaceType.ANY
         and signature.surface_type is not selector.surface_type
@@ -105,7 +112,7 @@ def resolve_region(
     passed: list[FaceSignature] = []
     rejections: list[str] = []
     for signature in signatures:
-        ok, reason = _passes_filters(signature, selector)
+        ok, reason = passes_filters(signature, selector)
         if ok:
             passed.append(signature)
         else:

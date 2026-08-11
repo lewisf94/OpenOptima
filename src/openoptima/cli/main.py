@@ -673,6 +673,112 @@ def _record_to_result(record: dict, project: Project):
     )
 
 
+def command_faces(args: argparse.Namespace) -> int:
+    """List the faces of a part, each with a description that would find it.
+
+    This is what a click in a 3D viewer will eventually do, without the
+    viewer: pick a face by number and paste the YAML it prints. It is also the
+    honest way to find out whether a face *can* be described -- some cannot,
+    and this says so rather than leaving it to be discovered mid-study.
+    """
+    from ..geometry import create_provider
+    from ..geometry.gmsh_session import gmsh_session
+    from ..regions.describe import BuildSample, describe_faces
+    from ..regions.signature import solid_face_signatures
+
+    project, root = _load(args.project)
+    workspace = _workspace(root, args.workspace)
+    provider = create_provider(project.geometry)
+    if hasattr(provider, "root"):
+        provider.root = root  # type: ignore[attr-defined]
+
+    def measure(values, tag):
+        artifact = provider.build(values, workspace / "faces" / tag)
+        with gmsh_session() as gmsh:
+            gmsh.model.add(f"faces_{tag}")
+            gmsh.model.occ.importShapes(str(artifact.brep_path))
+            gmsh.model.occ.synchronize()
+            volume_tag = gmsh.model.getEntities(3)[0][1]
+            return artifact, solid_face_signatures(gmsh, volume_tag)
+
+    space = project.design_space
+    artifact, signatures = measure(space.defaults(), "default")
+
+    # A description written from one shape is a description nobody has tested.
+    # Build the extremes too, so each one is checked against a part that has
+    # actually changed -- which is where a fragile description shows itself.
+    alternatives = []
+    if len(space):
+        lower, upper = space.bounds()
+        for label, values in (
+            ("smallest", space.from_array(list(lower))),
+            ("largest", space.from_array(list(upper))),
+        ):
+            try:
+                other, other_signatures = measure(values, label)
+            except EvaluationFailure as exc:
+                print(f"  (could not build the {label} design: {exc.message})")
+                continue
+            alternatives.append(
+                BuildSample(other_signatures, other.bbox.diagonal, f"the {label} design")
+            )
+
+    print(f"\n{len(signatures)} faces on {project.name}")
+    if alternatives:
+        print(f"each description checked against {len(alternatives)} more shape(s)\n")
+    else:
+        print("no design variables, so each description is checked on one shape only\n")
+
+    for index, signature in enumerate(sorted(signatures, key=lambda s: -s.area), start=1):
+        size = f"{signature.area:9.1f} mm2"
+        try:
+            described = describe_faces(
+                [signature],
+                signatures,
+                scale_length=artifact.bbox.diagonal,
+                name=f"face_{index}",
+                alternatives=alternatives,
+            )
+        except EvaluationFailure as exc:
+            print(f"{index:>3}. {signature.surface_type.value:<9} {size}   CANNOT DESCRIBE")
+            print(f"     {exc.message.splitlines()[0]}")
+            print()
+            continue
+
+        print(f"{index:>3}. {signature.surface_type.value:<9} {size}   {described.explanation}")
+        for warning in described.warnings:
+            print(f"     note: {warning}")
+        if args.yaml:
+            for line in _selector_yaml(described).splitlines():
+                print(f"     {line}")
+        print()
+    return _EXIT_OK
+
+
+def _selector_yaml(described) -> str:
+    """The selector as it would be written in a project file."""
+    selector = described.selector
+    lines = ["- name: CHANGE_ME", "  selector:", f"    surface_type: {selector.surface_type.value}"]
+    if selector.normal is not None:
+        lines.append("    normal: [{:.6g}, {:.6g}, {:.6g}]".format(*selector.normal))
+        lines.append(f"    normal_tolerance_deg: {selector.normal_tolerance_deg:g}")
+    if selector.min_radius is not None:
+        lines.append(f"    min_radius: {selector.min_radius:.6g}")
+    if selector.max_radius is not None:
+        lines.append(f"    max_radius: {selector.max_radius:.6g}")
+    if selector.within_box is not None:
+        box = selector.within_box
+        lines.append(
+            "    within_box: {{ xmin: {:.4f}, ymin: {:.4f}, zmin: {:.4f}, "
+            "xmax: {:.4f}, ymax: {:.4f}, zmax: {:.4f} }}".format(*box.as_tuple())
+        )
+    if selector.centroid_near is not None:
+        lines.append("    centroid_near: [{:.4f}, {:.4f}, {:.4f}]".format(*selector.centroid_near))
+    if selector.mode.value != "single":
+        lines.append(f"    mode: {selector.mode.value}")
+    return "\n".join(lines)
+
+
 def command_templates(_args: argparse.Namespace) -> int:
     from ..geometry.occ.templates import available_templates
 
@@ -845,6 +951,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(report)
     report.add_argument("--output", help="write to a file instead of stdout")
     report.set_defaults(func=command_report)
+
+    faces = subparsers.add_parser(
+        "faces",
+        help="list the faces of a part, each with a description that finds it again",
+    )
+    faces.add_argument("project", help="path to project.yaml")
+    faces.add_argument("--workspace", help="where to build the part")
+    faces.add_argument(
+        "--yaml",
+        action="store_true",
+        help="print each description as project-file YAML, ready to paste",
+    )
+    faces.set_defaults(func=command_faces)
 
     templates = subparsers.add_parser("templates", help="list built-in geometry templates")
     templates.set_defaults(func=command_templates)
