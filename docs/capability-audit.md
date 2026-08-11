@@ -72,6 +72,25 @@ of a shape you already drew.
 | Also has | Multiple load cases, orientation for directional material, and a casting-direction filter, which is the same maths a print-overhang rule needs |
 | Needs FreeCAD? | No. That is only its interface |
 
+**Closing the loop back to real numbers — what is left.** ADR 10 requires that
+a topology result is never reported until it has been re-analysed on a
+body-fitted mesh. The route was measured and it works, with one gap:
+
+| Step | State |
+|---|---|
+| Smoothed surface meshes into solid elements | **works** — gmsh produced 3972 quadratic tetrahedra from the real result |
+| The mounting and loaded faces survive smoothing | **works** — but only since flat faces were held; before that gmsh found none |
+| The shape becomes an ordinary `GeometryArtifact` | **no** — gmsh rebuilds it as its own discrete surfaces, not OpenCASCADE ones, so there is no BREP to hand the existing mesher |
+| Region resolution | **reusable** — `resolve_regions` takes plain `FaceSignature` objects and knows nothing about gmsh |
+| Deck, solver, metrics | **reusable unchanged** |
+
+So the gap is one piece: a `FaceSignature` builder that measures a *discrete*
+surface patch from its triangles rather than through OpenCASCADE, plus a mesh
+path that goes from surface straight to `MeshData`. `regions/signature.py`
+currently reads area, centroid and bounding box through `gmsh.model.occ`, which
+a discrete surface does not have. Everything downstream of that is already
+solver-agnostic and needs no change.
+
 **Verdict: do not write a topology optimiser.** Run beso as a separate
 program. ADR 10 records why it must be a separate program rather than an
 imported library: importing it would let its own solver loop reach around the

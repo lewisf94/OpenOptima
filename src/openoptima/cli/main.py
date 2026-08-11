@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..domain.failures import Outcome
+from ..domain.failures import EvaluationFailure, Outcome
 from ..domain.project import Project
 from ..evaluation.evaluator import Evaluator, default_job_count
 from ..schema.loader import ProjectLoadError, load_project
@@ -406,6 +406,100 @@ def _design_for_convergence(args: argparse.Namespace, project: Project, workspac
     return project.design_space.decode(values), ""
 
 
+def command_topology(args: argparse.Namespace) -> int:
+    """Run a topology optimisation and hand back a shape to look at.
+
+    Deliberately does **not** report a stress, a displacement or a factor of
+    safety, because none has been computed. What comes out of a topology run is
+    a proposal: a shape somebody still has to analyse properly. Saying anything
+    else would be the most dangerous thing this software could do.
+    """
+    from ..domain.topology import TopologySettings
+    from ..topology import fetch
+    from ..topology.runner import REPRODUCIBLE_CPU_CORES, run_topology
+    from ..topology.solidify import to_solid
+
+    project, root = _load(args.project)
+    workspace = _workspace(root, args.workspace)
+
+    deck = Path(args.deck)
+    if not deck.is_file():
+        print(f"error: no analysis file at {deck}", file=sys.stderr)
+        return _EXIT_BAD_USAGE
+
+    try:
+        settings = TopologySettings(
+            volume_fraction=args.keep,
+            minimum_feature_size_mm=args.feature_size,
+            maximum_iterations=args.rounds,
+            evolution_rate=args.removal_rate,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return _EXIT_BAD_USAGE
+
+    output = workspace / "topology"
+    print(f"Topology optimisation on {project.name}")
+    print(f"  keeping at most {settings.volume_fraction:.0%} of the material")
+    print(f"  smallest feature {settings.minimum_feature_size_mm:g} mm")
+    print(f"  up to {settings.maximum_iterations} rounds on {args.cores} core(s)")
+    for warning in settings.feature_size_warnings():
+        print(f"  note: {warning}")
+
+    try:
+        # Reported once rather than as a percentage: these are seven small
+        # files, so a progress bar would flicker past and only clutter a log.
+        if not fetch.verify(fetch.install_directory(workspace / "tools")):
+            print("  fetching the topology optimiser...")
+        installed = fetch.install(workspace / "tools")
+        outcome = run_topology(
+            settings=settings,
+            material=project.material,
+            deck=deck,
+            beso=installed,
+            solver_executable=args.solver or "ccx",
+            output_directory=output,
+            cpu_cores=args.cores,
+        )
+    except (fetch.BesoFetchError, EvaluationFailure) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return _EXIT_FAILED
+
+    print(f"  finished in {outcome.iterations} rounds")
+    if outcome.mass_fraction is not None:
+        print(f"  material left: {outcome.mass_fraction:.1%}")
+    for warning in outcome.warnings:
+        print(f"  note: {warning}")
+
+    try:
+        solid = to_solid(outcome.solid_mesh, smoothing_passes=args.smoothing)
+    except EvaluationFailure as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return _EXIT_FAILED
+
+    stl = solid.write_stl(output / "shape.stl")
+    print(
+        f"  smoothed over {solid.smoothing_passes} passes, "
+        f"losing {abs(solid.volume_change):.1%} of the material"
+    )
+    for warning in solid.warnings:
+        print(f"  note: {warning}")
+    print(f"\nShape written to {stl}")
+
+    print(
+        "\nThis is a proposal, not a result. Nothing here has been analysed:\n"
+        "  no stress, no deflection and no factor of safety has been computed\n"
+        "  for this shape. Rebuild it as a parametric model, or import it, and\n"
+        "  run it through 'openoptima evaluate' before relying on any number."
+    )
+    if args.cores != REPRODUCIBLE_CPU_CORES:
+        print(
+            "  It may also not be repeatable: running again on more than one\n"
+            "  core can produce a different shape."
+        )
+    return _EXIT_OK
+
+
 def command_report(args: argparse.Namespace) -> int:
     from ..optimisation.pareto import pareto_front
     from ..optimisation.study import StudyResult
@@ -580,6 +674,48 @@ def build_parser() -> argparse.ArgumentParser:
     )
     converge.add_argument("--no-cache", action="store_true", help="ignore cached results")
     converge.set_defaults(func=command_converge)
+
+    topology = subparsers.add_parser(
+        "topology",
+        help="find where material should go, rather than tuning a shape you already have",
+    )
+    add_common(topology)
+    topology.add_argument(
+        "--deck", required=True, help="CalculiX analysis file describing the space and the loads"
+    )
+    topology.add_argument(
+        "--keep", type=float, default=0.4, help="share of the material to keep (default 0.4)"
+    )
+    topology.add_argument(
+        "--feature-size",
+        type=float,
+        default=2.0,
+        help="smallest feature the result may contain, in mm (default 2.0)",
+    )
+    topology.add_argument(
+        "--rounds", type=int, default=100, help="most rounds to run (default 100)"
+    )
+    topology.add_argument(
+        "--removal-rate",
+        type=float,
+        default=0.02,
+        help="share of the remaining material taken away each round (default 0.02). "
+        "Larger is faster but can delete a load path before its value shows up",
+    )
+    topology.add_argument(
+        "--smoothing",
+        type=int,
+        default=6,
+        help="smoothing passes; rounded up to an even number (default 6)",
+    )
+    topology.add_argument(
+        "--cores",
+        type=int,
+        default=1,
+        help="processor cores. More than one is faster but the result stops being repeatable",
+    )
+    topology.add_argument("--solver", help="path to the CalculiX executable")
+    topology.set_defaults(func=command_topology)
 
     report = subparsers.add_parser("report", help="rebuild a report from stored results")
     add_common(report)
