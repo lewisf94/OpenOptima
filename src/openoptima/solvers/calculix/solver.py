@@ -10,7 +10,14 @@ from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.model import AnalysisModel, LoadCase, SolverSpecification
 from ...meshing.base import MeshData
 from ..base import AnalysisResults, LoadCaseFields, von_mises_from_tensor
-from .dat import parse_buckling, parse_dat, parse_strain_energy, reactions_in_step
+from .dat import (
+    frequencies_in_step,
+    parse_buckling,
+    parse_dat,
+    parse_frequencies,
+    parse_strain_energy,
+    reactions_in_step,
+)
 from .deck import BUCKLING_LOAD_SCALE, _set_name, write_deck
 from .frd import blocks_named, parse_frd
 from .runner import find_executable, installation_hint, run_calculix, solver_version
@@ -83,6 +90,13 @@ class CalculiXSolver:
                 f"buckling was requested but only {len(buckling_tables)} of {expected} "
                 f"buckling factor table(s) were found in {run.dat_path.name}",
             )
+        frequency_tables = parse_frequencies(run.dat_path) if model.modal.enabled else []
+        if model.modal.enabled and not frequency_tables:
+            raise EvaluationFailure(
+                FailureCode.RESULT_PARSE_FAILED,
+                f"natural frequencies were requested but no eigenvalue table was "
+                f"found in {run.dat_path.name}",
+            )
         warnings: list[str] = []
         fields: list[LoadCaseFields] = []
 
@@ -136,6 +150,8 @@ class CalculiXSolver:
                         f"symmetric and can buckle in either of two directions"
                     )
 
+            frequencies = self._frequencies_for(model, deck, frequency_tables, load_case)
+
             reaction = self._reaction_for_step(reactions, static_step_of(index), load_case)
             applied = deck.applied_force.get(load_case.id, (0.0, 0.0, 0.0))
             message = self._check_equilibrium(load_case.id, applied, reaction)
@@ -152,6 +168,7 @@ class CalculiXSolver:
                     reaction_force=reaction,
                     strain_energy=strain_energies.get(static_step_of(index)),
                     buckling_factors=factors,
+                    natural_frequencies=frequencies,
                 )
             )
 
@@ -166,6 +183,50 @@ class CalculiXSolver:
                 "frd": str(run.frd_path),
             },
         )
+
+    @staticmethod
+    def _frequencies_for(model, deck, tables, load_case) -> tuple[float, ...]:
+        """Natural frequencies for one load case, or a refusal.
+
+        Selected by step number, not by position. Load cases that hold the part
+        the same way share one ``*FREQUENCY`` step, so there are usually fewer
+        tables than load cases and counting them off in order would pair a load
+        case with another one's supports.
+
+        **A rigid-body mode stops the evaluation rather than being filtered
+        out.** A mode at essentially zero hertz means the supports do not hold
+        the part still -- it can drift or spin freely. That is a setup mistake,
+        not a design that happens to be bad, and CalculiX reports it with no
+        error and a successful exit code. Discarding those modes and reporting
+        the next one up would answer a question nobody asked: the frequency of
+        a part held in a way the project does not describe.
+        """
+        if not model.modal.enabled:
+            return ()
+
+        step = deck.frequency_step.get(load_case.id)
+        table = frequencies_in_step(tables, step) if step is not None else None
+        if table is None:
+            raise EvaluationFailure(
+                FailureCode.RESULT_PARSE_FAILED,
+                f"no natural frequency table for load case {load_case.id!r} "
+                f"(expected it in step {step})",
+            )
+
+        rigid = table.rigid_body_modes
+        if rigid:
+            shown = ", ".join(f"{value:.4g}" for value in rigid)
+            raise EvaluationFailure(
+                FailureCode.MODEL_NOT_HELD,
+                f"the supports for load case {load_case.id!r} do not hold the part "
+                f"still. {len(rigid)} of {len(table.hertz)} vibration modes came back "
+                f"at essentially zero cycles per second ({shown} Hz), which is the "
+                f"part drifting or spinning freely rather than vibrating. Check that "
+                f"the supports stop all six ways it can move: three slides and three "
+                f"turns. No natural frequency can be reported for a part that is free "
+                f"to move.",
+            )
+        return table.flexible
 
     @staticmethod
     def _reaction_for_step(

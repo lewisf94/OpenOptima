@@ -11,7 +11,7 @@ and boundary conditions, so cases do not accumulate on top of each other.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -53,10 +53,37 @@ class DeckArtifact:
     files: tuple[Path, ...]
     #: Sum of applied force per load case, for the equilibrium cross-check.
     applied_force: dict[str, tuple[float, float, float]]
+    #: 1-based step number of the ``*FREQUENCY`` step that answers for each
+    #: load case, when modal analysis is on. Several load cases share one step
+    #: whenever they hold the part the same way, because a natural frequency
+    #: does not depend on the load. Empty when modal analysis is off.
+    frequency_step: dict[str, int] = field(default_factory=dict)
 
     @property
     def input_path(self) -> Path:
         return self.main_file
+
+
+def _support_signature(load_case) -> tuple:
+    """What holds this part still, as a comparable key.
+
+    A natural frequency comes from stiffness and mass alone, so two load cases
+    with identical supports have identical frequencies -- exactly, not
+    approximately. Solving once per distinct set of supports rather than once
+    per load case is therefore free of any loss, and a project with four load
+    cases on one set of supports pays for one frequency solve instead of four.
+    """
+    return tuple(
+        sorted(
+            (
+                condition.region,
+                condition.kind.value,
+                tuple(condition.dofs),
+                0.0 if condition.kind is ConstraintKind.FIXED else condition.magnitude,
+            )
+            for condition in load_case.boundary_conditions
+        )
+    )
 
 
 def _write_set(handle, name: str, tags: np.ndarray, keyword: str = "NSET") -> None:
@@ -107,6 +134,8 @@ def write_deck(
     # -- steps -------------------------------------------------------------
     face_lookup = build_face_lookup(mesh.element_tags, mesh.connectivity)
     applied_force: dict[str, tuple[float, float, float]] = {}
+    frequency_step: dict[str, int] = {}
+    step_number = 0
 
     with main_file.open("w", encoding="ascii") as handle:
         handle.write(f"** OpenOptima generated deck for {model.name}\n")
@@ -117,6 +146,7 @@ def write_deck(
 
         for load_case in model.load_cases:
             total = np.zeros(3)
+            step_number += 1
             handle.write(f"\n** ---- load case: {load_case.id} ----\n")
             handle.write("*STEP\n*STATIC\n")
 
@@ -218,6 +248,7 @@ def write_deck(
             applied_force[load_case.id] = (float(total[0]), float(total[1]), float(total[2]))
 
             if model.buckling.enabled:
+                step_number += 1
                 _write_buckling_step(
                     handle,
                     load_case,
@@ -227,13 +258,70 @@ def write_deck(
                     gravity,
                 )
 
+        # Frequency steps go last, after every load case, so that adding modal
+        # analysis to a project cannot shift the step number of any static or
+        # buckling step. Results are selected by step number, so a shift would
+        # silently pair a load case with another one's numbers.
+        if model.modal.enabled:
+            seen: dict[tuple, int] = {}
+            for load_case in model.load_cases:
+                signature = _support_signature(load_case)
+                if signature not in seen:
+                    step_number += 1
+                    seen[signature] = step_number
+                    _write_frequency_step(handle, load_case, model.modal.modes)
+                frequency_step[load_case.id] = seen[signature]
+
     return DeckArtifact(
         job_name=job_name,
         directory=directory,
         main_file=main_file,
         files=(main_file, mesh_file, sets_file, material_file),
         applied_force=applied_force,
+        frequency_step=frequency_step,
     )
+
+
+def _write_frequency_step(handle, load_case, modes: int) -> None:
+    """A ``*FREQUENCY`` step carrying this load case's supports and no loads.
+
+    **No loads, deliberately.** A natural frequency comes from stiffness and
+    mass. What is pushing on the part does not enter the eigenvalue problem at
+    all, so applying the load here would be noise at best. (A load *can* shift
+    a frequency by stiffening or slackening the part -- a tightened guitar
+    string rises in pitch -- but that is a separate analysis, needs a
+    ``PERTURBATION`` step on top of a static one, and is not what this reports.
+    See ``docs/engineering-assumptions.md``.)
+
+    **The empty output requests are not decoration; they are the whole reason
+    this step is safe.** CalculiX carries a ``*NODE FILE``/``*EL FILE`` request
+    forward from the step that made it, so a frequency step following a static
+    one writes a full mode shape -- DISP, STRESS and ERROR -- into the FRD for
+    every mode, without being asked. ``frd.py`` reads results by block order,
+    on the rule that the n-th DISP block is the n-th solved step. Eighteen
+    unexpected blocks would break that rule silently, and a mode shape is a
+    displacement field that looks exactly like a real deflection, only scaled
+    arbitrarily. The reader would not notice, and neither would anyone else.
+
+    Measured on the cantilever probe: 21 blocks and 46 413 lines of FRD with
+    the requests carried forward, 3 blocks and 10 131 lines with them cleared,
+    and the frequencies identical to every digit either way. So this costs
+    nothing and removes a whole class of silent misreading. ``frd.py`` also
+    ignores anything marked ``MODAL`` now, which is the belt to this braces.
+    """
+    handle.write(f"\n** ---- frequency: supports of {load_case.id} ----\n")
+    handle.write(f"*STEP\n*FREQUENCY\n{modes}\n")
+
+    handle.write("*BOUNDARY, OP=NEW\n")
+    for condition in load_case.boundary_conditions:
+        set_name = _set_name(condition.region)
+        magnitude = 0.0 if condition.kind is ConstraintKind.FIXED else condition.magnitude
+        for dof in condition.dofs:
+            handle.write(f"{set_name}, {dof}, {dof}, {magnitude:.9g}\n")
+
+    # An output request with no entities replaces the one carried forward.
+    handle.write("*NODE FILE\n\n*EL FILE\n\n")
+    handle.write("*END STEP\n")
 
 
 def _write_buckling_step(

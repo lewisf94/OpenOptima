@@ -35,6 +35,17 @@ class LoadCaseFields:
     #: Buckling load factors, lowest first. Empty when buckling was not run.
     #: Negative values mean the load would have to reverse to buckle it.
     buckling_factors: tuple[float, ...] = ()
+    #: Natural frequencies in hertz, lowest first, with any rigid-body modes
+    #: already removed. Empty when modal analysis was not run. These belong to
+    #: the load case's *supports* rather than to its load: two load cases held
+    #: the same way carry the same list, because a natural frequency does not
+    #: depend on what is pushing the part.
+    natural_frequencies: tuple[float, ...] = ()
+
+    @property
+    def fundamental_frequency(self) -> float | None:
+        """The lowest natural frequency, or None if modal analysis was not run."""
+        return self.natural_frequencies[0] if self.natural_frequencies else None
 
     @property
     def critical_buckling_factor(self) -> float | None:

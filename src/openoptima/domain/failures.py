@@ -81,6 +81,14 @@ class FailureCode(str, Enum):
     RESULT_FILE_MISSING = "result_file_missing"
     RESULT_PARSE_FAILED = "result_parse_failed"
     RESULT_UNRELIABLE = "result_unreliable"
+    #: The supports do not hold the part still: it can drift or spin freely in
+    #: at least one direction. A natural frequency analysis reports that as a
+    #: mode at essentially zero hertz, which is the part floating rather than
+    #: vibrating, and CalculiX returns it with no error at all. It is a setup
+    #: mistake rather than a bad design -- the same supports apply to every
+    #: design in a study -- so it must never be fed back to the optimiser as a
+    #: poor result, and retrying it cannot help.
+    MODEL_NOT_HELD = "model_not_held"
     WORKER_CRASH = "worker_crash"
     CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"

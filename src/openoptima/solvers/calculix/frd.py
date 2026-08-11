@@ -72,16 +72,43 @@ def parse_frd(path: str | Path) -> list[ResultBlock]:
 
     Blocks are returned in order, so the *n*-th ``DISP`` block belongs to the
     *n*-th solved step.
+
+    **Mode shapes are skipped, and that rule is what keeps the sentence above
+    true.** A ``*FREQUENCY`` step writes DISP, STRESS and ERROR for every mode
+    it found, and CalculiX carries an output request forward from an earlier
+    step, so those blocks appear whether or not anybody asked for them. Six
+    modes means eighteen extra blocks. Counting them would move every later
+    static result along by eighteen places, and a mode shape is a displacement
+    field that looks entirely like a real deflection -- it is the shape the
+    part waves in, scaled arbitrarily. Nothing downstream could tell that it
+    had been handed one instead of an answer.
+
+    CalculiX marks them: the ``100C`` record introducing each block carries the
+    word ``MODAL`` and an analysis type of 2, where a static block carries 1.
+    The deck writer also clears the output request in the frequency step so
+    they are not written at all. Either measure alone would do; both are here
+    because the failure is silent and produces a plausible number.
     """
     path = Path(path)
     blocks: list[ResultBlock] = []
     current: ResultBlock | None = None
     last_node: int | None = None
+    modal = False
 
     with path.open("r", errors="replace") as handle:
         for line in handle:
             line = line.rstrip("\n")
+            if not line.startswith(" -"):
+                # The only record outside the block markers that matters here
+                # is 100C, which says whether what follows is a mode shape.
+                if line[:8].lstrip().startswith("100C"):
+                    modal = "MODAL" in line.upper()
+                continue
             if line.startswith(" -4"):
+                if modal:
+                    current = None
+                    last_node = None
+                    continue
                 name = line[5:].split()[0] if len(line) > 5 else "UNKNOWN"
                 current = ResultBlock(name=name)
                 blocks.append(current)

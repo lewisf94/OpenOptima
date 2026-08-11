@@ -145,6 +145,8 @@ def load_case_metrics(
         stress_measure_name=stress.measure_name,
         reaction_force=fields.reaction_force,
         strain_energy=fields.strain_energy,
+        natural_frequency=fields.fundamental_frequency,
+        natural_frequencies=fields.natural_frequencies,
     )
 
 
@@ -261,6 +263,18 @@ def collect_metrics(
     ]
     worst_buckling = min(buckling_values) if buckling_values else None
 
+    # The lowest rate the part will vibrate at, under any of the ways this
+    # project holds it. Enveloped downwards because a low frequency is the one
+    # that is easiest to excite, and because keeping a part clear of whatever
+    # shakes it is nearly always "stay above". A project that instead wants a
+    # deliberately low frequency -- how an isolation mount works -- and that
+    # holds the part differently in different load cases should read the
+    # per-case numbers below rather than this one.
+    frequencies = [
+        case.natural_frequency for case in per_case if case.natural_frequency is not None
+    ]
+    lowest_frequency = min(frequencies) if frequencies else None
+
     # Strain energy is the work the load did on the part. Enveloped upwards
     # like everything else: the case that stores the most energy is the one
     # working the structure hardest.
@@ -307,6 +321,9 @@ def collect_metrics(
         # Buckling was analysed and nothing buckles: infinite margin, not zero.
         metrics["buckling_factor"] = float("inf")
 
+    if lowest_frequency is not None:
+        metrics["natural_frequency_hz"] = lowest_frequency
+
     total_load = 0.0
     for case in per_case:
         total_load = max(total_load, float(np.linalg.norm(case.reaction_force)))
@@ -322,5 +339,7 @@ def collect_metrics(
             metrics[f"strain_energy_mj.{case.load_case_id}"] = case.strain_energy
         if case.buckling_factor is not None:
             metrics[f"buckling_factor.{case.load_case_id}"] = case.buckling_factor
+        if case.natural_frequency is not None:
+            metrics[f"natural_frequency_hz.{case.load_case_id}"] = case.natural_frequency
 
     return metrics, per_case, warnings

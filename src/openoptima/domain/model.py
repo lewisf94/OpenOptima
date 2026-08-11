@@ -296,6 +296,51 @@ class BucklingSettings:
 
 
 @dataclass(frozen=True)
+class ModalSettings:
+    """Natural frequency analysis: the rates at which a part likes to vibrate.
+
+    Every object has rates it prefers to vibrate at. Flick a wine glass and it
+    rings at one note. If something drives a part at one of those rates, small
+    pushes add up into large movements and the part can shake itself apart at a
+    load it would carry all day if the load were steady. A drone arm beside a
+    propeller is the textbook case: an arm whose natural frequency sits near
+    the propeller's spin rate fails from vibration however strong it is on
+    paper. A static analysis cannot see this at all.
+
+    The result is a frequency in hertz -- cycles per second. Constrain it like
+    any other metric::
+
+        constraints:
+          - metric: natural_frequency_hz
+            operator: greater_than_or_equal
+            value: 300.0
+
+    **Both directions are useful, so neither is assumed.** Keeping the part
+    stiff enough that its frequency stays *above* whatever drives it is the
+    common case. Deliberately going *below* is the other: that is how an
+    isolation mount works. So this reports the number and the user says which
+    side of what limit it must fall.
+
+    A natural frequency depends on stiffness and mass alone -- not on the load.
+    Two load cases that hold the part the same way have identical frequencies,
+    which is why the deck writer solves once per distinct set of supports
+    rather than once per load case.
+    """
+
+    enabled: bool = False
+    #: How many frequencies to extract, lowest first. The lowest usually
+    #: matters most, because it is the easiest to excite, but a part can be
+    #: driven at a higher one and the others are cheap once the first is found.
+    modes: int = 6
+
+    def __post_init__(self) -> None:
+        if self.modes < 1:
+            raise ValueError("modal.modes must be at least 1")
+        if self.modes > 50:
+            raise ValueError("modal.modes above 50 is rarely useful and is slow")
+
+
+@dataclass(frozen=True)
 class AnalysisModel:
     """Everything a structural solver needs for one design.
 
@@ -309,6 +354,7 @@ class AnalysisModel:
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     element_order: int = 2
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
+    modal: ModalSettings = field(default_factory=ModalSettings)
     #: Which failure criterion to use for a material with directional
     #: strengths: ``hoffman`` or ``max_stress``. Ignored for an isotropic
     #: material, which uses its single allowable stress instead. Hoffman is

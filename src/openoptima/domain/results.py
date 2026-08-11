@@ -30,6 +30,14 @@ class LoadCaseResult:
     #: when nothing buckles under this load (a purely tensile case).
     buckling_factor: float | None = None
     buckling_modes: tuple[float, ...] = ()
+    #: Lowest natural frequency in hertz -- cycles per second -- for the way
+    #: this load case holds the part. None when modal analysis was not run.
+    natural_frequency: float | None = None
+    #: Every extracted frequency, lowest first. Kept whole because avoiding
+    #: something that shakes the part means avoiding *all* of its frequencies,
+    #: not only the first: a propeller at 250 Hz is no less of a problem for
+    #: sitting on the second mode than on the first.
+    natural_frequencies: tuple[float, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +51,8 @@ class LoadCaseResult:
             "strain_energy_mj": self.strain_energy,
             "buckling_factor": self.buckling_factor,
             "buckling_modes": list(self.buckling_modes),
+            "natural_frequency_hz": self.natural_frequency,
+            "natural_frequencies_hz": list(self.natural_frequencies),
         }
 
     @classmethod
@@ -60,6 +70,8 @@ class LoadCaseResult:
             strain_energy=payload.get("strain_energy_mj"),
             buckling_factor=payload.get("buckling_factor"),
             buckling_modes=tuple(payload.get("buckling_modes") or ()),
+            natural_frequency=payload.get("natural_frequency_hz"),
+            natural_frequencies=tuple(payload.get("natural_frequencies_hz") or ()),
         )
 
 

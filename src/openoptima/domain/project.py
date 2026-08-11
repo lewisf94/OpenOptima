@@ -13,6 +13,7 @@ from .model import (
     LoadCase,
     Material,
     MeshSpecification,
+    ModalSettings,
     SolverSpecification,
     StressEvaluation,
 )
@@ -79,6 +80,7 @@ class Project:
     solver: SolverSpecification = field(default_factory=SolverSpecification)
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
+    modal: ModalSettings = field(default_factory=ModalSettings)
     #: Failure criterion for a material with directional strengths. Has no
     #: effect on an isotropic material, which uses its allowable stress.
     failure_criterion: str = "hoffman"
@@ -132,6 +134,7 @@ class Project:
             stress_evaluation=self.stress_evaluation,
             element_order=self.mesh.element_order,
             buckling=self.buckling,
+            modal=self.modal,
             failure_criterion=self.failure_criterion,
         )
 
@@ -217,6 +220,13 @@ class Project:
                 "enabled": self.buckling.enabled,
                 "modes": self.buckling.modes,
                 "slenderness_limit": self.buckling.slenderness_limit,
+            },
+            # Turning modal analysis on adds a number to the result, and asking
+            # for more modes can add more. A result computed without them is
+            # not a cache hit for a project that wants them.
+            "modal": {
+                "enabled": self.modal.enabled,
+                "modes": self.modal.modes,
             },
             "solver": {"name": self.solver.name},
             # Changing the failure criterion changes the reported factor of

@@ -23,6 +23,7 @@ from ..domain.model import (
     Material,
     MeshAlgorithm,
     MeshSpecification,
+    ModalSettings,
     SolverSpecification,
     StressEvaluation,
 )
@@ -320,6 +321,29 @@ class BucklingSchema(Strict):
         )
 
 
+class ModalSchema(Strict):
+    """Natural frequency settings: the rates the part likes to vibrate at.
+
+    Off by default because it costs an extra eigenvalue solve for each distinct
+    set of supports. Turn it on when something drives the part at a known rate
+    -- a motor, a propeller, a pump -- because a static analysis cannot see
+    that failure at all.
+
+    Constrain the result like any other metric::
+
+        constraints:
+          - metric: natural_frequency_hz
+            operator: greater_than_or_equal
+            value: 300.0
+    """
+
+    enabled: bool = False
+    modes: int = 6
+
+    def to_domain(self) -> ModalSettings:
+        return ModalSettings(enabled=self.enabled, modes=self.modes)
+
+
 class SolverSchema(Strict):
     name: Literal["calculix", "analytic"] = "calculix"
     executable: str | None = None
@@ -463,6 +487,7 @@ class ProjectSchema(Strict):
     constraints: list[ConstraintSchema] = Field(default_factory=list)
     stress_evaluation: StressSchema = Field(default_factory=StressSchema)
     buckling: BucklingSchema = Field(default_factory=BucklingSchema)
+    modal: ModalSchema = Field(default_factory=ModalSchema)
     solver: SolverSchema = Field(default_factory=SolverSchema)
     preferences: PreferenceSchema = Field(default_factory=PreferenceSchema)
     optimisation: OptimisationSchema = Field(default_factory=OptimisationSchema)
@@ -500,6 +525,7 @@ class ProjectSchema(Strict):
             constraints=tuple(constraint.to_domain() for constraint in self.constraints),
             stress_evaluation=self.stress_evaluation.to_domain(),
             buckling=self.buckling.to_domain(),
+            modal=self.modal.to_domain(),
             solver=self.solver.to_domain(),
             preferences=self.preferences.to_domain(),
             optimisation=self.optimisation.to_domain(),
