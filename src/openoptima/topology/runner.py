@@ -43,6 +43,22 @@ from .workspace import workspace
 #: because a wedged run would otherwise hold a study open indefinitely.
 DEFAULT_TIMEOUT_SECONDS = 4 * 60 * 60
 
+#: Solve on one core, so the same input gives the same shape every time.
+#:
+#: **This is not a performance oversight.** Measured: the identical problem run
+#: twice on all cores produced two different shapes; run twice on one core it
+#: produced bit-identical output. CalculiX's threaded solve differs in the last
+#: bits of its arithmetic depending on how the work lands on threads, and a
+#: topology run turns those bits into decisions -- an element sitting on the
+#: boundary between keep and remove goes one way in one run and the other way
+#: in the next. Over seventy rounds that compounds into a genuinely different
+#: part.
+#:
+#: A design that cannot be reproduced from its own inputs cannot be defended,
+#: cached, or verified, so speed loses this argument. Passing more cores is
+#: allowed and warned about.
+REPRODUCIBLE_CPU_CORES = 1
+
 
 @dataclass(frozen=True)
 class TopologyOutcome:
@@ -270,7 +286,7 @@ def run_topology(
     output_directory: Path,
     objective: str = "stiffness",
     allowable_stress_mpa: float | None = None,
-    cpu_cores: int = 0,
+    cpu_cores: int = REPRODUCIBLE_CPU_CORES,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     keep_on_failure: bool = True,
 ) -> TopologyOutcome:
@@ -286,6 +302,15 @@ def run_topology(
     spaces in it -- beso has finished by then.
     """
     warnings = list(settings.feature_size_warnings())
+    if cpu_cores != REPRODUCIBLE_CPU_CORES:
+        warnings.append(
+            f"This run used {cpu_cores if cpu_cores else 'all'} processor cores "
+            f"rather than one, so it may not be reproducible. Running the same "
+            f"problem again can produce a different shape, because the solver's "
+            f"arithmetic differs slightly between threads and this optimiser "
+            f"turns those differences into keep-or-remove decisions. Use one "
+            f"core for anything that has to be defended or repeated."
+        )
     interpreter = _interpreter()
     output_directory.mkdir(parents=True, exist_ok=True)
     keep = False

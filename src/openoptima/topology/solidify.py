@@ -152,9 +152,14 @@ def read_element_mesh(path: Path) -> tuple[dict[int, tuple[float, float, float]]
             continue
         if line.startswith("*"):
             upper = line.upper()
-            if upper.startswith("*NODE"):
+            # The keyword is only what comes before the first comma. Matching on
+            # a prefix would treat *NODE FILE and *NODE PRINT -- which request
+            # output and carry no data -- as node blocks, and then try to read
+            # "U" as a node number.
+            keyword = upper.split(",", 1)[0].strip()
+            if keyword == "*NODE":
                 section = "node"
-            elif upper.startswith("*ELEMENT"):
+            elif keyword == "*ELEMENT":
                 section = "element"
                 match = re.search(r"TYPE\s*=\s*([A-Z0-9]+)", upper)
                 element_type = match.group(1) if match else ""
@@ -290,8 +295,11 @@ def to_solid(
         raise EvaluationFailure(
             FailureCode.INVALID_SOLID,
             "the shape the optimiser produced is not sealed, so it is not a "
-            "solid and cannot be analysed or manufactured. This usually means "
-            "too much material was removed.",
+            "solid and cannot be analysed or manufactured. Usually this means "
+            "the shape pinches somewhere down to a single edge or corner, "
+            "where two parts of it touch without really joining. Keeping more "
+            "material, or raising the minimum feature size, gives the "
+            "optimiser room to make a proper join.",
         )
 
     smoothed, used_passes = smooth(

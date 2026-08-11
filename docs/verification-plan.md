@@ -421,6 +421,69 @@ scaling. It is therefore affected. Its buckling objective is refused in
 `topology/config.py` rather than passed on, and that refusal is checked
 here, next to the evidence for it.
 
+### V12 — A topology run, end to end
+
+`tests/verification/test_topology_cantilever.py`
+
+**What this does not claim.** It does not compare against a published
+compliance value from the topology literature. Those come from a different
+method (density-based SIMP, usually two-dimensional) on a different mesh,
+and compliance does not carry across formulations. Quoting one as
+validation would be theatre.
+
+It checks what this project owns: that the run produces a sound structure,
+that turning it into a solid keeps that structure, and that its
+performance is measured rather than assumed.
+
+**Material goes where bending needs it.** A short cantilever, 60 x 20 x 4
+mm, loaded at the free corner. Beam theory says material earns its place
+furthest from the middle of the section. Measured at 40% material kept:
+
+| Depth band | Material kept |
+|---|---|
+| y = 15-20 mm | 57.8% (top flange) |
+| y = 10-15 mm | 34.2% |
+| y = 5-10 mm | **22.2% (thin web)** |
+| y = 0-5 mm | 45.0% (bottom flange) |
+
+That is an I-beam, which is the right answer.
+
+**The result must be re-analysed, and here is why.** Re-analysed properly,
+with the void elements removed and the same load applied:
+
+| | Strain energy |
+|---|---|
+| Solid block, 600 elements | 71.6 mJ |
+| Optimised, 239 elements (39.8% of the material) | 650.7 mJ |
+
+**9.1 times less stiff for 40% of the material.** Whether that trade is
+worth taking is the engineer's judgement. What matters here is that the
+number cannot be predicted from the optimiser's own figure: beso's
+`energy_density_mean` *rises* through the run, from 0.015 to 0.34, because
+less material means each remaining piece works harder. It measures
+sensitivity inside beso's own model and says nothing about the extracted
+solid.
+
+Much of the 9x is local. The load is a point load at a corner and the tip
+was thinned to 24%, so a large share of the energy is the structure
+squashing under the load rather than bending as a beam. That is a real
+property of point loads in topology problems, and a reason to prefer a
+distributed load.
+
+**The run is pinned to one processor core, and must stay that way.** On
+several cores the identical problem produced two different shapes. On one
+core it is bit-identical. CalculiX's threaded arithmetic differs in its
+last bits depending on how work lands on threads, and this optimiser turns
+those bits into keep-or-remove decisions that compound over dozens of
+rounds. A design that cannot be reproduced from its own inputs cannot be
+defended, cached or verified.
+
+**The benchmark runs at 50% material, not 40%, for a measured reason.** At
+40% this shape pinches — two parts meet at a single edge, which is not a
+solid — and the conversion refuses it. That refusal is correct and is
+tested separately. It is not monotonic: 50% comes out sound and 60% pinches
+again, so it depends on the shape rather than on how much material is left.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

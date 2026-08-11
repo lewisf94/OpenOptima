@@ -214,6 +214,18 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     a printed part appears weakest in. `results/directional.py` does the
     rotation; `tests/unit/test_failure_criteria.py` guards it.
 
+11. **A topology run is not reproducible on more than one processor core.**
+    Measured: the identical problem run twice on all cores produced two
+    different shapes; run twice on one core it produced bit-identical output.
+    CalculiX's threaded solve differs in the last bits of its arithmetic
+    depending on how work lands on threads, and a topology run turns those bits
+    into decisions — an element on the boundary between keep and remove goes one
+    way in one run and the other way in the next, and seventy rounds compound it
+    into a different part. `topology/runner.py` therefore defaults to one core
+    and warns when given more. Do not "fix" that as a performance oversight: a
+    design that cannot be reproduced from its own inputs cannot be defended,
+    cached or verified.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:
