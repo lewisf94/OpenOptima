@@ -725,6 +725,73 @@ finer mesh. Check that the numbers have stopped moving.
 See [`engineering-assumptions.md`](engineering-assumptions.md) for full
 detail.
 
+### Vibration — the other thing a stress check cannot see
+
+**Everything has rates it likes to vibrate at.** Flick a wine glass and it
+rings at one note, not a random noise. Push a child on a swing at the
+right moment each time and they go higher and higher, while pushing at the
+wrong moments does almost nothing.
+
+A part is the same. If something drives it at one of its own rates, small
+pushes add up into large movements, and it can shake itself apart under a
+load it would carry all day if that load were steady.
+
+A drone arm is the clearest case. The propeller spins at a known rate. An
+arm whose own rate sits near it will fail from vibration, however strong
+it looks on a stress check — and the stress check will never mention it,
+because nothing about a steady load reveals this.
+
+Turn it on like this:
+
+```yaml
+modal:
+  enabled: true
+  modes: 6
+```
+
+OpenOptima reports **natural frequencies** in hertz — cycles per second.
+The lowest one usually matters most, because it is the easiest to set off.
+Keep it away from whatever drives your part:
+
+```yaml
+constraints:
+  - metric: natural_frequency_hz
+    operator: greater_than_or_equal
+    value: 300.0
+```
+
+**Both directions are useful, which is why neither is assumed.** Staying
+*above* what shakes you is the common case: make the part stiff enough
+that nothing can reach its rate. Going deliberately *below* is the other:
+that is how an anti-vibration mount works. OpenOptima reports the number
+and you say which side of what limit it must fall.
+
+**The load does not change the answer.** A natural frequency comes from
+how stiff the part is and how heavy it is, and nothing else. The same part
+under 1 N and under 5000 N gives the same frequencies — that is measured,
+not assumed. So you do not need a separate load case for this.
+
+**If the part is not properly held, OpenOptima stops.** A part that can
+drift or spin freely has no natural frequency to report — it has zero, and
+zero is not an answer. The solver reports that without complaint, so
+OpenOptima checks for it and refuses with `model_not_held`, naming the
+supports to look at. Getting a number here instead of a refusal would mean
+being told the frequency of a part held in a way you never described.
+
+**What this does not tell you**, and none of it is a small print detail:
+
+- **How hard it shakes.** This says which rates are dangerous. It says
+  nothing about how big the movement gets, because that depends on damping
+  — how quickly a part bleeds off energy as it vibrates — which OpenOptima
+  does not model.
+- **How long it lasts.** Vibration is what causes the repeated load cycles
+  that break parts by fatigue. Fatigue is not built yet.
+- **The effect of a heavy load on the frequency.** Tightening a guitar
+  string raises its pitch, and a part under heavy tension or compression
+  shifts the same way. That needs a different calculation and is not done
+  here. For most parts the shift is small; for a slender part close to
+  buckling it is not.
+
 ---
 
 ## 7. Glossary
@@ -749,6 +816,8 @@ detail.
 | **Knee point** | Where you stop getting good value for what you pay. |
 | **Load case** | One scenario the part must survive. |
 | **Mesh** | The part chopped into thousands of small pieces. |
+| **Mode** | One of the shapes a part waves in when it vibrates. Each mode has its own frequency. |
+| **Natural frequency** | A rate the part likes to vibrate at, in cycles per second. Shake it at that rate and small pushes build into big movements. |
 | **NSGA-II** | The search method used. Keeps a population of designs and improves them, like breeding. |
 | **Objective** | Something to push as far as you can. |
 | **Pareto front** | The set of best available deals; no single winner. |
@@ -756,6 +825,8 @@ detail.
 | **Poisson contraction** | The material narrowing sideways as it stretches lengthwise. Ordinary beam theory ignores this effect. |
 | **Provenance** | The record of exactly what produced a number. |
 | **Region** | A named face or set of faces you push or hold. |
+| **Resonance** | What happens when something drives a part at one of its natural frequencies. Small pushes add up and the movement grows. |
+| **Rigid-body mode** | The part drifting or spinning as a whole rather than bending, at zero cycles per second. It means the supports do not hold it. |
 | **Second-order element** | A piece with curved edges. More accurate than straight-edged. |
 | **Selector** | The description used to find a face, e.g. "biggest flat face pointing at −X". |
 | **Singularity** | A place where the maths says stress is infinite. An artefact of idealised sharp corners. |

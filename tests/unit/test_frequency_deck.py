@@ -174,3 +174,37 @@ class TestStepNumbering:
     def test_no_mapping_is_recorded_when_modal_is_off(self, tmp_path):
         deck, _text = _write(tmp_path, [_case("a")], modal=False)
         assert deck.frequency_step == {}
+
+
+class TestTheSettingIsInTheCacheKey:
+    """A result computed without frequencies is not a hit for one that wants them.
+
+    Everything that can change a number belongs in the evaluation digest. Leave
+    a physics setting out and the cache serves the old answer to the new
+    question, quickly and wrongly.
+    """
+
+    @staticmethod
+    def _project(**modal):
+        import dataclasses
+
+        from openoptima.schema.loader import load_project
+
+        project = load_project("examples/l_bracket/project.yaml")
+        return dataclasses.replace(project, modal=ModalSettings(**modal))
+
+    def test_turning_it_on_changes_the_digest(self):
+        off = self._project(enabled=False)
+        on = self._project(enabled=True)
+        assert off.setup_digest() != on.setup_digest()
+
+    def test_asking_for_more_modes_changes_the_digest(self):
+        six = self._project(enabled=True, modes=6)
+        twelve = self._project(enabled=True, modes=12)
+        assert six.setup_digest() != twelve.setup_digest()
+
+    def test_the_same_settings_give_the_same_digest(self):
+        assert (
+            self._project(enabled=True, modes=6).setup_digest()
+            == self._project(enabled=True, modes=6).setup_digest()
+        )

@@ -22,15 +22,17 @@ OpenOptima specifically does **not** model:
 - plasticity, creep, or any nonlinear material behaviour;
 - contact, friction, preload, bolt or joint behaviour;
 - large displacement or stress stiffening;
-- dynamics, vibration, resonance, impact;
+- forced vibration, resonant response, impact;
 - residual stress, weld effects, or process history;
 - temperature dependence and thermal stress;
 - fracture and crack growth.
 
-**OpenOptima can analyse buckling** — see its own section, below. Buckling
-is off by default, and has a limited range of validity. Every other item
-in the list above stays invisible to OpenOptima, and an optimiser will
-exploit every one of them, given the chance. Minimising mass, under only a
+**OpenOptima can analyse buckling** and **natural frequencies** — each has
+its own section below. Both are off by default. Buckling has a limited
+range of validity; natural frequency analysis says which rates are
+dangerous but never how hard a part actually shakes at one. Every other
+item in the list above stays invisible to OpenOptima, and an optimiser
+will exploit every one of them, given the chance. Minimising mass, under only a
 stress limit and a displacement limit, drives a design towards thin,
 slender sections. Those sections are precisely the geometry most at risk
 of the failures OpenOptima cannot see.
@@ -182,6 +184,53 @@ use beam elements or a hand Euler calculation.
   sizes manageable across a large study. The solver deck stays in the run
   directory, so you can re-run one chosen design with mode-shape output,
   for a closer review.
+
+## Natural frequencies
+
+OpenOptima can report the rates a part likes to vibrate at. Turn it on:
+
+```yaml
+modal:
+  enabled: true
+  modes: 6
+```
+
+The result is a list of frequencies in hertz, lowest first, and the lowest
+becomes `natural_frequency_hz`. Constrain it in either direction: above a
+limit for a part that must stay clear of something driving it, below one
+for a mount deliberately tuned to isolate. Verified as V14 in
+[`verification-plan.md`](verification-plan.md), to +0.27% against the
+published cantilever answer.
+
+**What it depends on.** Stiffness and mass, and nothing else. The load
+does not enter the calculation, so two load cases holding the part the same
+way have identical frequencies and OpenOptima solves once for both. This
+was measured, not assumed: the same part at 1 N and at 5000 N returns the
+same numbers to the last digit.
+
+**What it does not cover.**
+
+- **No stress stiffening.** A part under heavy tension is stiffer, and so
+  vibrates faster — the reason a tightened guitar string rises in pitch. A
+  part in compression goes the other way, and near its buckling load the
+  effect is large. OpenOptima ignores it, which is accurate for a lightly
+  loaded part and optimistic for a heavily compressed one.
+- **No damping, so no amplitude.** This says which rates are dangerous. It
+  says nothing about how far the part actually moves at one, because that
+  depends on how quickly the part bleeds off energy — which is not
+  modelled, and is dominated by joints and fixings rather than by the
+  material.
+- **No forced response and no fatigue life.** Knowing a frequency is close
+  to a drive rate tells you there is a problem. It does not tell you how
+  many cycles the part survives.
+- **A free part has no answer.** Six modes at zero hertz mean the supports
+  do not hold the part still. OpenOptima refuses with `model_not_held`
+  rather than reporting the next mode up, which would be the frequency of
+  a part held in a way the project never described. Free-free analysis —
+  the deliberate case, as for something in flight — is not supported.
+- **Mode shapes are not written.** Only the frequencies. The deck stays in
+  the run directory, so one chosen design can be re-run with mode-shape
+  output for review.
 
 ## Load application
 

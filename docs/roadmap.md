@@ -90,6 +90,8 @@ may make.
   into a sealed shape and then **analysed** — so it reports a real stress
   and factor of safety rather than only a picture. See item 3 under
   "Later" for what this covers and what it still does not.
+- Natural frequencies, verified against published beam theory, refusing to
+  answer for a part the supports do not hold still
 
 ## Next (v0.2) — trust
 
@@ -124,8 +126,10 @@ Nothing new here. This tier makes what already exists defensible.
    face-picking to write selectors, a live Pareto plot, and pairwise
    design comparison. Instead of asking for a number, this would show you
    two designs and ask which one you prefer.
-4. **Modal analysis**, as a constraint: keep the part's natural frequency
-   (the frequency it vibrates at, if disturbed) away from a limit.
+4. ~~**Modal analysis**~~ — **done.** `modal.enabled`, constrained as
+   `natural_frequency_hz`, verified as V14 to +0.27% against the published
+   cantilever answer. Keeps the part's natural frequency (the rate it
+   vibrates at, if disturbed) away from a limit.
 
    Every object has frequencies it prefers to vibrate at. If something
    drives a part at one of those frequencies, small forces build into
@@ -136,10 +140,22 @@ Nothing new here. This tier makes what already exists defensible.
    see it at all.
 
    CalculiX supports this directly with a `*FREQUENCY` step, so the work
-   is a new step type, a parser for the frequencies, and a new metric.
-   Note it needs *both* bounds in practice: above the drive frequency for
-   a stiff part, or deliberately below it for an isolated one. A
-   single-sided limit would be the wrong shape.
+   was a new step type, a parser for the frequencies, and a new metric.
+   Both bounds are supported, as planned: above the drive frequency for a
+   stiff part, or deliberately below it for an isolated one.
+
+   Two things cost more than the step itself, and both were found by
+   running it rather than by reading about it. A `*FREQUENCY` step writes
+   a mode shape into the results file for every mode without being asked,
+   which would have shifted every later result along and handed a load
+   case a mode shape instead of an answer. And a part the supports do not
+   hold still comes back with modes at zero hertz and a successful exit
+   code, which is now refused rather than filtered. Traps 13 and 14 in
+   `AGENTS.md`.
+
+   What it still does not do: no stress stiffening, no damping so no
+   amplitude, and no forced response. See
+   [`engineering-assumptions.md`](engineering-assumptions.md).
 
    Do this **before** fatigue. The two are linked: vibration is what
    drives the load cycles that cause fatigue, so the natural frequency

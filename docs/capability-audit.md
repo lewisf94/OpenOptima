@@ -218,14 +218,22 @@ surface against the build direction. OpenOptima decides what that means — and
 the decision is the part worth building, because printability must be a
 trade-off the user sets, not a gate that silently deletes good designs.
 
-### Modal analysis — Build (but nothing to reuse)
+### Modal analysis — Build ✔ done
 
 The frequencies a part naturally vibrates at.
 
-CalculiX does this natively with a `*FREQUENCY` step. There is no library to
-reuse and none is needed. The work is writing the step, parsing the
+CalculiX does this natively with a `*FREQUENCY` step. There was no library to
+reuse and none was needed. The work was writing the step, parsing the
 frequencies, verifying against a published beam answer, and exposing the result
-as a constraint. Contained, and entirely ours.
+as a constraint.
+
+**The verdict held, but the estimate of where the work sat did not.** Writing
+the step and reading the numbers was an afternoon. The rest was the two ways
+CalculiX makes it quietly wrong: it writes a mode shape into the results file
+for every mode without being asked, which shifts every later result along, and
+it reports a part nobody held as a set of zero-hertz modes with a successful
+exit code. Neither is documented and neither announces itself. Traps 13 and 14
+in `AGENTS.md`, and V14 in the verification plan.
 
 ### Directional failure criteria — Build ✔ done
 

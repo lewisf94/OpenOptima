@@ -566,6 +566,80 @@ triangles to find it by, and it is measured as part of its neighbours. A
 selector that asks for a blend by its radius will not match on a shape made
 of triangles.
 
+### V14 — The rates a part vibrates at
+
+`tests/verification/test_natural_frequency.py`
+
+Every object has rates it prefers to vibrate at. Flick a wine glass and it
+rings at one note. If something drives a part at one of those rates, small
+pushes add up into large movements, and the part can shake itself apart
+under a load it would carry all day if the load were steady. A drone arm
+beside a propeller is the standard case. A static analysis cannot see this
+at all, so before this benchmark the software was blind to it.
+
+A 100 x 10 x 5 mm steel cantilever, held at one end, against the published
+beam formula:
+
+| Mode | OpenOptima | Published | Difference | What it is |
+|---|---|---|---|---|
+| 1 | 418.9 Hz | 417.8 Hz | +0.27% | bending the easy way |
+| 2 | 831.5 Hz | 835.5 Hz | −0.48% | bending the hard way |
+| 3 | 2595.0 Hz | 2618.0 Hz | −0.88% | bending the easy way again |
+
+The section is deliberately 10 x 5 rather than square. A square bar bends
+identically two ways, so its first two modes land on the same frequency
+and the test could not tell which one it had been given — nor notice if
+one went missing.
+
+**The difference is not mesh error and does not shrink.** Measured across
+four mesh sizes from 4.0 mm down to 1.5 mm, the first mode moved from
++0.34% to +0.26% and then stopped. What is left is the difference between
+a real three-dimensional part and the ideal beam the formula describes.
+The tolerance is 2%.
+
+**The mode ratios are the sharper check.** Bending the hard way is exactly
+four times stiffer here, so that frequency is exactly twice the first —
+and that follows from the shape alone. It does not depend on the steel,
+the density, or the unit conversion, so it stays true even if every
+absolute number were scaled by a units mistake. Measured: 1.9852 against
+2.0000, and 6.1952 against 6.2669.
+
+**The question that had to be answered first.** CalculiX silently skips
+the lowest *buckling* mode when the answer falls below about 0.52, and
+returns the second one — nine times too high, in the unsafe direction (V9,
+and trap 7 in `AGENTS.md`). Anything solving an eigenvalue problem in the
+same program has to be suspected of the same defect until measured. It was
+measured: a long thin beam whose first frequency is **18.6 Hz** came back
+as accurate (+0.20%) as the stubby one at 419 Hz (+0.27%), with the mode
+ratios holding to 0.02%. There is no magnitude-dependent defect in the
+frequency solve.
+
+**The load makes no difference, and that is checked rather than claimed.**
+A natural frequency comes from stiffness and mass; what pushes on the part
+does not enter. The same part is run at 1 N and at 5000 N and must return
+the same frequencies to the last digit. That is what allows load cases
+held the same way to share one solve.
+
+**A part that is not held has no frequency to report.** Held against the
+load only, four of six modes came back at exactly 0 Hz with the first real
+one at 1821 Hz — the part drifting and spinning freely rather than
+vibrating. CalculiX reports that with no error and a successful exit code.
+OpenOptima stops with `MODEL_NOT_HELD` and says which supports to check,
+rather than discarding the zeros and answering a question nobody asked.
+
+**What this does not cover**, stated plainly:
+
+- **No load effect on the frequency.** A tightened guitar string rises in
+  pitch, and a part under heavy tension or compression shifts the same
+  way. That needs a different analysis and is not done here. For most
+  parts the shift is small, but for a slender part near buckling it is
+  not.
+- **No damping.** Real parts lose energy as they vibrate, which limits how
+  large the movement grows at resonance. This says which rates are
+  dangerous, never how bad the shaking gets.
+- **No answer for how long it survives.** Vibration is what drives the
+  load cycles that break a part by fatigue, and fatigue is not built yet.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

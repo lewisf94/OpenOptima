@@ -24,8 +24,8 @@ only open-source tools for the shape, the mesh, and the calculation.
 > works end to end. Read
 > [`docs/engineering-assumptions.md`](docs/engineering-assumptions.md)
 > before you size a real part from its output. OpenOptima performs
-> **linear static analysis only**, with optional linear buckling. It does
-> not cover fatigue, contact, or plasticity.
+> **linear static analysis only**, with optional linear buckling and
+> natural frequencies. It does not cover fatigue, contact, or plasticity.
 
 ---
 
@@ -67,6 +67,11 @@ only open-source tools for the shape, the mesh, and the calculation.
   placed on the wrong face, and unit mistakes, for free.
 - **Linear buckling** — where a long thin part folds sideways rather than
   being crushed. Verified to within 0.11% of Euler's column formula.
+- **Natural frequencies** — the rates a part likes to vibrate at. Drive a
+  part at one of them and small pushes build into large movements, which a
+  stress check cannot see at all. Verified to within 0.27% of the published
+  cantilever answer. OpenOptima refuses to report a frequency for a part
+  the supports do not hold still, rather than reporting the zero it gets.
 - **Orthotropic material** — material that is stronger in some directions
   than others, which is what a 3D-printed part is. See
   [3D printing](#3d-printing-partly-supported) below.
@@ -392,6 +397,7 @@ seconds. The rest need Gmsh and CalculiX.
 | **V7** | Multiple load cases | Enveloped, never averaged | exact |
 | **V9** | Buckling validity | Sweep of 68 cases | see below |
 | **V10** | Directional material | Ratio of the two moduli | **+0.14%** |
+| **V14** | Natural frequencies | Euler-Bernoulli, first 3 modes | **+0.27% to −0.88%** |
 | | Strain energy | Clapeyron's theorem | **2 parts in 1000** |
 
 Full detail, including every tolerance and how it was chosen, is in

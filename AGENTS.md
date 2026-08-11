@@ -246,6 +246,45 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     the triangles: the middles sit inside the true circle, and a 3.000 mm hole
     fitted from them measures 2.967 mm. That is trap 3 again in a new guise.
 
+13. **CalculiX carries an output request forward into the next step, so a
+    `*FREQUENCY` step writes a mode shape nobody asked for.** A frequency step
+    following a static one emits DISP, STRESS and ERROR into the FRD for
+    *every* mode, because the static step's `*NODE FILE`/`*EL FILE` request is
+    still in force. Six modes is eighteen extra blocks. Measured: 21 blocks and
+    46 413 lines with the request carried forward, 3 blocks and 10 131 lines
+    with it cleared, frequencies identical to every digit.
+
+    That matters because `frd.py` reads results by block order — the n-th
+    displacement block is the n-th solved step. Eighteen unexpected blocks
+    shift every later static result along, and **a mode shape is a
+    displacement field that looks exactly like a real deflection**, only
+    scaled arbitrarily. There is no signature to catch it downstream: the
+    stress is plausible, the deflection is plausible, and the load case they
+    are attributed to is wrong. The fix is an empty `*NODE FILE` / `*EL FILE`
+    in the frequency step, which replaces the carried-forward request; the
+    reader also skips any block whose `100C` record says `MODAL`. Both are
+    kept, because the failure is silent.
+
+    The same step also emits a reaction total and an internal energy **per
+    mode**, which is trap 6 with more records. Selecting by step number
+    already handles it — do not replace that with counting.
+
+14. **A part the supports do not hold still has no natural frequency, and
+    CalculiX will not tell you.** A free body has six rigid-body modes at zero
+    hertz: three ways to drift, three ways to spin. Measured on a beam held
+    only against its load direction, four of six modes came back at exactly
+    0 Hz with the first real one at 1821 Hz. Exit code 0, nothing in the log.
+    A static solve does not necessarily catch this either — it only fails if
+    the load happens to push in a direction nothing is holding.
+
+    Reporting the next mode up instead answers a question nobody asked: the
+    frequency of a part held in a way the project does not describe. It is
+    `MODEL_NOT_HELD`, an infrastructure error, so the optimiser never learns
+    from it. The threshold is **relative** — a mode at or below 1e-4 of the
+    highest frequency in the same solve — because a fixed number of hertz
+    cannot work: a real first mode was measured at 18.6 Hz on a long thin
+    beam, and at 419 Hz on a stubby one, both correct.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:
