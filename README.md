@@ -295,7 +295,7 @@ openoptima optimise examples/l_bracket/project.yaml
 openoptima converge examples/l_bracket/project.yaml
 ```
 
-Two examples ship with OpenOptima:
+Three examples ship with OpenOptima:
 
 - **`l_bracket`** minimises the mass of an aluminium bracket carrying a
   2.5 kN load, with a factor of safety of at least 2 and under 1 mm of
@@ -303,6 +303,12 @@ Two examples ship with OpenOptima:
 - **`strut`** demonstrates buckling. At its lightest allowed section the
   stress factor of safety is 4.8, which looks very safe, while the
   buckling factor is 1.08 — within 8% of collapsing.
+- **`imported_bracket`** is the same bracket as `l_bracket`, reached by
+  reading a STEP file instead of a built-in template — the same file a
+  SolidWorks or Fusion 360 "export as STEP" would produce. It shows that
+  picking a face by what it looks like works the same way on a part you
+  drew elsewhere. See [Bringing in your own part](#bringing-in-your-own-part)
+  below.
 
 ---
 
@@ -335,6 +341,30 @@ instead of guessing. A wrong guess looks exactly like success.
 
 `openoptima doctor` checks every description at the extremes of your
 design range, before you start a study.
+
+### Bringing in your own part
+
+You do not have to build a shape from one of OpenOptima's own templates.
+Export a STEP file from SolidWorks, Fusion 360 or almost any other CAD
+package, and point a project at it:
+
+```yaml
+geometry:
+  provider: step
+  source: bracket.step
+```
+
+Everything above still applies. A region is still found by what a face
+looks like, not by a number, and it works exactly the same way on an
+imported shape — see `examples/imported_bracket`.
+
+**What this cannot do, and why that is a fact about the file rather than a
+missing feature.** A STEP file is a finished shape. The dimensions whoever
+drew it typed in are not saved in the file — only the resulting surfaces —
+so there is nothing for `openoptima optimise` to search over. Evaluating
+the part as drawn works today; varying it needs a dimension of your own
+added on top, such as a fillet radius or a hole diameter on a face you
+pick. See [`docs/roadmap.md`](docs/roadmap.md) for where that stands.
 
 ---
 

@@ -121,11 +121,61 @@ Build order, because each step only makes sense once the one before exists:
 
 | # | Piece | Model | Why |
 |---|---|---|---|
-| 1 | Read a STEP file as a shape | Sonnet | Mechanical wiring, no physics changed |
+| 1 | ~~Read a STEP file as a shape~~ | Sonnet | **Done.** `geometry: {provider: step, source: ...}`. See below. |
 | 2 | Turn a click into a lasting face description | **Opus** | The one place this can go wrong silently: a click must become a description that survives the shape changing, and refuse when two faces match equally. This is the same rule as "never identify a face by its index," applied to a mouse click. Testable headless, with no 3D viewer at all — build and prove this before the viewer exists |
 | 3 | 3D viewer, click to pick | Sonnet | Front-end only, no computed number involved |
 | 4 | Features you can add and vary on an imported shape | **Opus** | Adding a fillet creates and destroys faces; a face picked before the fillet may not exist afterwards in the same form. The hardest version of the naming problem this project exists to solve |
 | 5 | Wizard flow, sensible defaults, plain-English errors | Sonnet | Usability polish once the above works |
+
+**Piece 1, done 2026-08-11.** `StepGeometryProvider` in
+`geometry/step_provider.py`, reusing the exact import call
+`cadquery_provider.py` already relies on
+(`gmsh.model.occ.importShapes`) rather than adding new machinery. Every
+region selector already worked on the result without a single change to
+`regions/` — proven by re-importing the l_bracket shape and confirming
+`mounting_face`, `load_face`, `fillet_surface` and both `bolt_holes`
+still resolve uniquely, and that a full evaluation reproduces the
+parametric route's numbers (mass 0.591418 kg identical, deflection
+0.372145 mm identical, factor of safety 2.30505 against 2.30498 —
+noise-level). See `examples/imported_bracket`.
+
+One pre-existing gap surfaced and was fixed while wiring this in, in the
+same commit rather than left for later: `openoptima doctor` and the app's
+setup-check page built a provider and called `validate_definition()`
+without ever telling it where the project file lives, so a relative
+`geometry.source` resolved against whatever directory the command
+happened to be run from, not the project's own folder. Only the real
+evaluation pipeline set this correctly. Affected `cadquery` too, silently,
+since before now nothing exercised that path in either check.
+
+**What was deliberately scoped down to Sonnet, and what is not.** This
+piece is wiring: it produces a `GeometryArtifact` that flows into the
+already-verified meshing and solving pipeline unchanged, and every
+failure mode (missing file, corrupt file, an assembly instead of a part)
+is classified as an infrastructure error rather than a bad design, because
+none of them are a property of any one evaluation — the same fixed file
+fails identically every time. That reasoning is Sonnet-shaped.
+
+Reading a file's declared units correctly is not, and `AGENTS.md` says so
+explicitly — units and parsers are named as Opus territory, because a
+units mistake would be silent and would look exactly like a correct,
+smaller or larger part. **What was actually checked here**: a shape of
+known dimensions (120 x 90 x 60 mm, plus a fillet and two holes),
+exported to STEP by the code this project already trusts and re-imported
+by the new provider, comes back matching to under one part in a million on
+volume, bounding box and surface area
+(`tests/integration/test_step_import.py::TestAKnownShapeSurvivesTheRoundTrip`).
+**What was not checked**: a file whose header declares a *different* unit
+— inches, rather than millimetres — which is the case that would actually
+catch a unit-conversion mistake, since round-tripping through the same
+kernel that already assumes millimetres cannot expose an error in how a
+different unit gets converted. Every file this has been tested against was
+also written by this project's own OCC kernel, not by SolidWorks or Fusion
+360 itself, so a real export's own quirks are untested. Before this is
+trusted on an actual SolidWorks file: an Opus pass building an
+inches-declared STEP file (or sourcing one from a real CAD package) and
+confirming OpenCASCADE's unit conversion is genuinely being exercised, not
+silently skipped.
 
 ### 2. Web app versus a native Windows app — decided, one follow-up
 

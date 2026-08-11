@@ -36,6 +36,12 @@ def run_doctor(project: Project, path: Path) -> dict[str, Any]:
     )
 
     provider = create_provider(project.geometry)
+    if hasattr(provider, "root"):
+        # A relative geometry.source is written relative to the project
+        # file, not to whatever directory the app process happens to be
+        # running in. Without this, a check can pass or fail depending on
+        # where the app was launched from rather than on the project itself.
+        provider.root = path.parent  # type: ignore[attr-defined]
     report = provider.validate_definition()
     checks.append(
         {

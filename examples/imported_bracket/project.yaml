@@ -1,0 +1,130 @@
+# OpenOptima example: evaluating a part you did not build in OpenOptima
+#
+# `bracket.step` in this folder was exported from another CAD package -- in
+# this case OpenOptima's own l_bracket template, saved out as a STEP file so
+# there is a real one to point at, but the software cannot tell the
+# difference between that and a real SolidWorks or Fusion 360 export. Either
+# way, this file is a *finished shape*, with no dimensions inside it: the
+# numbers whoever drew it typed in are not in the file, only the resulting
+# surfaces. See docs/roadmap.md for what that does and does not rule out.
+#
+# What still works on a part like this: evaluating it as drawn, and picking
+# the faces to load and hold by what they look like -- flat, round, an
+# outward direction -- exactly as it does on a part built from OpenOptima's
+# own templates. What does not: there is nothing here to *optimise*, because
+# there are no dimensions to search over. That is why this project has no
+# `variables:` list and no `optimisation:` section -- `openoptima evaluate`
+# is the only command that makes sense on an import by itself.
+#
+# To try this on your own part: replace bracket.step with your own STEP
+# export, and rewrite the regions below to match its faces.
+#
+# Run it:
+#   openoptima doctor   examples/imported_bracket/project.yaml
+#   openoptima evaluate examples/imported_bracket/project.yaml
+
+schema_version: 1
+name: Imported bracket, evaluated as drawn
+description: >
+  The same L-bracket shape as examples/l_bracket, reached by reading a STEP
+  file instead of building it from a parametric template. Demonstrates that
+  region selectors -- picking a face by what it looks like, never by a saved
+  index -- work identically on a shape that arrived with no CAD history at
+  all.
+
+unit_system: mm_N_MPa_t
+
+geometry:
+  provider: step
+  source: bracket.step
+
+# Unchanged from examples/l_bracket/project.yaml. The shape is byte-for-byte
+# the same part, so the same selectors find the same faces.
+regions:
+  - name: mounting_face
+    description: Flat face bolted to the wall
+    selector:
+      surface_type: plane
+      normal: [-1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      prefer_largest: true
+
+  - name: load_face
+    description: End face of the horizontal arm where the load is applied
+    selector:
+      surface_type: plane
+      normal: [1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      within_box: { xmin: 119.0, ymin: -1.0, zmin: -1.0, xmax: 121.0, ymax: 61.0, zmax: 91.0 }
+
+  - name: fillet_surface
+    description: Internal corner fillet — mesh-refined, and counted in the stress measure
+    selector:
+      surface_type: cylinder
+      within_box: { xmin: -1.0, ymin: -1.0, zmin: -1.0, xmax: 46.0, ymax: 61.0, zmax: 46.0 }
+
+  - name: bolt_holes
+    description: Both bolt hole bores
+    selector:
+      surface_type: cylinder
+      mode: all
+      within_box: { xmin: -1.0, ymin: -1.0, zmin: 50.0, xmax: 46.0, ymax: 61.0, zmax: 91.0 }
+
+material:
+  name: Aluminium 6082-T6
+  elastic_modulus_mpa: 70000.0
+  poisson_ratio: 0.33
+  density_kg_m3: 2700.0
+  allowable_stress_mpa: 160.0
+  allowable_stress_basis: "0.2% proof stress 260 MPa with a 1.6 design factor"
+
+load_cases:
+  - id: vertical_end_load
+    description: 2.5 kN downward at the end of the horizontal arm
+    boundary_conditions:
+      - region: mounting_face
+        kind: fixed
+        dofs: [1, 2, 3]
+    loads:
+      - kind: force
+        region: load_face
+        vector: [0.0, 0.0, -2500.0]
+
+mesh:
+  global_size: 6.0
+  minimum_size: 1.5
+  element_order: 2
+  algorithm: delaunay
+  curvature_refinement: true
+  curvature_elements: 12.0
+  local_refinements:
+    - region: fillet_surface
+      size: 2.0
+      distance: 12.0
+  min_scaled_jacobian: 0.05
+  volume_tolerance: 0.02
+
+stress_evaluation:
+  measure: percentile
+  percentile: 99.0
+  excluded_regions: [mounting_face]
+
+solver:
+  name: calculix
+  timeout_seconds: 900
+  threads: 1
+
+objectives:
+  - metric: mass_kg
+    direction: minimise
+    label: Mass
+
+constraints:
+  - metric: factor_of_safety
+    operator: greater_than_or_equal
+    value: 2.0
+    label: Factor of safety
+  - metric: displacement_max_mm
+    operator: less_than_or_equal
+    value: 1.0
+    label: Tip deflection

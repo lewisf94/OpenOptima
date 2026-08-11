@@ -154,6 +154,12 @@ def command_doctor(args: argparse.Namespace) -> int:
         )
 
     provider = create_provider(project.geometry)
+    if hasattr(provider, "root"):
+        # Same reasoning as the app's setup check: a relative geometry.source
+        # is written relative to the project file, not to the terminal's
+        # current directory, so doctor must resolve it the same way an
+        # evaluation would.
+        provider.root = root  # type: ignore[attr-defined]
     report = provider.validate_definition()
     print(f"Geometry     : {'OK ' if report.ok else 'BAD'} {project.geometry.template}")
     for error in report.errors:

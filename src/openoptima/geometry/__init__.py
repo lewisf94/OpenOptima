@@ -17,9 +17,13 @@ def create_provider(definition: GeometryDefinition) -> GeometryProvider:
         from .cadquery_provider import CadQueryGeometryProvider
 
         return CadQueryGeometryProvider(definition)
+    if definition.provider == "step":
+        from .step_provider import StepGeometryProvider
+
+        return StepGeometryProvider(definition)
     raise EvaluationFailure(
         FailureCode.INTERNAL_ERROR,
-        f"Unknown geometry provider {definition.provider!r}; expected 'occ' or 'cadquery'",
+        f"Unknown geometry provider {definition.provider!r}; expected 'occ', 'cadquery' or 'step'",
     )
 
 

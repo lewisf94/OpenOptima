@@ -244,6 +244,37 @@ Two more options worth knowing:
 Everything is in one file, `project.yaml`. This section explains what each
 part means.
 
+### Where the shape comes from
+
+Most of this guide assumes you are using one of OpenOptima's own shapes —
+an L-bracket, a strut, a plate — and changing its dimensions. You can also
+bring in a part **you** drew, in another program:
+
+```yaml
+geometry:
+  provider: step
+  source: bracket.step
+```
+
+`bracket.step` is a file exported from SolidWorks, Fusion 360, or almost
+any other CAD package — look for "export" or "save as", then choose STEP.
+Everything else in this guide still works: you still pick faces by what
+they look like, not by a number, and `openoptima doctor` still checks your
+setup before you run anything.
+
+**One thing an imported part cannot do.** A STEP file is a finished shape.
+The dimensions whoever drew it typed in — this wall is 5 mm, this hole is
+8 mm — are not saved in the file, only the resulting surfaces. So there is
+nothing for OpenOptima to search over: `openoptima evaluate` works on an
+imported part, but `openoptima optimise` has no dimensions to try. If you
+want OpenOptima to search for the best size of something, that something
+needs to be a design variable, and design variables are described in the
+next section — which only works with OpenOptima's own shapes, not an
+import, unless you add a new feature (a fillet, a hole) on top of it
+yourself.
+
+See `examples/imported_bracket` for a complete, working example.
+
 ### The dimensions the software is allowed to change
 
 ```yaml
@@ -834,6 +865,7 @@ being told the frequency of a part held in a way you never described.
 | **Solver** | The program that does the stress calculation. |
 | **Sobol / Latin hypercube** | Ways of spreading trial designs out evenly rather than randomly. |
 | **Stress** | Force divided by the area carrying it. How hard the material is working. |
+| **STEP file** | A finished 3D shape saved out of a CAD program, with no dimensions left inside it -- only the resulting surfaces. |
 | **Topology optimisation** | Starting from a block of space and deleting whatever is not carrying its weight, so the shape is invented rather than sized. |
 | **Trade rule** | Your stated exchange rate: "I will pay this much of X for that much of Y". |
 | **Triangle mesh (STL)** | A shape described only as a skin of triangles. No CAD behind it, so its faces have to be measured rather than looked up. |

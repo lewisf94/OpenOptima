@@ -105,7 +105,7 @@ class VariableSchema(Strict):
 
 
 class GeometrySchema(Strict):
-    provider: Literal["occ", "cadquery"] = "occ"
+    provider: Literal["occ", "cadquery", "step"] = "occ"
     template: str = ""
     source: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -117,6 +117,11 @@ class GeometrySchema(Strict):
             raise ValueError("geometry.template is required for the 'occ' provider")
         if self.provider == "cadquery" and not self.source:
             raise ValueError("geometry.source is required for the 'cadquery' provider")
+        if self.provider == "step" and not self.source:
+            raise ValueError(
+                "geometry.source is required for the 'step' provider -- the path "
+                "to the CAD file to import, e.g. a STEP export from SolidWorks"
+            )
         return self
 
 
