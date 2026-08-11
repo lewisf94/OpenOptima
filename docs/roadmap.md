@@ -122,10 +122,50 @@ Build order, because each step only makes sense once the one before exists:
 | # | Piece | Model | Why |
 |---|---|---|---|
 | 1 | ~~Read a STEP file as a shape~~ | Sonnet | **Done.** `geometry: {provider: step, source: ...}`. See below. |
-| 2 | Turn a click into a lasting face description | **Opus** | The one place this can go wrong silently: a click must become a description that survives the shape changing, and refuse when two faces match equally. This is the same rule as "never identify a face by its index," applied to a mouse click. Testable headless, with no 3D viewer at all — build and prove this before the viewer exists |
+| 2 | ~~Turn a click into a lasting face description~~ | **Opus** | **Done.** `regions/describe.py`, and `openoptima faces` to use it without a viewer. See below. |
 | 3 | 3D viewer, click to pick | Sonnet | Front-end only, no computed number involved |
 | 4 | Features you can add and vary on an imported shape | **Opus** | Adding a fillet creates and destroys faces; a face picked before the fillet may not exist afterwards in the same form. The hardest version of the naming problem this project exists to solve |
 | 5 | Wizard flow, sensible defaults, plain-English errors | Sonnet | Usability polish once the above works |
+
+**Piece 2, done 2026-08-11.** `regions/describe.py` turns a picked face
+into a selector, and `openoptima faces` lists a part's faces with the
+description that would find each one — `--yaml` prints it ready to paste.
+Built and proved headless, so the part that can be silently wrong was
+settled before any 3D viewer exists.
+
+The rule it follows: **every filter is made as loose as it can be while
+still excluding the competition**, because a description is written once
+and re-resolved against every shape the optimiser invents afterwards. Too
+tight and it stops matching; too loose and it matches the face next door,
+which is worse — the first fails loudly and the second does not.
+
+Three defects were found by running it against the real L-bracket, and
+they are the reason to trust the result rather than the code being tidy:
+
+1. **A description written from one shape cannot know what is about to be
+   varied.** The fillet radius *is* a design variable, 3 to 25 mm, and a
+   radius range written from its 8 mm default matched nothing at either
+   extreme.
+2. **Worse, and silent.** The two bolt holes described by their 4.5 mm
+   radius also caught the fillet once it shrank to 3 mm. `ALL` mode
+   reports no ambiguity, so it simply returned three faces where two were
+   picked — a load would have gone onto the fillet as though it were a
+   bolt hole. Candidates are now checked against the part rebuilt at the
+   extremes of its range.
+3. **The one worth remembering.** With that check in place it still
+   produced a description that worked by luck: the two bolt holes measure
+   4.5 and 4.499999999999495, a 5.05e-13 mm difference that is circle-fit
+   noise, and the "as loose as possible" rule placed a radius boundary
+   inside that gap. **The design-range check passed it**, because the
+   noise is deterministic — same kernel, same arithmetic, so the identical
+   5.05e-13 appears at every design point. Checking against more shapes
+   cannot catch a defect whose cause is deterministic. A filter boundary
+   now has to separate values by a margin measured against the noise floor.
+
+The algorithm ends up choosing different strategies from evidence rather
+than from anything hardcoded: the fillet is described by position, because
+its radius is varied, while the bolt holes keep their radius *and* gain a
+position box, because theirs is fixed by the bolt size.
 
 **Piece 1, done 2026-08-11.** `StepGeometryProvider` in
 `geometry/step_provider.py`, reusing the exact import call

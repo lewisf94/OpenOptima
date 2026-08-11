@@ -159,7 +159,36 @@ work, if you prefer typing instead.
 
 ### The commands
 
-This guide covers five commands. Run each one from your project folder.
+This guide covers six commands. Run each one from your project folder.
+
+### `openoptima faces`
+
+```bash
+openoptima faces examples/l_bracket/project.yaml
+openoptima faces examples/l_bracket/project.yaml --yaml
+```
+
+**Use this when you are working out how to describe a face.** It lists
+every face of your part and, for each one, the description that would find
+it again:
+
+```
+  2. plane        5272.8 mm2   the flat face pointing -X
+ 10. cylinder      537.2 mm2   the round face about 4.5 mm in radius in
+                               this part of the model
+```
+
+Add `--yaml` and it prints each description in the form you paste straight
+into your project file, so you do not have to work out the wording
+yourself.
+
+**It does the hard part for you.** A description has to keep finding the
+right face when the part changes shape, which is harder than it sounds —
+see [the faces you push and hold](#the-faces-you-push-and-hold) below.
+This builds your part at its smallest and largest allowed sizes and checks
+each description still works on all of them. If a face genuinely cannot be
+told apart from its neighbours, it says so rather than giving you a
+description that would quietly pick the wrong one later.
 
 ### `openoptima doctor`
 
@@ -359,6 +388,21 @@ say "the round hole" and there are two identical round holes, OpenOptima
 refuses to pick one. It tells you to be more specific instead. A guess
 would be worse than a failure, because a wrong guess looks exactly like
 success.
+
+**You do not have to write these by hand.** Run `openoptima faces` and it
+lists every face with a description that finds it, ready to paste. It also
+checks each one against your part at its smallest and largest sizes, which
+is the check that matters: a description can look perfectly sensible on the
+part in front of you and still stop working — or start finding a different
+face — once a dimension changes.
+
+That is not hypothetical. On the example bracket, describing the two bolt
+holes by their 4.5 mm radius looked right, and at the smallest fillet
+setting that same description also picked up the fillet, because the fillet
+had shrunk to 3 mm. Three faces where two were meant, with no error. A load
+would have been applied to the fillet as though it were a bolt hole.
+`openoptima faces` now catches that by trying the description on the part
+at both extremes before offering it to you.
 
 ### The material
 

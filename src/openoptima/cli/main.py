@@ -726,8 +726,10 @@ def command_faces(args: argparse.Namespace) -> int:
     print(f"\n{len(signatures)} faces on {project.name}")
     if alternatives:
         print(f"each description checked against {len(alternatives)} more shape(s)\n")
+    elif len(space):
+        print("could not build the extremes, so each description is unchecked\n")
     else:
-        print("no design variables, so each description is checked on one shape only\n")
+        print("this part has no dimensions to vary, so there is only one shape\n")
 
     for index, signature in enumerate(sorted(signatures, key=lambda s: -s.area), start=1):
         size = f"{signature.area:9.1f} mm2"
@@ -738,6 +740,7 @@ def command_faces(args: argparse.Namespace) -> int:
                 scale_length=artifact.bbox.diagonal,
                 name=f"face_{index}",
                 alternatives=alternatives,
+                shape_can_change=bool(len(space)),
             )
         except EvaluationFailure as exc:
             print(f"{index:>3}. {signature.surface_type.value:<9} {size}   CANNOT DESCRIBE")

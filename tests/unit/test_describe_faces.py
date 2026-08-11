@@ -328,6 +328,20 @@ class TestCheckingAgainstOtherShapes:
         assert described.checked_against == 0
         assert any("one shape" in w for w in described.warnings)
 
+    def test_a_part_with_no_dimensions_to_vary_is_not_warned_about(self):
+        """An imported CAD file has one shape and only ever will.
+
+        Telling the user to go and check a description across a design range
+        that does not exist is noise, and noise in a warning is how real
+        warnings stop being read.
+        """
+        faces = [
+            plane(1, (1.0, 0.0, 0.0), (10.0, 0.0, 0.0)),
+            plane(2, (-1.0, 0.0, 0.0), (-10.0, 0.0, 0.0)),
+        ]
+        described = describe_faces([faces[0]], faces, scale_length=SCALE, shape_can_change=False)
+        assert described.warnings == ()
+
     def test_no_warning_once_it_has_been_checked(self):
         faces = [
             plane(1, (1.0, 0.0, 0.0), (10.0, 0.0, 0.0)),

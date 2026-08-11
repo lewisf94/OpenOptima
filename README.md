@@ -34,7 +34,7 @@ only open-source tools for the shape, the mesh, and the calculation.
 - [What it does](#what-it-does)
 - [What it does not do](#what-it-does-not-do)
 - [Install](#install)
-- [The seven commands](#the-seven-commands)
+- [The eight commands](#the-eight-commands)
 - [Defining a study](#defining-a-study)
 - [Saying what you actually want](#saying-what-you-actually-want)
 - [How it is verified](#how-it-is-verified)
@@ -240,13 +240,14 @@ openoptima doctor examples/l_bracket/project.yaml
 
 ---
 
-## The seven commands
+## The eight commands
 
 Run each one from your project folder.
 
 | Command | What it does |
 |---|---|
 | `doctor` | Checks your setup. **Run this first, always.** |
+| `faces` | Lists a part's faces with a description that finds each one. |
 | `evaluate` | Analyses one design and prints the results. |
 | `doe` | Tries a spread of designs to survey what is possible. |
 | `optimise` | Searches for the best designs and writes a report. |
@@ -341,6 +342,19 @@ instead of guessing. A wrong guess looks exactly like success.
 
 `openoptima doctor` checks every description at the extremes of your
 design range, before you start a study.
+
+**You do not have to write them by hand.** `openoptima faces` lists every
+face of your part with a description that finds it, and `--yaml` prints it
+ready to paste. Each one is checked against the part rebuilt at its
+smallest and largest sizes before it is offered, and a face that genuinely
+cannot be told apart from its neighbours is reported as such rather than
+given a description that would quietly pick the wrong one later.
+
+That check earns its keep. Describing the example bracket's two bolt holes
+by their 4.5 mm radius looks entirely reasonable, and at the smallest
+fillet setting the same description also selects the fillet, which by then
+has shrunk to 3 mm — three faces where two were meant, and no error
+anywhere.
 
 ### Bringing in your own part
 

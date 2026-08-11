@@ -110,6 +110,18 @@ and checks that every selector still resolves to exactly one face there.
 This way, a setup mistake appears before a study starts — not 200
 evaluations into one.
 
+**Selectors can also be written the other way round** (`regions/describe.py`),
+which is what turns a click in a 3D viewer into something storable: given a
+face, produce the description that finds it again. It tries the fewest and
+most stable properties first, makes each filter as loose as it can be while
+still excluding the other faces, and returns nothing it has not resolved
+through the real matcher and confirmed. Candidates are tested against the
+part rebuilt at the extremes of its range, because a description written
+from one shape is one nobody has tested — the bracket's fillet radius is
+itself a design variable, so a radius written from its default matched
+nothing at either end of that range. `openoptima faces` exposes this
+without a viewer.
+
 **The same selectors also work on a shape with no CAD behind it.** A
 topology result arrives as a skin of triangles, so there is nothing to ask
 what a face is; every face is measured from the triangles instead

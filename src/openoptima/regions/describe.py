@@ -402,6 +402,7 @@ def describe_faces(
     scale_length: float,
     name: str = "region",
     alternatives: Sequence[BuildSample] = (),
+    shape_can_change: bool = True,
 ) -> DescribedRegion:
     """Write a durable description of the picked faces.
 
@@ -413,6 +414,12 @@ def describe_faces(
     design range. A description that cannot be checked against a shape that has
     actually changed is a description nobody has tested, and this warns when
     none is supplied.
+
+    Set ``shape_can_change`` to ``False`` when the part has no design variables
+    at all -- an imported CAD file, most often. There is then only ever one
+    shape, so a description written from it is complete rather than untested,
+    and warning about it would be telling the user to go and check something
+    that cannot vary.
 
     Raises :class:`~openoptima.domain.failures.EvaluationFailure` when the
     picked faces cannot be told apart from the rest on every supplied shape,
@@ -465,7 +472,7 @@ def describe_faces(
                 "the closest match. That is more fragile than the rest: if the "
                 "shape changes enough, a different face could become the closest."
             )
-        if not alternatives:
+        if not alternatives and shape_can_change:
             warnings.append(
                 "This description was written from one shape and has not been "
                 "checked against any other. Run `openoptima doctor` to confirm "
