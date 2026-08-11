@@ -93,6 +93,93 @@ may make.
 - Natural frequencies, verified against published beam theory, refusing to
   answer for a part the supports do not hold still
 
+## Requested directly by the project owner (2026-08-11) — not yet started
+
+Four items, raised together in one conversation and recorded here before any
+code is written, per this project's own rule that a task states which model
+fits before it starts. Priority is the owner's, stated in their own words:
+**"the select a face in the GUI is crucial."** Fuller detail on the two
+CAD/GUI items already lives further down this file; this section is the
+concrete next-actions list, in order, with the model each piece needs.
+
+### 1. Click a face in the GUI, on a file imported from SolidWorks
+
+The goal in the owner's words: take a SolidWorks part, load it, click the
+faces to load and hold, run the optimisation — easy enough that someone with
+no CAE background can do it start to finish.
+
+**One decision needed before this is scoped further**: an imported file
+carries no dimensions to vary (see item 4 under "Later", below, for why —
+this is physics of the file format, not a limitation to code around). "Run
+the optimisation" on an imported part therefore has to mean one of two
+things, and they are different amounts of work: evaluate the part exactly as
+drawn, which works today once faces can be clicked; or let OpenOptima add its
+own features to the imported shape — a fillet, a hole, a wall thickness — and
+vary those. Worth asking the owner directly rather than assuming.
+
+Build order, because each step only makes sense once the one before exists:
+
+| # | Piece | Model | Why |
+|---|---|---|---|
+| 1 | Read a STEP file as a shape | Sonnet | Mechanical wiring, no physics changed |
+| 2 | Turn a click into a lasting face description | **Opus** | The one place this can go wrong silently: a click must become a description that survives the shape changing, and refuse when two faces match equally. This is the same rule as "never identify a face by its index," applied to a mouse click. Testable headless, with no 3D viewer at all — build and prove this before the viewer exists |
+| 3 | 3D viewer, click to pick | Sonnet | Front-end only, no computed number involved |
+| 4 | Features you can add and vary on an imported shape | **Opus** | Adding a fillet creates and destroys faces; a face picked before the fillet may not exist afterwards in the same form. The hardest version of the naming problem this project exists to solve |
+| 5 | Wizard flow, sensible defaults, plain-English errors | Sonnet | Usability polish once the above works |
+
+### 2. Web app versus a native Windows app — decided, one follow-up
+
+Raised as a question, resolved in conversation: **stay with the browser-based
+app.** The calculation engine is Python driving gmsh and CalculiX either way
+— a native shell would not remove that, only change what draws the window.
+Three reasons the current shape is right, one of them specific to item 1
+above: a 3D viewer is close to free in a browser and a real cost natively;
+the slow part is the solver running in its own process, so the window being
+native or not is not measurable against that; and one codebase covers
+Windows, Mac and Linux.
+
+**One real improvement identified, not urgent.** The app currently launches
+Microsoft Edge and asks it to behave like a standalone window. This is the
+root of trap 8 in `AGENTS.md` — the process that starts the browser is not
+the process that shows the window, and waiting on the wrong one shut the
+server down before the window had even appeared. Embedding the window
+component directly would remove that whole failure class and keep every
+existing HTML/JS file unchanged. Sonnet, whenever it reaches the front of
+the queue.
+
+### 3. Using the whole machine: cores, memory, and the GPU
+
+- **CPU cores: already automatic.** `parallel_jobs: 0` reads the machine's
+  core count. Nothing to do here.
+- **A real gap: memory is not accounted for.** Several designs solve at once,
+  each holding a meshed model in memory, and nothing today estimates how much
+  a mesh will need or caps the number of simultaneous workers accordingly.
+  The failure mode is a machine running out of memory partway through a long
+  study, rather than choosing a safe worker count up front. Worth building —
+  Sonnet for the scheduling logic, but the memory-per-mesh-size figures it
+  budgets against must be **measured** on real runs, not guessed.
+- **A related defect, found while thinking about the above.** If a worker is
+  killed for running out of memory, it is currently classified the same as
+  any other crash and retried — which fails the same way again. This is a
+  small, precise fix, and because it touches failure classification it is
+  **Opus**, not Sonnet.
+- **GPU: a real path exists, corrected from what was said in chat.** CalculiX
+  can use an Nvidia GPU via CUDA through its PaStiX solver option, with
+  published figures up to 4x from PaStiX alone and up to 8x with a GPU
+  added. See the new "GPU-accelerated solving" entry in
+  [`capability-audit.md`](capability-audit.md) for what stands in the way of
+  actually shipping this: it needs a from-source build with a real dependency
+  chain, current user reports of the CUDA path are mixed, and — the question
+  nobody has answered yet — whether it speeds up a whole multi-design study
+  or only a single solve, given this project runs many designs at once across
+  CPU cores rather than one at a time. **Sonnet** does the audit: build the
+  path once, measure it against the verification suite and against a real
+  study's wall-clock time. **Opus** does anything that follows from a
+  positive result, because switching the arithmetic that produces every
+  number this project has ever verified is exactly the kind of change that
+  needs the careful model, and needs the full V1–V14 suite to pass under the
+  new solver before anyone sees a number from it.
+
 ## Next (v0.2) — trust
 
 Nothing new here. This tier makes what already exists defensible.

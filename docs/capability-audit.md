@@ -281,6 +281,67 @@ README.
 Already correct. pymoo provides NSGA-II and the rest; OpenOptima defines the
 engineering problem and interprets the result. No change needed.
 
+### GPU-accelerated solving — Wrap, pending measurement
+
+Whether CalculiX can use a graphics card to solve faster, and whether that
+would actually speed up an OpenOptima run rather than only a single solve.
+
+**Correcting a claim made in chat before this was checked.** CalculiX was
+described as not using a GPU "at all", full stop. That was wrong, stated with
+more confidence than a training-data memory earns, and the opposite of this
+project's own rule to measure before asserting. Corrected here, in public,
+rather than left standing.
+
+**What is actually true, checked against the CalculiX project's own site and
+its user forum.** Since version 2.17, CalculiX can be built against the
+PaStiX solver instead of its default (SPOOLES). PaStiX alone is reported to
+give up to 4x on the equation-solving step; adding an Nvidia card with CUDA
+installed is reported to reach up to 8x. That step is not a small part of a
+run either — CalculiX's own profiling puts 59% or more of total run time
+there for a typical model.
+
+**Why this is `Wrap, pending measurement` and not `Use`.** Three real
+problems, found on the CalculiX forum rather than assumed:
+
+1. **It is not in the standard download.** The build this project fetches
+   (`app/solver_setup.py`) is the ordinary prebuilt binary. Getting PaStiX
+   and CUDA means compiling CalculiX from source against `hwloc`, `PaRSEC`,
+   `scotch` and a patched PaStiX build — a real dependency chain, and one
+   that would have to be repeated for every platform this project ships to.
+2. **Current reports are mixed, not uniformly positive.** Forum users
+   report the "build without CUDA" option not fully working, and at least
+   one report of 0% GPU utilisation despite correct setup, with performance
+   *worse* than CPU-only MKL Pardiso in that case. This is not a solved,
+   drop-in path today.
+3. **The published speedup measures the wrong thing for how this project
+   runs.** OpenOptima's parallelism is by process — many designs solved at
+   once, one per CPU core (`AGENTS.md`: "Parallelism is by process, never by
+   thread"). A GPU is one device. Whether ten CalculiX processes sharing one
+   GPU for their equation solve beats ten CPU cores each solving
+   independently is not answered by a benchmark of one solve going faster —
+   it depends on how well a shared GPU serves several simultaneous callers,
+   and on whether the smaller meshes typical of a single-part optimisation
+   (tens of thousands of degrees of freedom, not millions) are large enough
+   for the transfer overhead to pay for itself. Nobody has measured this for
+   OpenOptima's actual workload.
+
+There is a fourth question that is not a performance question at all. A
+different linear solver does its arithmetic in a different order, and this
+project has already found that arithmetic order can change more than the
+last decimal place — see trap 11 in `AGENTS.md`, where thread-order
+differences changed which elements a topology run kept. Before a GPU-solved
+number is trusted for anything, it needs to pass the same verification suite
+every other number does, not merely agree "closely".
+
+**Verdict: worth a proper audit, not yet a build.** The audit is: compile
+the PaStiX/CUDA path once, run it against the existing verification decks,
+and measure two things — does the answer still pass every V-numbered
+benchmark, and does a full multi-design study finish faster in wall-clock
+time, not just one solve. Only a positive measurement on the second question
+justifies shipping this to users, because a faster single solve that cannot
+be parallelised across a study is not a faster study. See the roadmap for
+who does which half of this.
+
 ### CalculiX deck writing and result parsing — Build ✔ keep ours
 
 | Candidate | Notes |
