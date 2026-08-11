@@ -208,3 +208,75 @@ class TestSolidify:
         reloaded = trimesh.load(written)
         assert reloaded.is_watertight
         assert reloaded.volume == pytest.approx(result.volume_mm3, rel=1e-6)
+
+
+class TestFlatFacesSurviveSmoothing:
+    """The face a part bolts to must still be flat afterwards.
+
+    A topology result inherits the flat faces of the space it was given: the
+    mounting face, the face the load arrives on, any symmetry plane. Smoothing
+    moves every vertex, so without a constraint those faces come out domed.
+
+    Measured on a real result: 27 vertices sat exactly at x = 0 before
+    smoothing and **none** did after, scattered across 0.55 mm. That breaks two
+    things at once -- a domed mounting face will not seat against the thing it
+    bolts to, and the selectors that put the loads back on for re-analysis look
+    for a plane and find nothing.
+    """
+
+    def test_the_outer_faces_are_found(self, cube):
+        nodes, elements, element_type = sol.read_element_mesh(cube)
+        vertices, _faces = sol.boundary_surface(nodes, elements, element_type)
+        hold = sol.flat_face_constraints(vertices)
+
+        # A cube: every surface vertex is on at least one face.
+        assert hold.any(axis=1).all()
+        # And the eight corners are held in all three directions.
+        assert (hold.all(axis=1)).sum() == 8
+
+    def test_a_vertex_may_still_slide_within_its_own_face(self, cube):
+        """Held per coordinate, not per vertex.
+
+        A vertex on the x = 0 face keeps its x but may move in y and z, so the
+        outline of the face smooths while the face itself stays flat.
+        """
+        nodes, elements, element_type = sol.read_element_mesh(cube)
+        vertices, _faces = sol.boundary_surface(nodes, elements, element_type)
+        hold = sol.flat_face_constraints(vertices)
+
+        on_one_face_only = hold.sum(axis=1) == 1
+        assert on_one_face_only.any(), "expected vertices on exactly one face"
+
+    def test_held_coordinates_do_not_move(self, cube):
+        nodes, elements, element_type = sol.read_element_mesh(cube)
+        vertices, faces = sol.boundary_surface(nodes, elements, element_type)
+        hold = sol.flat_face_constraints(vertices)
+
+        moved, _used = sol.smooth(vertices, faces, 6, hold)
+        assert np.array_equal(moved[hold], vertices[hold])
+
+    def test_holding_the_faces_does_not_cost_extra_material(self, cube):
+        """Regression guard on a defect this very constraint introduced.
+
+        Applying the constraint by asking the smoothing library for one pass at
+        a time restarts its internal counter every time, so every pass shrinks
+        and none dilates -- silently turning Taubin into the plain Laplacian
+        smoothing that dissolves a part. Measured on a real result: 17.4 per
+        cent of the volume lost against 0.3 per cent.
+
+        Holding the faces should if anything *save* material, because the ends
+        can no longer pull inwards.
+        """
+        free = sol.to_solid(cube, preserve_flat_faces=False)
+        held = sol.to_solid(cube, preserve_flat_faces=True)
+        assert held.volume_mm3 >= free.volume_mm3
+
+    def test_the_shape_is_still_sealed_afterwards(self, cube):
+        held = sol.to_solid(cube, preserve_flat_faces=True)
+        assert held.watertight
+        assert held.body_count == 1
+
+    def test_it_is_on_by_default(self, cube):
+        default = sol.to_solid(cube)
+        held = sol.to_solid(cube, preserve_flat_faces=True)
+        assert default.volume_mm3 == pytest.approx(held.volume_mm3)

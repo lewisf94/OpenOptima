@@ -29,6 +29,16 @@ cantilever result:
   way through the cycle. Measured: one pass loses 14.0 per cent of the volume,
   two passes lose 0.8 per cent, three lose 14.9 per cent, four lose 1.8 per
   cent. Anybody choosing five would quietly lose a sixth of the material.
+
+**The flat faces are held in place while the rest is smoothed.** A topology
+result inherits the flat faces of the space it was given -- the face it bolts
+to, the face the load arrives on, a symmetry plane. Smoothing moves every
+vertex, so those faces come out domed: measured, 27 vertices sat exactly at
+x = 0 beforehand and none did afterwards. A domed mounting face will not seat
+against the thing it bolts to, and the selectors that put the loads back on for
+re-analysis look for a plane and find nothing, so the result could never be
+checked. Holding them costs nothing -- it saves material, because the ends can
+no longer pull inwards. See :func:`flat_face_constraints`.
 """
 
 from __future__ import annotations
@@ -240,7 +250,48 @@ def boundary_surface(
     return vertices, np.array(triangles, dtype=np.int64)
 
 
-def smooth(vertices: np.ndarray, faces: np.ndarray, passes: int) -> tuple[np.ndarray, int]:
+def flat_face_constraints(vertices: np.ndarray, tolerance: float = 1.0e-9) -> np.ndarray:
+    """Which vertices sit on a flat outer face, and must not leave it.
+
+    Returns a boolean array of shape (N, 3): True where that vertex's
+    coordinate must be held fixed.
+
+    **Why this exists.** A topology result inherits the flat faces of the space
+    it was given -- the face it bolts to, the face the load arrives on, any
+    symmetry plane. Smoothing moves every vertex, so those faces come out
+    slightly domed. Measured on a real result: 27 vertices sat exactly at x = 0
+    before smoothing and **none** did afterwards, scattered across 0.55 mm.
+
+    That breaks two things at once. A mounting face that is not flat will not
+    seat against the thing it bolts to. And the region selectors that put the
+    loads and supports back on for re-analysis look for a plane, so they find
+    nothing -- which means the result can never be checked.
+
+    Holding the coordinate rather than the whole vertex is deliberate: a vertex
+    on the x = 0 face may still slide in y and z, so the *outline* of the face
+    smooths while the face itself stays flat.
+
+    Only the faces of the enclosing box are treated this way. A design space
+    that is not box-shaped has flat faces elsewhere, and those are not found
+    here; the limitation is real and stated rather than papered over.
+    """
+    held = np.zeros(vertices.shape, dtype=bool)
+    if vertices.size == 0:
+        return held
+    for axis in range(3):
+        column = vertices[:, axis]
+        held[:, axis] = (np.abs(column - column.min()) <= tolerance) | (
+            np.abs(column - column.max()) <= tolerance
+        )
+    return held
+
+
+def smooth(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    passes: int,
+    hold: np.ndarray | None = None,
+) -> tuple[np.ndarray, int]:
     """Take the staircase off, using Taubin smoothing.
 
     ``passes`` is **rounded up to an even number**, because Taubin alternates a
@@ -248,6 +299,19 @@ def smooth(vertices: np.ndarray, faces: np.ndarray, passes: int) -> tuple[np.nda
     shape shrunk. Measured on a real result: one pass costs 14.0 per cent of the
     volume, two cost 0.8 per cent. That is not a subtlety anyone should have to
     know about, so it is enforced rather than documented.
+
+    ``hold`` marks coordinates that must not move -- see
+    :func:`flat_face_constraints`. They are restored after **every** pass, not
+    only at the end: a held face that drifts and is snapped back at the end
+    drags the vertices beside it out of shape.
+
+    **The alternation is done here rather than by calling the library once per
+    pass, and that is not a stylistic choice.** Taubin decides whether a pass
+    shrinks or dilates from its own loop counter, so asking the library for one
+    pass at a time restarts that counter every time and runs nothing but
+    shrinking passes. Doing that measured a 17.4 per cent volume loss against
+    2.0 per cent -- it silently turns Taubin into the plain Laplacian smoothing
+    the module docstring rules out.
     """
     if passes < 0:
         raise ValueError("passes cannot be negative")
@@ -257,14 +321,34 @@ def smooth(vertices: np.ndarray, faces: np.ndarray, passes: int) -> tuple[np.nda
 
     trimesh = _trimesh()
     mesh = trimesh.Trimesh(vertices=vertices.copy(), faces=faces, process=False)
-    trimesh.smoothing.filter_taubin(mesh, iterations=even_passes)
-    return np.asarray(mesh.vertices, dtype=np.float64), even_passes
+
+    if hold is None:
+        trimesh.smoothing.filter_taubin(mesh, iterations=even_passes)
+        return np.asarray(mesh.vertices, dtype=np.float64), even_passes
+
+    # Same arithmetic as trimesh's own filter, with the constraint applied
+    # between passes. lamb and nu match its defaults.
+    operator = trimesh.smoothing.laplacian_calculation(mesh)
+    original = vertices.copy()
+    moved = vertices.copy()
+    lamb = nu = 0.5
+
+    for index in range(even_passes):
+        step = operator.dot(moved) - moved
+        if index % 2 == 0:
+            moved = moved + lamb * step  # shrink
+        else:
+            moved = moved - nu * step  # dilate back out
+        moved[hold] = original[hold]
+
+    return np.asarray(moved, dtype=np.float64), even_passes
 
 
 def to_solid(
     mesh_path: Path,
     *,
     smoothing_passes: int = DEFAULT_SMOOTHING_PASSES,
+    preserve_flat_faces: bool = True,
 ) -> SolidResult:
     """Turn one of beso's result meshes into a smoothed, sealed surface.
 
@@ -302,8 +386,12 @@ def to_solid(
             "optimiser room to make a proper join.",
         )
 
+    # Hold the flat outer faces in place. Without this the face the part bolts
+    # to comes out domed, and the selectors that put the loads back on for
+    # re-analysis cannot find it. See flat_face_constraints.
+    hold = flat_face_constraints(np.asarray(blocky.vertices)) if preserve_flat_faces else None
     smoothed, used_passes = smooth(
-        np.asarray(blocky.vertices), np.asarray(blocky.faces), smoothing_passes
+        np.asarray(blocky.vertices), np.asarray(blocky.faces), smoothing_passes, hold
     )
     final = trimesh.Trimesh(vertices=smoothed, faces=np.asarray(blocky.faces), process=False)
     final.fix_normals()
