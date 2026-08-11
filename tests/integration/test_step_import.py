@@ -11,6 +11,8 @@ one, and is the source file left completely alone.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from openoptima.domain.failures import EvaluationFailure, FailureCode
@@ -27,6 +29,13 @@ pytestmark = [requires_gmsh, pytest.mark.gmsh]
 
 LENGTH, WIDTH, HEIGHT = 100.0, 10.0, 5.0
 EMPTY_SPACE = DesignSpace(())
+
+#: The millimetre length unit, however a given file happens to number it.
+_MM_LENGTH_UNIT = re.compile(
+    r"^#(?P<id>\d+) = \( LENGTH_UNIT\(\) NAMED_UNIT\(\*\) "
+    r"SI_UNIT\(\.MILLI\.,\.METRE\.\) \);$",
+    re.MULTILINE,
+)
 
 
 def _known_box(tmp_path):
@@ -91,6 +100,137 @@ class TestAKnownShapeSurvivesTheRoundTrip:
 
         assert imported.metadata["provider"] == "step"
         assert imported.metadata["source"] == str(source.step_path)
+
+
+#: STEP states length units two different ways, and both have to work.
+#: An SI prefix (millimetres, metres), or a CONVERSION_BASED_UNIT defined as
+#: a multiple of an SI one (inches). Ratios below are against the same file
+#: read as millimetres, and each is exact rather than approximate.
+UNIT_CASES = {
+    "metres": (
+        "#{id} = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.) );",
+        "",
+        1.0e9,  # (1000 mm/m)^3
+    ),
+    "inches": (
+        "#{id} = ( CONVERSION_BASED_UNIT('INCH',#{spare}) LENGTH_UNIT() "
+        "NAMED_UNIT(#{spare_plus_2}) );",
+        "#{spare} = LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),#{spare_plus_1});\n"
+        "#{spare_plus_1} = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );\n"
+        "#{spare_plus_2} = DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+        25.4**3,
+    ),
+}
+
+
+class TestTheDeclaredUnitIsHonoured:
+    """The one way this import could be wrong and look completely normal.
+
+    Every other STEP file in this test file was written by OpenOptima's own
+    OCC kernel and therefore declares millimetres. Reading millimetres with a
+    reader that assumes millimetres agrees with itself whether or not any
+    conversion happens, so it proves nothing about a real SolidWorks or Fusion
+    360 export, which may well declare inches.
+
+    If a declaration were ignored, a 100 x 10 x 5 inch part would be read as
+    100 x 10 x 5 mm. Nothing raises. The shape is a valid, sensible-looking
+    solid. Every number downstream is then wrong by 25.4 per length -- 16 387x
+    on mass -- and it looks like a small light part rather than like a defect.
+
+    Measured, exactly, at the time of writing: inches 16387.064000 against
+    25.4^3 = 16387.064000, and metres 1000000000.0 against 1e9.
+    """
+
+    @staticmethod
+    def _variant(tmp_path, name):
+        source = _known_box(tmp_path)
+        declaration, extra, ratio = UNIT_CASES[name]
+        text = source.step_path.read_text()
+        match = _MM_LENGTH_UNIT.search(text)
+        assert match is not None
+        spare = max(int(n) for n in re.findall(r"^#(\d+) = ", text, re.MULTILINE)) + 100
+        fields = {
+            "id": match.group("id"),
+            "spare": spare,
+            "spare_plus_1": spare + 1,
+            "spare_plus_2": spare + 2,
+        }
+        block = declaration.format(**fields)
+        if extra:
+            block += "\n" + extra.format(**fields)
+        rewritten = text[: match.start()] + block + text[match.end() :]
+
+        path = tmp_path / f"{name}.step"
+        path.write_text(rewritten)
+        return source, path, ratio
+
+    @pytest.mark.parametrize("name", sorted(UNIT_CASES))
+    def test_the_volume_is_converted(self, tmp_path, name):
+        source, path, ratio = self._variant(tmp_path, name)
+        imported = StepGeometryProvider(
+            GeometryDefinition(provider="step", source=str(path))
+        ).build(EMPTY_SPACE.defaults(), tmp_path / f"out_{name}")
+
+        assert imported.volume == pytest.approx(source.volume * ratio, rel=1e-9)
+
+    @pytest.mark.parametrize("name", sorted(UNIT_CASES))
+    def test_the_bounding_box_is_converted(self, tmp_path, name):
+        """Checked to an *absolute* tolerance, for a measured reason.
+
+        OpenCASCADE pads a reported bounding box by its shape tolerance. It
+        is not a rounding error and not a units error: measured, the excess is
+        exactly +2.000e-07 mm on every dimension, in every unit declaration,
+        and it does not scale with the part -- the same 2e-7 appears on a 5 mm
+        edge and on a 100 000 mm one. A relative tolerance would therefore be
+        strict on a large part and loose on a small one, for no physical
+        reason. The volume above carries the strict relative check, and is
+        exact to floating point.
+
+        1e-6 mm sits 5x above the measured padding, and a genuine units
+        mistake would be out by a factor of 25.4 or 1000 -- twelve orders of
+        magnitude clear of this.
+        """
+        _source, path, ratio = self._variant(tmp_path, name)
+        imported = StepGeometryProvider(
+            GeometryDefinition(provider="step", source=str(path))
+        ).build(EMPTY_SPACE.defaults(), tmp_path / f"out_{name}")
+
+        scale = ratio ** (1.0 / 3.0)
+        assert imported.bbox.xmax - imported.bbox.xmin == pytest.approx(LENGTH * scale, abs=1e-6)
+        assert imported.bbox.ymax - imported.bbox.ymin == pytest.approx(WIDTH * scale, abs=1e-6)
+        assert imported.bbox.zmax - imported.bbox.zmin == pytest.approx(HEIGHT * scale, abs=1e-6)
+
+    def test_only_the_unit_declaration_differs(self, tmp_path):
+        """Guards the tests above from proving nothing.
+
+        If the rewrite accidentally moved a coordinate, the conversion check
+        would pass for the wrong reason. Every CARTESIAN_POINT must be
+        untouched -- the file says the same numbers, in a different unit.
+        """
+        source, path, _ratio = self._variant(tmp_path, "inches")
+        original = [
+            line for line in source.step_path.read_text().splitlines() if "CARTESIAN_POINT" in line
+        ]
+        rewritten = [line for line in path.read_text().splitlines() if "CARTESIAN_POINT" in line]
+        assert original == rewritten
+        assert len(original) > 10, "expected a real geometry file, not a stub"
+
+    def test_the_size_is_reported_so_a_units_surprise_is_visible(self, tmp_path):
+        """A correct conversion still gives numbers the user did not type.
+
+        Someone who drew a 100 inch part sees 2540 mm here, which is right and
+        is not what they typed. The setup check states the size so that is a
+        ten-second confirmation rather than a puzzle much later.
+        """
+        _source, path, _ratio = self._variant(tmp_path, "inches")
+        report = StepGeometryProvider(
+            GeometryDefinition(provider="step", source=str(path))
+        ).validate_definition()
+
+        assert report.ok
+        warning = " ".join(report.warnings)
+        assert "2540" in warning
+        assert "millimetres" in warning
 
 
 class TestTheDesignVectorHasNoEffect:

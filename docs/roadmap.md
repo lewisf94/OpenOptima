@@ -159,23 +159,51 @@ fails identically every time. That reasoning is Sonnet-shaped.
 Reading a file's declared units correctly is not, and `AGENTS.md` says so
 explicitly — units and parsers are named as Opus territory, because a
 units mistake would be silent and would look exactly like a correct,
-smaller or larger part. **What was actually checked here**: a shape of
-known dimensions (120 x 90 x 60 mm, plus a fillet and two holes),
-exported to STEP by the code this project already trusts and re-imported
-by the new provider, comes back matching to under one part in a million on
-volume, bounding box and surface area
-(`tests/integration/test_step_import.py::TestAKnownShapeSurvivesTheRoundTrip`).
-**What was not checked**: a file whose header declares a *different* unit
-— inches, rather than millimetres — which is the case that would actually
-catch a unit-conversion mistake, since round-tripping through the same
-kernel that already assumes millimetres cannot expose an error in how a
-different unit gets converted. Every file this has been tested against was
-also written by this project's own OCC kernel, not by SolidWorks or Fusion
-360 itself, so a real export's own quirks are untested. Before this is
-trusted on an actual SolidWorks file: an Opus pass building an
-inches-declared STEP file (or sourcing one from a real CAD package) and
-confirming OpenCASCADE's unit conversion is genuinely being exercised, not
-silently skipped.
+smaller or larger part.
+
+**The units question, settled on Opus the same day.** The Sonnet pass had
+only round-tripped millimetres through a reader that assumes millimetres,
+which agrees with itself whether or not any conversion happens and so
+proved nothing about a real SolidWorks export declaring inches. It was
+then measured properly, by taking one known box and producing copies whose
+*only* difference is the unit declared in the header — every
+`CARTESIAN_POINT` byte-identical, asserted in the test, so any change in
+the result can only have come from the declaration.
+
+STEP states a length unit two different ways and both are honoured
+exactly:
+
+| Declared | Mechanism | Volume ratio measured | Exact value |
+|---|---|---|---|
+| Inches | `CONVERSION_BASED_UNIT` of 25.4 mm | 16387.064000 | 25.4³ = 16387.064 |
+| Metres | SI prefix (none) | 1000000000.0 | 1e9 |
+
+A 100 x 10 x 5 inch box arrives as 2540 x 254 x 127 mm. There is no
+silent-millimetre failure here.
+
+Two things came out of measuring it that were not obvious beforehand.
+**A bounding box is padded**, by exactly +2.000e-07 mm per dimension, in
+every unit and independent of the part's size — the same excess on a 5 mm
+edge and a 100 000 mm one. That is OpenCASCADE reporting a box inflated by
+its shape tolerance, not a conversion error; the volume is exact to
+floating point. So the bounding-box test uses an absolute tolerance and
+the volume carries the strict relative one, with the reason written into
+the test rather than left as a bare number.
+
+**And a correct conversion still surprises the user**, which is worth
+saying out loud: someone who drew a 4 inch bracket gets 101.6 mm here, and
+every load, region box and limit they write in the project file has to be
+in millimetres regardless of what they drew in. The setup check therefore
+now states the size it found — "The part measures 120 x 60 x 90 mm" — so a
+units surprise is a ten-second confirmation in `openoptima doctor` rather
+than a puzzle much later.
+
+**Still not checked**: every file tested was written by this project's own
+OCC kernel rather than by SolidWorks or Fusion 360 themselves, so a real
+export's own quirks — odd entity orderings, unusual tolerances, product
+structure wrappers — remain untested. That needs a real exported file,
+which needs someone with the software. Not a units risk; a
+file-in-the-wild risk.
 
 ### 2. Web app versus a native Windows app — decided, one follow-up
 

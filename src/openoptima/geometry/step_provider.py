@@ -82,7 +82,7 @@ class StepGeometryProvider:
         # -- rather than as the first evaluation's failure. Same reasoning as
         # `openoptima doctor`: a setup mistake should surface immediately.
         try:
-            solid_count = self._count_solids(path)
+            solid_count, size = self._inspect(path)
         except EvaluationFailure as exc:
             return ValidationReport(ok=False, errors=(exc.message,))
 
@@ -96,17 +96,36 @@ class StepGeometryProvider:
                     f"This provider reads one part, not an assembly.",
                 ),
             )
+
+        # Report the size the part came out as. A STEP file states its own
+        # units and OpenCASCADE converts them, so a part drawn in inches
+        # arrives correctly as 25.4x its drawn numbers in millimetres --
+        # measured exactly, see tests. That conversion being right is
+        # precisely why the size is worth printing: the numbers here will not
+        # match what the user typed into their CAD package, and every load,
+        # region box and limit they write in the project file has to be in
+        # millimetres to match. Seeing the size here is the ten-second check
+        # that the part is the one they meant.
+        measured = ""
+        if size is not None:
+            measured = (
+                f" The part measures {size[0]:.4g} x {size[1]:.4g} x {size[2]:.4g} mm; "
+                f"if that is not the size you expect, check the units your CAD "
+                f"package exported in. Everything you write in this project file "
+                f"is in millimetres whatever the file was drawn in."
+            )
         return ValidationReport(
             ok=True,
             warnings=(
                 "An imported shape has no dimensions to vary. Design variables "
                 "in this project will be ignored unless they drive a feature "
-                "you have added on top of the import.",
+                "you have added on top of the import." + measured,
             ),
         )
 
     @staticmethod
-    def _count_solids(path: Path) -> int:
+    def _inspect(path: Path) -> tuple[int, tuple[float, float, float] | None]:
+        """Solid count, and the overall size in mm, without building anything."""
         with gmsh_session() as gmsh:
             gmsh.model.add("openoptima_step_validate")
             try:
@@ -120,7 +139,17 @@ class StepGeometryProvider:
                     f"could not read {path.name}: {exc}",
                     detail={"gmsh_log": messages[-20:]},
                 ) from exc
-            return len(gmsh.model.getEntities(3))
+
+            solids = gmsh.model.getEntities(3)
+            if len(solids) != 1:
+                return len(solids), None
+            bounds = gmsh.model.occ.getBoundingBox(3, solids[0][1])
+            size = (
+                float(bounds[3] - bounds[0]),
+                float(bounds[4] - bounds[1]),
+                float(bounds[5] - bounds[2]),
+            )
+            return 1, size
 
     # -- build -------------------------------------------------------------
     def build(self, design: DesignVector, output_directory: Path) -> GeometryArtifact:

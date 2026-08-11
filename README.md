@@ -358,6 +358,14 @@ Everything above still applies. A region is still found by what a face
 looks like, not by a number, and it works exactly the same way on an
 imported shape — see `examples/imported_bracket`.
 
+**Units are converted, and that is measured rather than assumed.** A STEP
+file declares what it was drawn in. Both ways the format states that are
+honoured exactly: a file declaring inches comes in at 25.4× its stated
+numbers, one declaring metres at 1000×. A 100 × 10 × 5 inch box arrives as
+2540 × 254 × 127 mm. Everything you then write in the project file is in
+millimetres regardless, so `openoptima doctor` prints the size it read as
+a check that the export was what you meant.
+
 **What this cannot do, and why that is a fact about the file rather than a
 missing feature.** A STEP file is a finished shape. The dimensions whoever
 drew it typed in are not saved in the file — only the resulting surfaces —

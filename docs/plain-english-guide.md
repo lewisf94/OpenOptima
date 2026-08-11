@@ -262,6 +262,27 @@ Everything else in this guide still works: you still pick faces by what
 they look like, not by a number, and `openoptima doctor` still checks your
 setup before you run anything.
 
+**If you drew your part in inches, read this.** OpenOptima works in
+millimetres throughout. A STEP file says which units it was drawn in, and
+that gets converted on the way in — correctly; it has been measured. A
+4 inch bracket becomes a 101.6 mm bracket, which is the same physical
+part.
+
+What that means for you: **everything you type into `project.yaml` is in
+millimetres**, whatever you drew in. A load of 100 is 100 newtons. A
+region box from 0 to 50 is 0 to 50 millimetres, not inches.
+
+To check you have this right, run `openoptima doctor`. It prints the size
+of the part it read:
+
+```
+The part measures 120 x 60 x 90 mm; if that is not the size you expect,
+check the units your CAD package exported in.
+```
+
+If those numbers are not roughly your part, something is wrong with the
+export — and you have found out in ten seconds rather than after a run.
+
 **One thing an imported part cannot do.** A STEP file is a finished shape.
 The dimensions whoever drew it typed in — this wall is 5 mm, this hole is
 8 mm — are not saved in the file, only the resulting surfaces. So there is

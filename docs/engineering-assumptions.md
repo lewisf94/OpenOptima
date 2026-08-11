@@ -50,6 +50,22 @@ values in ordinary engineering units: kg/m³, MPa, mm.
 In the internal system, density is in tonnes per cubic millimetre.
 Aluminium, at 2700 kg/m³, becomes `2.7e-9` in that system.
 
+**An imported CAD file carries its own units, and they are converted.** A
+STEP file states what it was drawn in. OpenCASCADE converts that to
+millimetres on import, and both mechanisms the format uses were measured
+rather than assumed: a file declaring inches through a
+`CONVERSION_BASED_UNIT` comes in at exactly 25.4× its stated numbers, and
+one declaring metres through an SI prefix at exactly 1000×. So a part
+drawn as 100 × 10 × 5 inches arrives as 2540 × 254 × 127 mm, which is the
+same physical part.
+
+Everything in the project file stays in the internal system regardless.
+A region box, a load, a displacement limit: all millimetres and newtons,
+whatever the CAD file was drawn in. Because a correct conversion still
+produces numbers the user did not type, `openoptima doctor` reports the
+size of an imported part so a mismatch is visible before a study starts.
+See `tests/integration/test_step_import.py::TestTheDeclaredUnitIsHonoured`.
+
 ## Allowable stress
 
 **`allowable_stress_mpa` is a design decision. It is not a property of the
