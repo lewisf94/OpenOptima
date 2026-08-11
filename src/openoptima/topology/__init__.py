@@ -22,11 +22,17 @@ pipeline on a body-fitted mesh.
 from __future__ import annotations
 
 from .fetch import BESO_COMMIT, BesoFetchError, InstalledBeso, install, verify
+from .runner import TopologyOutcome, run_topology
+from .solidify import SolidResult, to_solid
 
 __all__ = [
     "BESO_COMMIT",
     "BesoFetchError",
     "InstalledBeso",
+    "SolidResult",
+    "TopologyOutcome",
     "install",
+    "run_topology",
+    "to_solid",
     "verify",
 ]

@@ -141,9 +141,7 @@ def solve_at(load_n: float, column, subdirectory: str) -> tuple[float, ...]:
             LoadCase(
                 id="axial",
                 boundary_conditions=(BoundaryCondition(region="fixed_face"),),
-                loads=(
-                    Load(kind=LoadKind.FORCE, region="load_face", vector=(-load_n, 0.0, 0.0)),
-                ),
+                loads=(Load(kind=LoadKind.FORCE, region="load_face", vector=(-load_n, 0.0, 0.0)),),
             ),
         ),
         # Raised so the guard does not stop this column before the solver is

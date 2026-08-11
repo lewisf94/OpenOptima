@@ -40,6 +40,10 @@ dependencies = [
 [project.optional-dependencies]
 optimise = ["pymoo>=0.6.1"]
 cadquery = ["cadquery>=2.4"]
+# Topology optimisation. beso itself is not here: it is not on PyPI, and is
+# fetched at a pinned commit by openoptima.topology.fetch. matplotlib is not
+# our choice either -- beso imports it at module scope.
+topology = ["trimesh>=4.0", "matplotlib>=3.7"]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",
