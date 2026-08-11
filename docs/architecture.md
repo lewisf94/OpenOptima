@@ -111,16 +111,24 @@ This way, a setup mistake appears before a study starts — not 200
 evaluations into one.
 
 **Selectors can also be written the other way round** (`regions/describe.py`),
-which is what turns a click in a 3D viewer into something storable: given a
-face, produce the description that finds it again. It tries the fewest and
-most stable properties first, makes each filter as loose as it can be while
-still excluding the other faces, and returns nothing it has not resolved
-through the real matcher and confirmed. Candidates are tested against the
-part rebuilt at the extremes of its range, because a description written
-from one shape is one nobody has tested — the bracket's fillet radius is
-itself a design variable, so a radius written from its default matched
-nothing at either end of that range. `openoptima faces` exposes this
-without a viewer.
+which is what turns a click into something storable: given a face, produce
+the description that finds it again. It tries the fewest and most stable
+properties first, makes each filter as loose as it can be while still
+excluding the other faces, and returns nothing it has not resolved through
+the real matcher and confirmed. Candidates are tested against the part
+rebuilt at the extremes of its range, because a description written from one
+shape is one nobody has tested — the bracket's fillet radius is itself a
+design variable, so a radius written from its default matched nothing at
+either end of that range.
+
+Two front ends reach it. `openoptima faces` lists every face and its
+description on the command line. `openoptima-app` shows the part in 3D and
+turns a click straight into the same call — the picture is built by
+`geometry/tessellate.py`, which shares nothing with the mesher or the
+solver and cannot affect a computed number even if its triangles are
+coarse; it exists only so a mouse click has something to land on, tagged
+with the same face identity `regions/describe.py` already measures from
+the same build.
 
 **The same selectors also work on a shape with no CAD behind it.** A
 topology result arrives as a skin of triangles, so there is nothing to ask

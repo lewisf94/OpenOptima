@@ -151,6 +151,51 @@ td.pinned abbr { cursor: help; text-decoration: none; }
 a { color: var(--accent); }
 
 .scroller { overflow-x: auto; }
+
+/* ── 3D face picker ────────────────────────────────────────────────────── */
+.viewer-layout {
+  display: grid; gap: .9rem; margin-top: .8rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
+}
+.viewer-stage {
+  position: relative; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  aspect-ratio: 4 / 3; overflow: hidden;
+}
+#viewer-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.viewer-status {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--muted); font-size: .88rem; text-align: center; padding: 1rem;
+  background: var(--bg); pointer-events: none;
+}
+.viewer-status.hidden { display: none; }
+
+.face-info {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: .9rem 1rem; font-size: .9rem; min-width: 0;
+}
+.face-info h3 { margin: 0 0 .4rem; font-size: .95rem; }
+.face-info .explanation { font-weight: 600; margin: 0 0 .5rem; }
+.face-info .warning {
+  background: color-mix(in srgb, var(--no) 16%, transparent);
+  border-radius: 7px; padding: .5rem .65rem; margin: .5rem 0;
+  font-size: .84rem;
+}
+.face-info label { margin: .7rem 0 .3rem; }
+.face-info input[type=text] { min-width: 0; width: 100%; }
+.yaml-block {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  padding: .6rem .7rem; font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: .78rem; white-space: pre-wrap; word-break: break-all;
+  max-height: 16rem; overflow-y: auto; margin: .5rem 0;
+}
+.face-info .actions { margin-top: .6rem; }
+
+/* Small screens: canvas on top, description below, instead of squeezed side by side. */
+@media (max-width: 700px) {
+  .viewer-layout { grid-template-columns: 1fr; }
+  .viewer-stage { aspect-ratio: 16 / 10; }
+}
 h3 { font-size: .95rem; margin: 1.2rem 0 .3rem; }
 dl.kv { display: grid; grid-template-columns: auto 1fr; gap: .2rem .8rem; margin: .4rem 0; font-size: .88rem; }
 dl.kv dt { color: var(--muted); }

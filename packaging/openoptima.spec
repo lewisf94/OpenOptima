@@ -45,8 +45,22 @@ for package in ("moocore", "pymoo"):
         pass
 
 # Bundled examples, so a new user has something to open immediately.
-for example in (ROOT / "examples").glob("*/project.yaml"):
-    datas.append((str(example), f"examples/{example.parent.name}"))
+#
+# Every file next to project.yaml is included, not just project.yaml itself:
+# examples/imported_bracket/ needs its bracket.step alongside the project
+# file, and a glob for *only* project.yaml silently shipped a broken example
+# whose geometry.source pointed at a file that was never packaged -- caught
+# by reading this file for an unrelated reason, not by running the app,
+# which is exactly trap 9's warning that starting the app proves almost
+# nothing about what it can actually do.
+for example_dir in (ROOT / "examples").iterdir():
+    if not example_dir.is_dir() or not (example_dir / "project.yaml").is_file():
+        continue
+    for item in example_dir.iterdir():
+        if item.name == "openoptima_work":  # run artifacts, never shipped
+            continue
+        if item.is_file():
+            datas.append((str(item), f"examples/{example_dir.name}"))
 
 binaries = collect_dynamic_libs("gmsh")
 

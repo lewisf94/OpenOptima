@@ -404,6 +404,19 @@ would have been applied to the fillet as though it were a bolt hole.
 `openoptima faces` now catches that by trying the description on the part
 at both extremes before offering it to you.
 
+**If you would rather click than read a list, the app can show you the
+part.** Open a project, and under "Check the setup" there is a **"Look at
+the part and pick faces"** button. Turn the part with the mouse, click the
+face you want, and it shows the same wording and the same YAML you would
+get from typing `openoptima faces` — with a box to type a name and a
+button to copy the result straight into your project file. Shift-click
+adds more faces to the selection, for something like two bolt holes that
+should be described together. It runs the exact same check against your
+smallest and largest allowed sizes first, so a description you get this
+way is exactly as trustworthy as one from the command line — this is a
+different way of asking the same question, not a shortcut that skips the
+checking.
+
 ### The material
 
 ```yaml

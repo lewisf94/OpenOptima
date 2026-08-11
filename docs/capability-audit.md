@@ -380,6 +380,38 @@ and feeding it back as a poor result teaches the optimiser something false.
 Richardson extrapolation and the Grid Convergence Index are published, standard
 and about 150 lines. No dependency is worth adding.
 
+### 3D rendering and picking in the browser — Use ✔ done
+
+Drawing triangles in WebGL, letting the mouse orbit around them, and working
+out which triangle a click landed on.
+
+| Candidate | Notes |
+|---|---|
+| [`three.js`](https://threejs.org) 0.160.0 | MIT licence — usable and compatible with GPL-3.0. The de facto standard for exactly this |
+| Write it by hand | Raw WebGL: shaders, matrix math, a camera, ray-triangle intersection |
+
+**Verdict: use three.js, do not write a 3D engine.** This is presentation, not
+engineering mathematics, but the same "reuse saves writing the code" logic
+from [ADR 9](adr/0009-build-versus-reuse.md) applies to any solved problem —
+correct ray-triangle picking is exactly the kind of thing worth getting from a
+library with millions of users rather than from a first attempt.
+
+**How it was fetched, since this app has no build step.** Every other script
+in `openoptima-app` is a plain file with no bundler, and three.js is used the
+same way: `npm view three@0.160.0` in a scratch directory, then
+`three.module.min.js` and the official `OrbitControls.js` copied unmodified
+into `app/static/vendor/` and loaded via a browser-native import map — no
+`node_modules`, no npm dependency in `pyproject.toml`, nothing for
+PyInstaller to bundle beyond two more static files it already knows how to
+ship. See `static/vendor/README.md`.
+
+**What stayed ours.** Turning a solid into the triangles to draw
+(`geometry/tessellate.py`) and turning a click into a durable description
+(`regions/describe.py`) are both this project's own problem — nobody else
+knows what a *face* means here, or that a tag is not allowed to be trusted
+between builds. three.js draws the picture; it has no idea what a bolt hole
+is.
+
 ---
 
 ## 3. Before starting any new capability

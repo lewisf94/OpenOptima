@@ -565,3 +565,30 @@ def explain(selector: RegionSelector, targets: Sequence[FaceSignature] | None = 
         parts.append("closest to where you clicked")
 
     return " ".join(parts)
+
+
+def selector_to_yaml(selector: RegionSelector) -> str:
+    """The selector as it would be written in a project file's ``regions:``
+    list, ready to paste. Shared by the CLI (``openoptima faces --yaml``) and
+    the app's 3D picker so the two present a description identically rather
+    than carrying two copies of this formatting that could drift apart.
+    """
+    lines = ["- name: CHANGE_ME", "  selector:", f"    surface_type: {selector.surface_type.value}"]
+    if selector.normal is not None:
+        lines.append("    normal: [{:.6g}, {:.6g}, {:.6g}]".format(*selector.normal))
+        lines.append(f"    normal_tolerance_deg: {selector.normal_tolerance_deg:g}")
+    if selector.min_radius is not None:
+        lines.append(f"    min_radius: {selector.min_radius:.6g}")
+    if selector.max_radius is not None:
+        lines.append(f"    max_radius: {selector.max_radius:.6g}")
+    if selector.within_box is not None:
+        box = selector.within_box
+        lines.append(
+            "    within_box: {{ xmin: {:.4f}, ymin: {:.4f}, zmin: {:.4f}, "
+            "xmax: {:.4f}, ymax: {:.4f}, zmax: {:.4f} }}".format(*box.as_tuple())
+        )
+    if selector.centroid_near is not None:
+        lines.append("    centroid_near: [{:.4f}, {:.4f}, {:.4f}]".format(*selector.centroid_near))
+    if selector.mode.value != "single":
+        lines.append(f"    mode: {selector.mode.value}")
+    return "\n".join(lines)

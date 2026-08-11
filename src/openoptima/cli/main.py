@@ -683,7 +683,7 @@ def command_faces(args: argparse.Namespace) -> int:
     """
     from ..geometry import create_provider
     from ..geometry.gmsh_session import gmsh_session
-    from ..regions.describe import BuildSample, describe_faces
+    from ..regions.describe import BuildSample, describe_faces, selector_to_yaml
     from ..regions.signature import solid_face_signatures
 
     project, root = _load(args.project)
@@ -752,34 +752,10 @@ def command_faces(args: argparse.Namespace) -> int:
         for warning in described.warnings:
             print(f"     note: {warning}")
         if args.yaml:
-            for line in _selector_yaml(described).splitlines():
+            for line in selector_to_yaml(described.selector).splitlines():
                 print(f"     {line}")
         print()
     return _EXIT_OK
-
-
-def _selector_yaml(described) -> str:
-    """The selector as it would be written in a project file."""
-    selector = described.selector
-    lines = ["- name: CHANGE_ME", "  selector:", f"    surface_type: {selector.surface_type.value}"]
-    if selector.normal is not None:
-        lines.append("    normal: [{:.6g}, {:.6g}, {:.6g}]".format(*selector.normal))
-        lines.append(f"    normal_tolerance_deg: {selector.normal_tolerance_deg:g}")
-    if selector.min_radius is not None:
-        lines.append(f"    min_radius: {selector.min_radius:.6g}")
-    if selector.max_radius is not None:
-        lines.append(f"    max_radius: {selector.max_radius:.6g}")
-    if selector.within_box is not None:
-        box = selector.within_box
-        lines.append(
-            "    within_box: {{ xmin: {:.4f}, ymin: {:.4f}, zmin: {:.4f}, "
-            "xmax: {:.4f}, ymax: {:.4f}, zmax: {:.4f} }}".format(*box.as_tuple())
-        )
-    if selector.centroid_near is not None:
-        lines.append("    centroid_near: [{:.4f}, {:.4f}, {:.4f}]".format(*selector.centroid_near))
-    if selector.mode.value != "single":
-        lines.append(f"    mode: {selector.mode.value}")
-    return "\n".join(lines)
 
 
 def command_templates(_args: argparse.Namespace) -> int:

@@ -677,6 +677,12 @@ $("open-custom").onclick = () => {
 setInterval(() => { fetch("/api/alive").catch(() => {}); }, 2000);
 fetch("/api/alive").catch(() => {});
 
+// faces-viewer.js is a `type="module"` script, which has its own top-level
+// scope that a classic script's `const state` does not reach even on the
+// same page. This is the one deliberate crossing point, rather than
+// restructuring this whole file into a module for one feature's sake.
+window.OpenOptimaState = state;
+
 loadStatus().catch(() => {});
 loadSolver().catch(() => {});
 loadProjects().catch((error) => {

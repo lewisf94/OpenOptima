@@ -52,6 +52,26 @@
         seconds and saves a lot of wasted time.</span>
     </div>
     <div id="doctor-result"></div>
+
+    <div class="actions">
+      <button id="open-viewer" class="secondary">Look at the part and pick faces</button>
+      <span class="hint">Turn and click the part to find the wording for a
+        region — the same check as above, shown as a picture instead of a
+        list.</span>
+    </div>
+    <div id="viewer-panel" class="hidden">
+      <div class="viewer-layout">
+        <div class="viewer-stage">
+          <canvas id="viewer-canvas"></canvas>
+          <div id="viewer-status" class="viewer-status"></div>
+        </div>
+        <div id="face-info" class="face-info">
+          <p class="hint">Click a face to describe it. Shift-click to add more
+            faces to the selection — useful for something like two bolt holes
+            that should be picked together.</p>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ── 3. run ─────────────────────────────────────────────────────── -->
@@ -96,6 +116,18 @@
 
 </main>
 
+<!-- Three.js has no build step here -- it is fetched from npm once and
+     committed as a plain file (see static/vendor/README.md), and the browser
+     resolves the bare "three" specifier OrbitControls imports via this map.
+     No bundler involved, matching every other script on this page. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/static/vendor/three.module.min.js"
+  }
+}
+</script>
 <script src="/static/app.js"></script>
+<script type="module" src="/static/faces-viewer.js"></script>
 </body>
 </html>

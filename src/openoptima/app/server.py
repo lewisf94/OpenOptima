@@ -25,14 +25,17 @@ from pathlib import Path
 from typing import Any
 
 from ..config import forget_solver, remember_solver
+from ..domain.failures import EvaluationFailure
 from ..domain.model import SolverSpecification
 from ..domain.variables import DesignSpace, VariableType
 from ..evaluation.evaluator import default_job_count
 from ..evaluation.runspace import tool_versions
+from ..geometry import create_provider
 from ..geometry.occ.templates import available_templates
 from ..schema.loader import ProjectLoadError, load_project
 from ..solvers import create_solver
 from ..solvers.calculix.runner import verify_executable
+from .faces import FaceView, build_view, describe_selection
 from .jobs import JobRunner
 from .solver_setup import BackgroundInstall, SolverInstallError, solver_status
 
@@ -74,6 +77,11 @@ class AppState:
         #: be used for that.
         self.last_seen = 0.0
         self.ever_seen = False
+        #: The most recently built shape for face-picking, if any. Replaced
+        #: wholesale on every build, never mutated -- a click always resolves
+        #: against exactly one gmsh build, never a mix of two.
+        self.face_view: FaceView | None = None
+        self._face_generation = 0
 
     def touch(self) -> None:
         self.last_seen = time.monotonic()
@@ -156,6 +164,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._open(body)
         if path == "/api/doctor":
             return self._doctor(body)
+        if path == "/api/faces/build":
+            return self._faces_build(body)
+        if path == "/api/faces/describe":
+            return self._faces_describe(body)
         if path == "/api/run":
             return self._run(body)
         if path.startswith("/api/job/") and path.endswith("/stop"):
@@ -295,6 +307,46 @@ class Handler(BaseHTTPRequestHandler):
         except RuntimeError as exc:
             return self._error(str(exc), 409)
         return self._json(job.to_dict())
+
+    def _faces_build(self, body: dict[str, Any]) -> None:
+        try:
+            project, path = self._load(body)
+        except ProjectLoadError as exc:
+            return self._error(str(exc))
+
+        provider = create_provider(project.geometry)
+        if hasattr(provider, "root"):
+            # Same reasoning as _doctor: a relative geometry.source is
+            # written relative to the project file, not to wherever the app
+            # process happens to be running from.
+            provider.root = path.parent  # type: ignore[attr-defined]
+
+        self.state._face_generation += 1
+        generation = self.state._face_generation
+        try:
+            view, payload = build_view(project, path, provider, generation)
+        except EvaluationFailure as exc:
+            return self._error(f"could not build the part: {exc.message}")
+        except Exception as exc:  # the part genuinely could not be built
+            return self._error(f"could not build the part: {exc}")
+        self.state.face_view = view
+        return self._json(payload)
+
+    def _faces_describe(self, body: dict[str, Any]) -> None:
+        view = self.state.face_view
+        if view is None:
+            return self._error("no part has been built for picking yet", 409)
+        generation = body.get("generation")
+        if generation != view.generation:
+            # The user reopened the part, resized it, or picked before the
+            # first build finished: the tags in this request belong to a
+            # shape that is no longer the current one. Resolving them anyway
+            # would silently describe the wrong face.
+            return self._error("this view is out of date; reload the part", 409)
+        tags = body.get("tags")
+        if not isinstance(tags, list) or not tags or not all(isinstance(t, int) for t in tags):
+            return self._error("tags must be a non-empty list of face numbers")
+        return self._json(describe_selection(view, tags))
 
     def _report(self, body: dict[str, Any]) -> None:
         path = Path(body.get("path", ""))

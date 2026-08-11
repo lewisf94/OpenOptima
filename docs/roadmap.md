@@ -123,9 +123,59 @@ Build order, because each step only makes sense once the one before exists:
 |---|---|---|---|
 | 1 | ~~Read a STEP file as a shape~~ | Sonnet | **Done.** `geometry: {provider: step, source: ...}`. See below. |
 | 2 | ~~Turn a click into a lasting face description~~ | **Opus** | **Done.** `regions/describe.py`, and `openoptima faces` to use it without a viewer. See below. |
-| 3 | 3D viewer, click to pick | Sonnet | Front-end only, no computed number involved |
+| 3 | ~~3D viewer, click to pick~~ | Sonnet | **Done.** A turn-and-click panel inside `openoptima-app`. See below. |
 | 4 | Features you can add and vary on an imported shape | **Opus** | Adding a fillet creates and destroys faces; a face picked before the fillet may not exist afterwards in the same form. The hardest version of the naming problem this project exists to solve |
 | 5 | Wizard flow, sensible defaults, plain-English errors | Sonnet | Usability polish once the above works |
+
+**Piece 3, done 2026-08-11.** Inside `openoptima-app`, step 2 ("Check the
+setup") now has a **"Look at the part and pick faces"** panel: turn the
+part with the mouse, click a face, and it shows the same explanation and
+YAML `openoptima faces` prints on the command line, with a name field and
+a copy button. Shift-click adds more faces to the selection, for something
+like two bolt holes that belong together.
+
+Confirmed working in a real browser, not just claimed: driven headlessly
+with Playwright against the pre-installed Chromium, it opens a project,
+builds the part, clicks a face, and checks the description panel updates
+— and the render was checked from the actual composited screenshot rather
+than a live WebGL buffer read, because `gl.readPixels()` from outside the
+render loop is unreliable without `preserveDrawingBuffer` and an early
+version of that check gave a false "blank canvas" failure for exactly that
+reason. This script is not part of the repository: `test_app.py`'s own
+convention is that browser-level exercise is a development-time check, not
+a permanent automated one, since the project carries no JS test toolchain
+and adding one was not what this piece asked for. What *is* committed and
+runs in CI is `tests/unit/test_app_faces.py`, at the HTTP level.
+
+**What this reuses rather than rebuilds.** The viewer never measures a
+face itself — it fetches the same signatures `regions/describe.py`
+already computes, and every description it shows has passed through the
+same check against the part's smallest and largest sizes that
+`openoptima faces` performs on the command line. A new module,
+`geometry/tessellate.py`, turns a solid into triangles for the *picture*
+only; it shares no code with meshing, and nothing it produces is read by
+the mesher, the solver, or the describer, which measures its own
+signatures independently from the same build. Coarse or ugly
+tessellation would make the viewer look worse. It cannot make a result
+wrong. Measured on the L-bracket: every face's triangle-area sum agreed
+with its analytic area to under half a percent, including the curved
+ones, and a click on a triangle resolves to exactly the same face tag
+`regions/describe.py` would use, on the same build.
+
+**One new third-party file, for a reason worth recording.** Drawing and
+picking triangles in 3D is a solved problem, so `three.js` 0.160.0 (MIT
+licence) is vendored as a plain file — fetched once via `npm view`, no
+bundler, no ongoing dependency, matching how every other script in this
+app is loaded. See `static/vendor/README.md` and the capability-audit
+entry.
+
+**A face tag is only ever trusted within the build that produced it.**
+The server holds exactly one "view" at a time, tagged with a generation
+number the browser must echo back on every click; a click against a stale
+generation — the user reopened or resized the part in between — is
+refused rather than resolved against geometry that no longer exists,
+because that resolution would be silent and wrong in exactly the way this
+whole project exists to prevent.
 
 **Piece 2, done 2026-08-11.** `regions/describe.py` turns a picked face
 into a selector, and `openoptima faces` lists a part's faces with the

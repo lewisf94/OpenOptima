@@ -356,6 +356,12 @@ fillet setting the same description also selects the fillet, which by then
 has shrunk to 3 mm — three faces where two were meant, and no error
 anywhere.
 
+**Or click instead of typing.** `openoptima-app` has a 3D panel — turn the
+part, click a face, get the same description and YAML back with a name
+field and a copy button. It runs the identical extremes check first, so a
+description from a click is exactly as trustworthy as one from the
+command line.
+
 ### Bringing in your own part
 
 You do not have to build a shape from one of OpenOptima's own templates.
