@@ -67,6 +67,7 @@ class TestTheCommandExists:
             "4",
             "--solver",
             "/usr/bin/ccx",
+            "--analyse",
         )
         assert args.keep == 0.3
         assert args.feature_size == 5.0
@@ -74,6 +75,28 @@ class TestTheCommandExists:
         assert args.removal_rate == 0.04
         assert args.smoothing == 8
         assert args.cores == 4
+        assert args.analyse is True
+
+
+class TestAnalysingTheShapeIsAskedFor:
+    """A topology run reports a shape. Only ``--analyse`` reports numbers.
+
+    Analysing takes another mesh and another solve, so it is opt-in rather than
+    automatic. What must never happen is the other way round: reporting a
+    stress or a factor of safety that was never computed.
+    """
+
+    def test_it_is_off_unless_asked_for(self):
+        assert parse(PROJECT, "--deck", "part.inp").analyse is False
+
+    def test_the_help_says_what_it_adds(self):
+        parser = build_parser()
+        for action in parser._subparsers._group_actions[0].choices["topology"]._actions:
+            if action.dest == "analyse":
+                help_text = action.help or ""
+                assert "factor of safety" in help_text
+                return
+        pytest.fail("no --analyse option found")
 
 
 class TestItRefusesAMissingFile:

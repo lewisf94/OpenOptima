@@ -50,6 +50,8 @@ from pathlib import Path
 import numpy as np
 
 from ..domain.failures import EvaluationFailure, FailureCode
+from ..domain.regions import BoundingBox
+from ..geometry.base import SurfaceArtifact
 
 #: Corner nodes of each face, per element type. Only corners are used: a curved
 #: element's midside nodes describe the same face, and the surface is
@@ -121,6 +123,26 @@ class SolidResult:
         path.parent.mkdir(parents=True, exist_ok=True)
         mesh.export(path)
         return path
+
+    def as_surface(self, path: Path) -> SurfaceArtifact:
+        """Write the shape out and describe it for the mesher.
+
+        This is the handover that turns a proposal into something analysable.
+        Everything downstream -- meshing, putting the loads back on, solving,
+        the factor of safety -- is the ordinary pipeline, unchanged.
+        """
+        mesh = _trimesh_from(self.vertices, self.faces)
+        low, high = (float(v) for v in mesh.bounds[0]), (float(v) for v in mesh.bounds[1])
+        return SurfaceArtifact(
+            stl_path=self.write_stl(path),
+            volume=self.volume_mm3,
+            bbox=BoundingBox(*low, *high),
+            surface_area=float(mesh.area),
+            source_description=(
+                f"topology optimisation, smoothed over {self.smoothing_passes} passes"
+            ),
+            warnings=list(self.warnings),
+        )
 
 
 def _trimesh():

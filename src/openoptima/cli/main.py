@@ -477,27 +477,75 @@ def command_topology(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return _EXIT_FAILED
 
-    stl = solid.write_stl(output / "shape.stl")
+    surface = solid.as_surface(output / "shape.stl")
     print(
         f"  smoothed over {solid.smoothing_passes} passes, "
         f"losing {abs(solid.volume_change):.1%} of the material"
     )
     for warning in solid.warnings:
         print(f"  note: {warning}")
-    print(f"\nShape written to {stl}")
+    print(f"\nShape written to {surface.stl_path}")
+
+    repeatability = (
+        ""
+        if args.cores == REPRODUCIBLE_CPU_CORES
+        else (
+            "\n  The shape may also not be repeatable: running again on more\n"
+            "  than one core can produce a different one."
+        )
+    )
+
+    if not args.analyse:
+        print(
+            "\nThis is a proposal, not a result. Nothing here has been analysed:\n"
+            "  no stress, no deflection and no factor of safety has been computed\n"
+            "  for this shape. Run again with --analyse, or put the shape through\n"
+            "  'openoptima evaluate', before relying on any number." + repeatability
+        )
+        return _EXIT_OK
+
+    print("\nAnalysing the shape, so the numbers below are measured and not assumed.")
+    with Evaluator(
+        project,
+        workspace,
+        study=args.study,
+        keep_artifacts=True,
+        project_root=root,
+    ) as evaluator:
+        result = evaluator.pipeline.evaluate_surface(surface)
+
+    print(f"\nOutcome: {result.outcome.value.upper()}")
+    if result.run_directory:
+        print(f"  run directory: {result.run_directory}")
+    if result.mesh:
+        print(
+            f"  mesh: {result.mesh.node_count:,} nodes, {result.mesh.element_count:,} "
+            f"{result.mesh.element_type}, worst Jacobian "
+            f"{result.mesh.min_scaled_jacobian:.3f}, volume error "
+            f"{result.mesh.volume_error:.3%}"
+        )
+    if result.metrics:
+        print("\n  Metrics")
+        for name in sorted(result.metrics):
+            if "." in name:
+                continue
+            print(f"    {name:<26} {result.metrics[name]:>14.6g}")
+    if result.constraint_violations:
+        print("\n  Constraint violations")
+        for name, value in sorted(result.constraint_violations.items()):
+            print(f"    {name:<40} {value:.4g}")
+    if result.failure_code:
+        print(f"\n  Failure: {result.failure_code.value}\n  {result.message}")
+    for warning in result.warnings:
+        print(f"\n  WARNING: {warning}")
 
     print(
-        "\nThis is a proposal, not a result. Nothing here has been analysed:\n"
-        "  no stress, no deflection and no factor of safety has been computed\n"
-        "  for this shape. Rebuild it as a parametric model, or import it, and\n"
-        "  run it through 'openoptima evaluate' before relying on any number."
+        "\nThese numbers are for the smoothed shape as written, on a fresh mesh,\n"
+        "  with the loads and supports of this project put back on. They are not\n"
+        "  the optimiser's own figures. Smoothing takes material away, so this is\n"
+        "  the weaker and truer of the two." + repeatability
     )
-    if args.cores != REPRODUCIBLE_CPU_CORES:
-        print(
-            "  It may also not be repeatable: running again on more than one\n"
-            "  core can produce a different shape."
-        )
-    return _EXIT_OK
+    return _EXIT_OK if result.outcome is not Outcome.ERROR else _EXIT_FAILED
 
 
 def command_report(args: argparse.Namespace) -> int:
@@ -715,6 +763,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="processor cores. More than one is faster but the result stops being repeatable",
     )
     topology.add_argument("--solver", help="path to the CalculiX executable")
+    topology.add_argument(
+        "--analyse",
+        action="store_true",
+        help=(
+            "analyse the shape afterwards, so it reports a real stress, deflection "
+            "and factor of safety instead of only a shape"
+        ),
+    )
     topology.set_defaults(func=command_topology)
 
     report = subparsers.add_parser("report", help="rebuild a report from stored results")

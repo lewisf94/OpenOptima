@@ -14,6 +14,7 @@ Design notes:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -23,11 +24,11 @@ import numpy as np
 from ..domain.failures import EvaluationFailure, FailureCode
 from ..domain.model import MeshAlgorithm, MeshSpecification
 from ..domain.regions import RegionMap, SemanticRegion
-from ..geometry.base import GeometryArtifact
-from ..geometry.gmsh_session import drain_log, gmsh_session, suppress_native_output
+from ..geometry.base import GeometryArtifact, SurfaceArtifact
+from ..geometry.gmsh_session import drain_log, gmsh_session
 from ..regions.matcher import compare_region_maps, resolve_regions
-from ..regions.signature import solid_face_signatures
 from .base import MeshData, MeshQualityReport
+from .sources import Loaded, load_brep, load_surface
 
 #: gmsh 3D algorithm numbers.
 _ALGORITHM_NUMBER = {
@@ -113,7 +114,47 @@ class GmshMesher:
         expected_regions: RegionMap | None = None,
         write_mesh_file: bool = False,
     ) -> tuple[MeshData, RegionMap]:
-        """Mesh the model, walking the retry ladder until a mesh passes the gates."""
+        """Mesh a CAD solid, walking the retry ladder until a mesh passes the gates."""
+        return self._generate(
+            lambda gmsh: load_brep(gmsh, geometry),
+            regions,
+            output_directory,
+            expected_regions=expected_regions,
+            write_mesh_file=write_mesh_file,
+        )
+
+    def generate_from_surface(
+        self,
+        surface: SurfaceArtifact,
+        regions: tuple[SemanticRegion, ...],
+        output_directory: Path,
+        *,
+        write_mesh_file: bool = False,
+    ) -> tuple[MeshData, RegionMap]:
+        """Mesh a closed triangle mesh that has no CAD behind it.
+
+        Everything after the shape is loaded is identical to the CAD path: the
+        same selectors, the same quality gates, the same mesh.  What differs is
+        that the faces were measured rather than looked up, and that the midside
+        nodes are kept straight -- see ``meshing/sources.py``.
+        """
+        return self._generate(
+            lambda gmsh: load_surface(gmsh, surface),
+            regions,
+            output_directory,
+            expected_regions=None,
+            write_mesh_file=write_mesh_file,
+        )
+
+    def _generate(
+        self,
+        loader: Callable[[Any], Loaded],
+        regions: tuple[SemanticRegion, ...],
+        output_directory: Path,
+        *,
+        expected_regions: RegionMap | None,
+        write_mesh_file: bool,
+    ) -> tuple[MeshData, RegionMap]:
         output_directory.mkdir(parents=True, exist_ok=True)
         ladder = build_retry_ladder(self.specification)
         problems: list[str] = []
@@ -121,7 +162,7 @@ class GmshMesher:
         for attempt_number, attempt in enumerate(ladder, start=1):
             try:
                 mesh, region_map = self._attempt(
-                    geometry,
+                    loader,
                     regions,
                     attempt,
                     attempt_number,
@@ -133,6 +174,11 @@ class GmshMesher:
                 if failure.code in (
                     FailureCode.REGION_NOT_FOUND,
                     FailureCode.REGION_AMBIGUOUS,
+                    # The shape itself is wrong -- it does not close up, or it
+                    # came apart into pieces. No mesh setting changes that, and
+                    # retrying only buries the real reason under four identical
+                    # failures.
+                    FailureCode.INVALID_SOLID,
                 ):
                     raise  # a setup problem; retrying cannot help
                 problems.append(f"attempt {attempt_number} ({attempt.description}): {failure}")
@@ -160,7 +206,7 @@ class GmshMesher:
     # -- one attempt ---------------------------------------------------------
     def _attempt(
         self,
-        geometry: GeometryArtifact,
+        loader: Callable[[Any], Loaded],
         regions: tuple[SemanticRegion, ...],
         attempt: MeshAttempt,
         attempt_number: int,
@@ -173,21 +219,12 @@ class GmshMesher:
 
         with gmsh_session() as gmsh:
             gmsh.model.add("openoptima_mesh")
-            with suppress_native_output():
-                gmsh.model.occ.importShapes(str(geometry.brep_path))
-            gmsh.model.occ.synchronize()
-
-            solids = gmsh.model.getEntities(3)
-            if len(solids) != 1:
-                raise EvaluationFailure(
-                    FailureCode.INVALID_SOLID,
-                    f"reloaded geometry has {len(solids)} solids, expected 1",
-                )
-            volume_tag = int(solids[0][1])
+            loaded = loader(gmsh)
 
             # -- regions, re-resolved against what we actually reloaded ------
-            signatures = solid_face_signatures(gmsh, volume_tag)
-            region_map = resolve_regions(regions, signatures, scale_length=geometry.bbox.diagonal)
+            region_map = resolve_regions(
+                regions, loaded.signatures, scale_length=loaded.scale_length
+            )
             if expected_regions is not None:
                 differences = compare_region_maps(expected_regions, region_map)
                 if differences:
@@ -198,11 +235,11 @@ class GmshMesher:
                         detail={"differences": differences},
                     )
 
-            gmsh.model.addPhysicalGroup(3, [volume_tag], name="solid")
+            gmsh.model.addPhysicalGroup(3, [loaded.volume_tag], name="solid")
             for name, match in region_map.matches.items():
-                gmsh.model.addPhysicalGroup(2, list(match.face_tags), name=name)
+                gmsh.model.addPhysicalGroup(2, loaded.gmsh_tags(match.face_tags), name=name)
 
-            self._configure(gmsh, specification, region_map, geometry)
+            self._configure(gmsh, specification, region_map, loaded)
 
             try:
                 gmsh.model.mesh.generate(3)
@@ -222,7 +259,7 @@ class GmshMesher:
                     detail={"gmsh_log": drain_log(gmsh)[-20:]},
                 ) from exc
 
-            mesh = self._extract(gmsh, region_map, specification, geometry, attempt, attempt_number)
+            mesh = self._extract(gmsh, region_map, specification, loaded, attempt, attempt_number)
 
             if write_mesh_file:
                 gmsh.write(str(output_directory / "mesh.msh"))
@@ -236,7 +273,7 @@ class GmshMesher:
         gmsh: Any,
         specification: MeshSpecification,
         region_map: RegionMap,
-        geometry: GeometryArtifact,
+        loaded: Loaded,
     ) -> None:
         option = gmsh.option
         option.setNumber("Mesh.MeshSizeMin", specification.minimum_size)
@@ -255,7 +292,12 @@ class GmshMesher:
         if specification.element_order == 2:
             # Curve the midside nodes onto the true surface, otherwise a fillet
             # is meshed as a set of flat facets and its stresses are wrong.
-            option.setNumber("Mesh.SecondOrderLinear", 0)
+            # 0 pushes each midside node onto the true surface, so a fillet is
+            # meshed as a curve rather than a set of flat facets. A shape made
+            # of triangles has no true surface to push onto: doing it there
+            # turned 6 of 2060 elements inside out on a real topology result,
+            # and refining the mesh did not fix it.
+            option.setNumber("Mesh.SecondOrderLinear", 0 if loaded.curved_midsides else 1)
             option.setNumber("Mesh.HighOrderOptimize", 1)
 
         field_ids: list[int] = []
@@ -280,10 +322,11 @@ class GmshMesher:
         if specification.size_from_thickness:
             # Keep at least a couple of elements through the thinnest wall the
             # model happens to have. Cheap proxy: the smallest bbox dimension.
+            bbox = loaded.bbox
             extents = [
-                geometry.bbox.xmax - geometry.bbox.xmin,
-                geometry.bbox.ymax - geometry.bbox.ymin,
-                geometry.bbox.zmax - geometry.bbox.zmin,
+                bbox.xmax - bbox.xmin,
+                bbox.ymax - bbox.ymin,
+                bbox.zmax - bbox.zmin,
             ]
             smallest = min(e for e in extents if e > 0)
             thickness_size = max(specification.minimum_size, smallest / 3.0)
@@ -307,7 +350,7 @@ class GmshMesher:
         gmsh: Any,
         region_map: RegionMap,
         specification: MeshSpecification,
-        geometry: GeometryArtifact,
+        loaded: Loaded,
         attempt: MeshAttempt,
         attempt_number: int,
     ) -> MeshData:
@@ -365,7 +408,10 @@ class GmshMesher:
         surface_triangles: dict[str, np.ndarray] = {}
         for name, match in region_map.matches.items():
             collected: list[np.ndarray] = []
-            for face_tag in match.face_tags:
+            # A region can cover several gmsh surfaces: on a shape made of
+            # triangles, one physical face arrives in pieces and is put back
+            # together before the selectors see it.
+            for face_tag in loaded.gmsh_tags(match.face_tags):
                 types, _tags, nodes = gmsh.model.mesh.getElements(2, face_tag)
                 for gmsh_type, node_block in zip(types, nodes, strict=False):
                     per_element = _SURFACE_ELEMENTS.get(int(gmsh_type))
@@ -395,7 +441,7 @@ class GmshMesher:
             volume_element_tags,
             element_type,
             len(node_tags),
-            geometry.volume,
+            loaded.reference_volume,
             attempt,
             attempt_number,
         )

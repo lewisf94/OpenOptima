@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 import traceback
+from collections.abc import Callable
 from pathlib import Path
 
 from ..domain.failures import (
@@ -21,13 +22,22 @@ from ..domain.failures import (
     outcome_for,
 )
 from ..domain.project import Project
+from ..domain.regions import RegionMap
 from ..domain.results import EvaluationResult, MeshSummary
-from ..domain.variables import DesignVector
+from ..domain.variables import DesignSpace, DesignVector
 from ..geometry import create_provider
+from ..geometry.base import SurfaceArtifact
+from ..meshing.base import MeshData
 from ..meshing.gmsh_mesher import GmshMesher
 from ..results.metrics import collect_metrics
 from ..solvers import create_solver
 from .runspace import RunSpace, RunSpaceFactory, tool_versions
+
+#: Stands in for a design vector when a shape did not come from the design
+#: space at all -- a topology result, or any imported surface.  The shape is
+#: still evaluated exactly like any other, and this says plainly that no set of
+#: parameter values produced it.
+NO_DESIGN = DesignVector(values={}, space=DesignSpace(variables=()))
 
 
 class EvaluationPipeline:
@@ -54,6 +64,42 @@ class EvaluationPipeline:
         evaluation_hash: str = "",
         run_id: str | None = None,
     ) -> EvaluationResult:
+        return self._evaluate(
+            design,
+            run_id,
+            lambda run: self._geometry_stage(design, run),
+            evaluation_hash=evaluation_hash,
+        )
+
+    def evaluate_surface(
+        self,
+        surface: SurfaceArtifact,
+        *,
+        run_id: str | None = None,
+    ) -> EvaluationResult:
+        """Evaluate a shape that arrived as triangles rather than as CAD.
+
+        This is how a topology result becomes a number anybody may quote.  What
+        the optimiser hands over is a shape, and a shape on its own says nothing
+        about stress, deflection or how close the part is to failing.  Putting it
+        through here re-meshes it into solid elements, puts the same loads and
+        supports back on by re-resolving the same region selectors, and solves it
+        exactly like any other design.
+
+        Nothing about the analysis is relaxed for it.  The same quality gates,
+        the same constraints and the same failure classification apply, so the
+        answer is comparable with the parametric designs beside it.
+        """
+        return self._evaluate(NO_DESIGN, run_id, lambda run: self._surface_stage(surface, run))
+
+    def _evaluate(
+        self,
+        design: DesignVector,
+        run_id: str | None,
+        stage: Callable[[RunSpace], tuple[MeshData, RegionMap, float, list[str]]],
+        evaluation_hash: str = "",
+    ) -> EvaluationResult:
+        """Shared body of :meth:`evaluate` and :meth:`evaluate_surface`."""
         started = time.monotonic()
         run = self.factory.allocate(run_id)
         state = EvaluationState.CREATED
@@ -71,7 +117,8 @@ class EvaluationPipeline:
         }
 
         try:
-            result = self._run(design, run)
+            mesh, region_map, reference_volume, warnings = stage(run)
+            result = self._analyse(design, run, mesh, region_map, reference_volume, warnings)
             result.run_id = run.run_id
             result.run_directory = str(run.directory)
             result.evaluation_hash = evaluation_hash
@@ -125,18 +172,18 @@ class EvaluationPipeline:
             )
 
     # -- stages --------------------------------------------------------------
-    def _run(self, design: DesignVector, run: RunSpace) -> EvaluationResult:
+    def _geometry_stage(
+        self, design: DesignVector, run: RunSpace
+    ) -> tuple[MeshData, RegionMap, float, list[str]]:
+        """Build the parametric solid and mesh it."""
         project = self.project
 
-        # 1. geometry
         provider = create_provider(project.geometry)
         if hasattr(provider, "root"):
             provider.root = self.project_root  # type: ignore[attr-defined]
         geometry = provider.build(design, run.geometry_dir)
         run.manifest["geometry"] = geometry.to_dict()
-        state = EvaluationState.GEOMETRY_GENERATED
 
-        # 2. mesh (regions are resolved inside, against the reloaded solid)
         mesher = GmshMesher(project.mesh)
         mesh, region_map = mesher.generate(
             geometry,
@@ -144,11 +191,43 @@ class EvaluationPipeline:
             run.mesh_dir,
             write_mesh_file=self.keep_artifacts,
         )
-        state = EvaluationState.MESH_VALIDATED
+        self._record_mesh(run, mesh, region_map)
+        return mesh, region_map, geometry.volume, list(geometry.warnings)
+
+    def _surface_stage(
+        self, surface: SurfaceArtifact, run: RunSpace
+    ) -> tuple[MeshData, RegionMap, float, list[str]]:
+        """Mesh a closed triangle surface, working its faces out by measurement."""
+        run.manifest["surface"] = surface.to_dict()
+        mesher = GmshMesher(self.project.mesh)
+        mesh, region_map = mesher.generate_from_surface(
+            surface,
+            self.project.regions,
+            run.mesh_dir,
+            write_mesh_file=self.keep_artifacts,
+        )
+        self._record_mesh(run, mesh, region_map)
+        return mesh, region_map, surface.volume, list(surface.warnings)
+
+    def _record_mesh(self, run: RunSpace, mesh: MeshData, region_map: RegionMap) -> None:
         assert mesh.quality is not None
         run.manifest["regions"] = region_map.to_dict()
         run.manifest["mesh"] = mesh.quality.to_dict()
         run.write_json("mesh/regions.json", region_map.to_dict())
+
+    def _analyse(
+        self,
+        design: DesignVector,
+        run: RunSpace,
+        mesh: MeshData,
+        region_map: RegionMap,
+        reference_volume: float,
+        stage_warnings: list[str],
+    ) -> EvaluationResult:
+        """Solve, measure and check. Identical whatever produced the mesh."""
+        project = self.project
+        state = EvaluationState.MESH_VALIDATED
+        assert mesh.quality is not None
 
         # 3. solve
         solver = create_solver(project.solver)
@@ -166,15 +245,12 @@ class EvaluationPipeline:
 
         # 4. metrics
         metrics, load_cases, metric_warnings = collect_metrics(
-            analysis, project.analysis_model(), mesh, region_map, geometry.volume
+            analysis, project.analysis_model(), mesh, region_map, reference_volume
         )
         state = EvaluationState.RESULTS_PARSED
 
         warnings = (
-            list(analysis.warnings)
-            + list(mesh.quality.warnings)
-            + geometry.warnings
-            + metric_warnings
+            list(analysis.warnings) + list(mesh.quality.warnings) + stage_warnings + metric_warnings
         )
 
         # 5. engineering constraints

@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import collections
 import itertools
+import json
 import re
 import shutil
 import tempfile
@@ -76,8 +77,27 @@ from pathlib import Path
 
 import pytest
 
-from openoptima.domain.model import Material
+from openoptima.domain.model import (
+    BoundaryCondition,
+    Load,
+    LoadCase,
+    LoadKind,
+    Material,
+    MeshSpecification,
+)
+from openoptima.domain.objectives import Objective
+from openoptima.domain.project import GeometryDefinition, Project
+from openoptima.domain.regions import (
+    BoundingBox,
+    RegionSelector,
+    SelectionMode,
+    SemanticRegion,
+    SurfaceType,
+)
 from openoptima.domain.topology import TopologySettings
+from openoptima.domain.variables import DesignSpace
+from openoptima.evaluation.pipeline import EvaluationPipeline
+from openoptima.geometry.base import SurfaceArtifact
 from openoptima.topology import fetch
 from openoptima.topology.runner import run_topology
 from openoptima.topology.solidify import read_element_mesh, to_solid
@@ -323,6 +343,181 @@ class TestTheConversionKeepsTheStructure:
         reloaded = trimesh.load(written)
         assert reloaded.is_watertight
         assert reloaded.volume == pytest.approx(solid.volume_mm3, rel=1e-6)
+
+
+@pytest.fixture(scope="module")
+def reanalysed(topology_result, tmp_path_factory):
+    """The optimised shape and the untouched block, both put through the pipeline.
+
+    Both go the same way in -- as triangles, re-meshed into solid elements, with
+    the same loads and supports resolved by the same selectors -- so the pair is
+    a fair comparison rather than two different analyses.
+    """
+    outcome, _deck = topology_result
+    directory = tmp_path_factory.mktemp("v12_reanalysis")
+    project = reanalysis_project()
+    pipeline = EvaluationPipeline(project, directory / "runs", keep_artifacts=False)
+
+    optimised = to_solid(outcome.solid_mesh).as_surface(directory / "optimised.stl")
+
+    block_path = directory / "block.stl"
+    trimesh.creation.box(
+        extents=(LENGTH, DEPTH, THICKNESS),
+        transform=trimesh.transformations.translation_matrix(
+            (LENGTH / 2, DEPTH / 2, THICKNESS / 2)
+        ),
+    ).export(block_path)
+    block = SurfaceArtifact(
+        stl_path=block_path,
+        volume=LENGTH * DEPTH * THICKNESS,
+        bbox=BoundingBox(0.0, 0.0, 0.0, LENGTH, DEPTH, THICKNESS),
+        surface_area=2 * (LENGTH * DEPTH + LENGTH * THICKNESS + DEPTH * THICKNESS),
+        source_description="the untouched design space",
+    )
+    return pipeline.evaluate_surface(block), pipeline.evaluate_surface(optimised)
+
+
+def reanalysis_project() -> Project:
+    """The same problem the optimiser was given, written as an ordinary project."""
+    regions = (
+        SemanticRegion(
+            "fixed_end",
+            RegionSelector(
+                surface_type=SurfaceType.PLANE,
+                normal=(-1.0, 0.0, 0.0),
+                within_box=BoundingBox(-0.1, -1.0, -1.0, 0.1, DEPTH + 1, THICKNESS + 1),
+                # The optimiser removes the middle of this face, so what was one
+                # pad comes back as two. Asking for one would be ambiguous, and
+                # rightly refused.
+                mode=SelectionMode.ALL,
+            ),
+        ),
+        SemanticRegion(
+            "loaded_end",
+            RegionSelector(
+                surface_type=SurfaceType.PLANE,
+                normal=(1.0, 0.0, 0.0),
+                within_box=BoundingBox(
+                    LENGTH - 0.1, -1.0, -1.0, LENGTH + 0.1, DEPTH + 1, THICKNESS + 1
+                ),
+                mode=SelectionMode.ALL,
+            ),
+        ),
+    )
+    return Project(
+        name="cantilever re-analysis",
+        geometry=GeometryDefinition(provider="occ", template="plate"),
+        design_space=DesignSpace(variables=()),
+        regions=regions,
+        material=Material(
+            name="steel",
+            elastic_modulus=210000.0,
+            poisson_ratio=0.3,
+            density=7.85e-9,
+            allowable_stress=250.0,
+        ),
+        load_cases=(
+            LoadCase(
+                id="tip",
+                loads=(Load(kind=LoadKind.FORCE, region="loaded_end", vector=(0.0, -1000.0, 0.0)),),
+                boundary_conditions=(BoundaryCondition(region="fixed_end"),),
+            ),
+        ),
+        mesh=MeshSpecification(
+            global_size=2.5,
+            minimum_size=1.0,
+            element_order=2,
+            curvature_refinement=False,
+            size_from_thickness=False,
+        ),
+        objectives=(Objective(metric="mass_kg", direction="min"),),
+    )
+
+
+@requires_calculix
+@requires_beso
+class TestTheLoopClosesBackToRealNumbers:
+    """What the whole exercise is for.
+
+    A topology run hands back a shape. A shape says nothing about stress,
+    deflection or how close the part is to breaking, so the shape has to go back
+    through the ordinary analysis before anybody may quote a number about it.
+    These tests are that analysis, and they are the reason ADR 10 refuses to
+    report a density field as a result.
+
+    **Measured at the time of writing**, both through the identical pipeline:
+
+    ==================  =============  ==============
+    \\                    Solid block    Optimised
+    ==================  =============  ==============
+    Volume               4800.0 mm3     2384.5 mm3
+    Deflection           0.1424 mm      0.3310 mm
+    Stiffness            7022 N/mm      3021 N/mm
+    Stored energy        69.1 mJ        161.8 mJ
+    Peak stress          217.0 MPa      400.0 MPa
+    Factor of safety     **1.15**       **0.63**
+    ==================  =============  ==============
+
+    So the design keeps 49.7 per cent of the material and 43.0 per cent of the
+    stiffness. And it **stops passing**: at a 250 MPa allowable it goes from a
+    factor of safety of 1.15 to 0.63.
+
+    Nothing in the topology run says that. beso was asked for stiffness at a
+    mass target and delivered it; stress was never part of the question. Whether
+    to accept the trade is the engineer's decision, and this is the measurement
+    that decision needs.
+    """
+
+    def test_both_shapes_analyse_successfully(self, reanalysed):
+        block, optimised = reanalysed
+        for label, result in (("solid block", block), ("optimised", optimised)):
+            assert result.failure_code is None, f"{label}: {result.message}"
+            assert result.metrics
+
+    def test_the_optimised_shape_keeps_about_half_the_material(self, reanalysed):
+        block, optimised = reanalysed
+        share = optimised.metrics["volume_mm3"] / block.metrics["volume_mm3"]
+        assert share == pytest.approx(VOLUME_FRACTION, abs=0.05)
+
+    def test_removing_material_costs_stiffness(self, reanalysed):
+        """Measured 43.0 per cent of the block's stiffness for 49.7 per cent of it.
+
+        The bound is deliberately loose, because the exact ratio depends on the
+        mesh and the optimiser version. What must stay true is the direction and
+        the order of magnitude: taking half the material away costs more than a
+        little stiffness and less than all of it.
+        """
+        block, optimised = reanalysed
+        ratio = optimised.metrics["stiffness_n_per_mm"] / block.metrics["stiffness_n_per_mm"]
+        assert 0.2 < ratio < 0.8
+        assert optimised.metrics["displacement_max_mm"] > block.metrics["displacement_max_mm"]
+
+    def test_the_stress_is_measured_rather_than_assumed(self, reanalysed):
+        """The number the optimiser never computed, and the reason for all of this."""
+        block, optimised = reanalysed
+        assert optimised.metrics["stress_max_mpa"] > block.metrics["stress_max_mpa"]
+        assert optimised.metrics["factor_of_safety"] < block.metrics["factor_of_safety"]
+        # Reported alongside the percentile, always, so a singular peak at a
+        # sharp corner cannot hide behind the smoothed figure.
+        assert optimised.metrics["stress_raw_max_mpa"] >= optimised.metrics["stress_max_mpa"]
+
+    def test_the_supports_land_on_both_pads_of_the_split_face(self, reanalysed):
+        """The face the part bolts to comes back in two pieces, and both are held.
+
+        If the selectors had found only one of them the part would be held on
+        half its mounting face, and every number above would be wrong while
+        looking entirely reasonable.
+        """
+        _block, optimised = reanalysed
+        assert optimised.run_directory
+        # Read from the run manifest, which is the durable record: the mesh
+        # folder is cleared once a run finishes.
+        manifest = json.loads(
+            (Path(optimised.run_directory) / "evaluation_manifest.json").read_text()
+        )
+        fixed_end = manifest["regions"]["fixed_end"]
+        assert len(fixed_end["face_tags"]) == 2
+        assert fixed_end["total_area"] > 40.0
 
 
 @requires_calculix

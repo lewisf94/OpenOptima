@@ -48,6 +48,42 @@ class GeometryArtifact:
 
 
 @dataclass(frozen=True)
+class SurfaceArtifact:
+    """A closed triangle mesh, as an alternative way into the mesher.
+
+    A :class:`GeometryArtifact` carries a real CAD model, which knows that a
+    face is a plane or a cylinder because it was built as one.  A surface
+    artifact carries only triangles.  It exists so that a shape which never had
+    CAD behind it -- the output of a topology optimisation, most of all -- can
+    still be meshed, loaded and analysed like any other part.
+
+    The faces are worked out by measuring the triangles; see
+    ``regions/discrete.py``.  That works well for flat faces and for holes, and
+    **it cannot find a rounded blend at all**, because a blend meets the faces
+    it joins smoothly and there is no crease for the measurement to find.
+    """
+
+    #: STL file — the exchange format between a mesh producer and the mesher.
+    stl_path: Path
+    volume: float  # mm^3, from the divergence theorem over the triangles
+    bbox: BoundingBox
+    surface_area: float
+    #: What produced it, for the run manifest. Never read back by the pipeline.
+    source_description: str = ""
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stl": str(self.stl_path),
+            "volume_mm3": self.volume,
+            "surface_area_mm2": self.surface_area,
+            "bbox": list(self.bbox.as_tuple()),
+            "source": self.source_description,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
 class ValidationReport:
     ok: bool
     errors: tuple[str, ...] = ()

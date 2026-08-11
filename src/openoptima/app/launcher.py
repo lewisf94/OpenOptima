@@ -258,12 +258,22 @@ def _self_check_steps() -> list[tuple[str, Any]]:
 
         return StructuralProblem
 
+    def surface_route() -> object:
+        # How a topology result gets analysed: measure the faces of a triangle
+        # mesh, then mesh a solid from it. Imported only when somebody runs a
+        # topology optimisation, so a frozen build could ship it broken.
+        from ..meshing.sources import load_surface
+        from ..regions.discrete import measure_discrete_surface
+
+        return (measure_discrete_surface, load_surface)
+
     return [
         ("geometry", geometry),
         ("mesher", mesher),
         ("solver adapter", solver),
         ("optimiser", optimiser),
         ("optimiser problem", problem),
+        ("surface route", surface_route),
     ]
 
 
