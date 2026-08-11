@@ -382,6 +382,45 @@ and tolerance before anyone writes it.
 
 *(V7 is implemented — see above.)*
 
+### V11 — The buckling load scaling is load-bearing
+
+`tests/verification/test_buckling_load_scaling.py`
+
+V3 and V9 both check buckling where the answer is comfortable: a 1 kN load
+on a column that carries 14.4 kN. That is well clear of the range where
+CalculiX misbehaves, so **both would still pass if the fix were deleted.**
+This benchmark sits inside the dangerous range instead.
+
+**The measurement.** One column, one mesh, only the applied load changed.
+The buckling factor is exactly inversely proportional to the load it is
+measured against, so `factor x load` must give the same critical load
+every time. Without the scaling, it does not:
+
+| Applied load | Scaling | Factor | Implied critical load | Against Euler |
+|---|---|---|---|---|
+| 1 000 N | none | 14.4086 | 14 409 N | 1.00x |
+| 1 000 N | 1000x | 14.4086 | 14 409 N | 1.00x |
+| 30 000 N | none | 4.2523 | 127 569 N | **8.86x** |
+| 30 000 N | 1000x | 0.4803 | 14 409 N | 1.00x |
+| 60 000 N | none | 2.1261 | 127 569 N | **8.86x** |
+| 60 000 N | 1000x | 0.2401 | 14 409 N | 1.00x |
+
+A column that folds under 14.4 kN is reported as surviving 128 kN. The
+error is **optimistic**, and an optimiser reads the number rather than any
+warning attached to it.
+
+Euler gives 14 393 N. Every scaled result is within 0.11%. Tolerance 3%.
+
+**Do not remove the scaling.** One test here deliberately removes it and
+asserts the wrong answer comes back, so that deleting the fix fails the
+build loudly instead of quietly.
+
+**What this settles for topology optimisation.** `beso` offers buckling as
+an optimisation objective, drives the same CalculiX, and applies no such
+scaling. It is therefore affected. Its buckling objective is refused in
+`topology/config.py` rather than passed on, and that refusal is checked
+here, next to the evidence for it.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

@@ -80,13 +80,20 @@ buckling fix — which is most of what makes a number here trustworthy.
 
 **Two things must be verified before any beso number is reported.**
 
-1. **Its buckling objective.** CalculiX silently returns the second buckling
-   mode instead of the first when the true factor falls below about 0.52.
-   OpenOptima fixes this by scaling the reference load. beso uses the same
-   solver and offers buckling as an objective. Whether it hits the same defect
-   is **unknown and must be measured**, not assumed. The test: one column with
-   a known Euler answer, solved three ways — by hand, through OpenOptima, and
-   through beso — and compared.
+1. **Its buckling objective — measured, and the answer is no.** CalculiX
+   silently returns the second buckling mode instead of the first when the true
+   factor falls below about 0.52. OpenOptima fixes this by scaling the
+   reference load; beso applies no such scaling.
+
+   Measured on one column, one mesh, with only the applied load changed. A
+   column whose real critical load is 14 409 N was reported as surviving
+   127 569 N — **8.86 times too high, in the unsafe direction** — at every load
+   where the true factor fell below the threshold. With OpenOptima's scaling
+   the same model gives 14 409 N every time, within 0.11% of Euler.
+
+   So beso's buckling objective **is** affected. It is refused in
+   `topology/config.py` with the reason, rather than passed on. See V11 in
+   [`verification-plan.md`](verification-plan.md) for the full table.
 2. **The shape that comes out.** beso produces a density map, not a solid.
    Converting that into something manufacturable and re-analysable is most of
    the work, and it is ours.
