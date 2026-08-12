@@ -34,7 +34,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..domain.failures import EvaluationFailure, FailureCode
-from ..domain.model import Material
+from ..domain.model import AnyMaterial
+from ..domain.orthotropic import OrthotropicMaterial
 from ..meshing.base import MeshData
 
 #: Stiffest end condition physically achievable (both ends fully built in).
@@ -151,7 +152,7 @@ def estimate_column_properties(mesh: MeshData, slices: int = 12) -> ColumnEstima
 
 def check_buckling_plausibility(
     mesh: MeshData,
-    material: Material,
+    material: AnyMaterial,
     load_case_id: str,
     buckling_factor: float | None,
     applied_load: float,
@@ -174,6 +175,25 @@ def check_buckling_plausibility(
     warnings: list[str] = []
     if buckling_factor is None or applied_load <= 0:
         return warnings
+
+    if isinstance(material, OrthotropicMaterial):
+        # The whole check below rests on one stiffness for the member. A
+        # printed part has a different one along its layers and through them,
+        # and which one governs buckling depends on the direction it happens
+        # to fold in -- so there is no single number to compare against.
+        # Refused rather than checked against a guess, for the same reason
+        # every other branch here refuses: the error would run in the
+        # optimistic direction, and the optimiser acts on the number.
+        raise EvaluationFailure(
+            FailureCode.RESULT_UNRELIABLE,
+            f"load case {load_case_id!r}: {material.name!r} is printed, so it is "
+            f"stiffer along its layers than through them. The check that decides "
+            f"whether a buckling factor can be trusted assumes one stiffness in "
+            f"every direction, so the computed factor of {buckling_factor:.3g} "
+            f"cannot be checked and is not reported. Turn buckling off for this "
+            f"material.",
+            detail={"load_case": load_case_id, "material": material.name},
+        )
 
     estimate = estimate_column_properties(mesh)
     if estimate is None:

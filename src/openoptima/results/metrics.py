@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..domain.failure_criteria import criterion_for
-from ..domain.model import AnalysisModel, Material, StressEvaluation
+from ..domain.model import AnalysisModel, AnyMaterial, StressEvaluation
 from ..domain.orthotropic import InadmissibleMaterial, OrthotropicMaterial
 from ..domain.regions import RegionMap
 from ..domain.results import LoadCaseResult
@@ -117,8 +117,12 @@ def evaluate_stress(
     return StressResult(value=value, raw_max=raw_max, measure_name=name, excluded_nodes=excluded)
 
 
-def mass_kg(volume_mm3: float, material: Material) -> float:
-    """Mass in kg from a volume in mm^3 and a density in t/mm^3."""
+def mass_kg(volume_mm3: float, material: AnyMaterial) -> float:
+    """Mass in kg from a volume in mm^3 and a density in t/mm^3.
+
+    Works for a printed material as well: mass needs only density, and a print
+    has one density whichever way its layers run.
+    """
     return volume_mm3 * material.density * 1.0e3
 
 

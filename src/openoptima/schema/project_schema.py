@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..domain.failure_criteria import criterion_for
 from ..domain.features import EdgeFeature, FeatureKind
 from ..domain.model import (
     BoundaryCondition,
@@ -36,6 +37,11 @@ from ..domain.objectives import (
     Operator,
     PreferenceModel,
     TradeRule,
+)
+from ..domain.orthotropic import (
+    DirectionalStrength,
+    InadmissibleMaterial,
+    OrthotropicMaterial,
 )
 from ..domain.project import (
     CURRENT_SCHEMA_VERSION,
@@ -215,15 +221,173 @@ class RegionSchema(Strict):
         )
 
 
+class PrintedStrengthSchema(Strict):
+    """How strong a printed part is in each direction.
+
+    Every one of these is a **design decision**, exactly like
+    ``allowable_stress_mpa`` on an ordinary material. They are not properties
+    of the plastic on the spool: they depend on the print settings, the
+    infill, the temperature the part runs at and how much margin the engineer
+    wants. OpenOptima will not infer any of them.
+
+    "Along the layers" is the strong direction. "Through the layers" is the
+    weak one -- the direction that pulls the fused layers apart, and usually
+    the one that decides the design.
+    """
+
+    along_layers_tension_mpa: float
+    through_layers_tension_mpa: float
+    along_layers_compression_mpa: float
+    through_layers_compression_mpa: float
+    #: Shear within one layer.
+    in_plane_shear_mpa: float
+    #: Shear that slides one layer across the next.
+    through_layers_shear_mpa: float
+    basis: str = "unspecified"
+
+    def to_domain(self) -> DirectionalStrength:
+        # Axes 1 and 2 lie in the layer plane, axis 3 is through the layers.
+        # DirectionalStrength orders shear on planes 23, 13, 12 -- so the two
+        # through-layer planes come first and the in-plane one last. Getting
+        # this order wrong would put the weak interlayer shear strength on the
+        # strong plane, which no test of a pure tension case would catch.
+        return DirectionalStrength(
+            tension=(
+                self.along_layers_tension_mpa,
+                self.along_layers_tension_mpa,
+                self.through_layers_tension_mpa,
+            ),
+            compression=(
+                self.along_layers_compression_mpa,
+                self.along_layers_compression_mpa,
+                self.through_layers_compression_mpa,
+            ),
+            shear=(
+                self.through_layers_shear_mpa,
+                self.through_layers_shear_mpa,
+                self.in_plane_shear_mpa,
+            ),
+            basis=self.basis,
+        )
+
+
+class PrintedSchema(Strict):
+    """A 3D-printed material: stiffer and stronger along its layers than through them.
+
+    Only five stiffness numbers are asked for, not the nine a fully
+    directional material needs. Within one layer a print is treated as the
+    same in every direction, and only the build direction differs. That is
+    almost always what a printed part actually needs, and it means the two
+    in-plane axes can point anywhere in the layer plane -- so the only
+    direction you have to state is the one the layers stack along.
+    """
+
+    #: Which way the layers stack, in the model's own coordinates. This is the
+    #: weak direction. A part printed flat on the bed stacks upward: (0, 0, 1).
+    build_direction: Vector3 = (0.0, 0.0, 1.0)
+    along_layers_modulus_mpa: float
+    through_layers_modulus_mpa: float
+    in_plane_poisson: float
+    through_layers_poisson: float
+    through_layers_shear_modulus_mpa: float
+    #: Without strengths OpenOptima still computes stress and deflection, but
+    #: refuses to report a factor of safety rather than computing one from von
+    #: Mises stress, which assumes equal strength in every direction.
+    strength: PrintedStrengthSchema | None = None
+
+    def to_domain(self, *, name: str, density_kg_m3: float) -> OrthotropicMaterial:
+        return OrthotropicMaterial.transversely_isotropic(
+            name=name,
+            in_plane_modulus_mpa=self.along_layers_modulus_mpa,
+            through_layer_modulus_mpa=self.through_layers_modulus_mpa,
+            in_plane_poisson=self.in_plane_poisson,
+            through_layer_poisson=self.through_layers_poisson,
+            through_layer_shear_mpa=self.through_layers_shear_modulus_mpa,
+            density_kg_m3=density_kg_m3,
+            build_direction=self.build_direction,
+            strength=self.strength.to_domain() if self.strength else None,
+        )
+
+
 class MaterialSchema(Strict):
+    """Either an ordinary material or a printed one, never both.
+
+    An ordinary material is equally strong in every direction and is described
+    by one modulus, one Poisson ratio and one allowable stress. A printed part
+    is not like that, so it is described under ``printed:`` instead and has no
+    single allowable stress to give.
+    """
+
     name: str
-    elastic_modulus_mpa: float
-    poisson_ratio: float
     density_kg_m3: float
-    allowable_stress_mpa: float
+
+    # -- an ordinary material, equally strong in every direction -------------
+    elastic_modulus_mpa: float | None = None
+    poisson_ratio: float | None = None
+    allowable_stress_mpa: float | None = None
     allowable_stress_basis: str = "unspecified"
 
-    def to_domain(self) -> Material:
+    # -- or a printed one ----------------------------------------------------
+    printed: PrintedSchema | None = None
+    #: Which failure criterion measures a printed material against its
+    #: strengths. Meaningless for an ordinary material, and refused there
+    #: rather than silently ignored.
+    failure_criterion: Literal["hoffman", "max_stress"] = "hoffman"
+
+    _ISOTROPIC_FIELDS = ("elastic_modulus_mpa", "poisson_ratio", "allowable_stress_mpa")
+
+    @model_validator(mode="after")
+    def _check_one_kind_of_material(self) -> MaterialSchema:
+        given = [name for name in self._ISOTROPIC_FIELDS if getattr(self, name) is not None]
+
+        if self.printed is None:
+            if not given:
+                raise ValueError(
+                    "material needs either elastic_modulus_mpa, poisson_ratio and "
+                    "allowable_stress_mpa for an ordinary material, or a `printed:` "
+                    "block for a 3D-printed one."
+                )
+            missing = [name for name in self._ISOTROPIC_FIELDS if getattr(self, name) is None]
+            if missing:
+                raise ValueError(
+                    f"material is missing {', '.join(missing)}. An ordinary material "
+                    f"needs all three of {', '.join(self._ISOTROPIC_FIELDS)}."
+                )
+            if "failure_criterion" in self.model_fields_set:
+                raise ValueError(
+                    "failure_criterion applies only to a printed material. An "
+                    "ordinary material is measured against its allowable_stress_mpa."
+                )
+            return self
+
+        if given:
+            raise ValueError(
+                f"material gives both a `printed:` block and {', '.join(given)}. A "
+                f"printed part is stronger along its layers than through them, so it "
+                f"has no single modulus or allowable stress. Give one or the other."
+            )
+
+        # Refuse an impossible criterion *now*, at load time, rather than after
+        # a full solve. Hoffman cannot describe a material whose weakest
+        # direction is under half its strongest, and printed plastics are
+        # routinely on the wrong side of that line -- so this is the common
+        # case, not an exotic one. Catching it here turns a wasted optimisation
+        # run into an error the moment the file is read.
+        if self.printed.strength is not None and self.failure_criterion == "hoffman":
+            try:
+                criterion_for("hoffman", self.printed.strength.to_domain())
+            except InadmissibleMaterial as exc:
+                raise ValueError(
+                    f"{exc} Set `failure_criterion: max_stress` on this material."
+                ) from exc
+        return self
+
+    def to_domain(self) -> Material | OrthotropicMaterial:
+        if self.printed is not None:
+            return self.printed.to_domain(name=self.name, density_kg_m3=self.density_kg_m3)
+        assert self.elastic_modulus_mpa is not None  # narrowed by the validator
+        assert self.poisson_ratio is not None
+        assert self.allowable_stress_mpa is not None
         return Material.from_engineering_units(
             name=self.name,
             elastic_modulus_mpa=self.elastic_modulus_mpa,
@@ -608,6 +772,7 @@ class ProjectSchema(Strict):
             ),
             regions=tuple(region.to_domain() for region in self.regions),
             material=self.material.to_domain(),
+            failure_criterion=self.material.failure_criterion,
             load_cases=tuple(case.to_domain() for case in self.load_cases),
             mesh=self.mesh.to_domain(),
             objectives=tuple(objective.to_domain() for objective in self.objectives),

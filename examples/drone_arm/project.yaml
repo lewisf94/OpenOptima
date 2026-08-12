@@ -1,0 +1,289 @@
+# OpenOptima example: a 3D-printed drone arm
+#
+# This is the example for a part that is *printed*, and printing changes the
+# engineering in a way no other example here shows.
+#
+# A printed part is built from stacked layers that are fused together rather
+# than continuous. It is markedly weaker between those layers than along them.
+# So it has no single strength, and the usual measure of "how hard is this
+# part working" -- von Mises stress -- cannot describe it at all, because that
+# measure assumes the material is equally strong in every direction. Using it
+# here would report a part as safe that is about to peel apart along its
+# layers.
+#
+# Everything below follows from that. The material is described under
+# `printed:` with a strength along the layers and a weaker one through them,
+# and the factor of safety comes from a criterion that can express the
+# difference.
+#
+# THE PART: one arm of a 7-inch class quadcopter, 1.2 kg all-up. A hollow box
+# beam bolted to the centre plate at one end, carrying a motor on a pad at the
+# other. The optimiser may change the section and the wall thickness.
+#
+# Run it:
+#   openoptima doctor   examples/drone_arm/project.yaml
+#   openoptima evaluate examples/drone_arm/project.yaml
+#   openoptima optimise examples/drone_arm/project.yaml
+#   openoptima report   examples/drone_arm/project.yaml
+#
+# WHICH WAY UP YOU PRINT IT IS A STRUCTURAL DECISION, NOT A WORKSHOP ONE.
+# `build_direction` below says the layers stack upward, which is what you get
+# by laying the arm flat on the bed. That is the right way round for this
+# part: bending an arm stretches it along its length, and along its length is
+# the strong direction when it is printed flat. Stand the same arm up on its
+# root to print it and the layers stack along the arm instead, so bending
+# pulls them straight apart -- the weak direction. Same shape, same load, same
+# file, much weaker part. Change `build_direction` to [1.0, 0.0, 0.0] and
+# re-run to see it; docs/plain-english-guide.md quotes the measured numbers.
+
+schema_version: 1
+name: 3D-printed drone arm
+description: >
+  One arm of a 1.2 kg quadcopter, printed in PLA, sized for motor thrust and
+  a hard landing. Shows how OpenOptima handles a material that is stronger
+  along its print layers than through them, where a single allowable stress
+  and von Mises stress cannot describe the part at all.
+
+unit_system: mm_N_MPa_t
+
+geometry:
+  provider: occ
+  template: drone_arm
+  parameters:
+    # Fixed by the aircraft and by the motor you have already bought.
+    length: 150.0          # centre plate to motor axis
+    root_length: 18.0      # kept solid: this is where the bolts go
+    pad_length: 32.0       # motor mount pad
+    pad_width: 32.0
+    pad_thickness: 4.0
+  variables:
+    - id: width
+      label: Arm width
+      type: continuous
+      minimum: 12.0
+      maximum: 30.0
+      default: 20.0
+      unit: mm
+      description: >
+        Side to side. Resists the sideways part of a landing, and resists the
+        arm twisting under motor torque.
+
+    - id: height
+      label: Arm depth
+      type: continuous
+      minimum: 12.0
+      maximum: 30.0
+      default: 18.0
+      unit: mm
+      description: >
+        Top to bottom. This is the direction the thrust and the landing bend
+        it in, so it is the most powerful variable here -- bending stiffness
+        grows with the cube of this number.
+
+    - id: wall
+      label: Wall thickness
+      type: continuous
+      minimum: 2.0
+      maximum: 6.0
+      default: 3.0
+      unit: mm
+      description: >
+        The arm is hollow between the root and the motor pad. Thinner saves
+        mass; too thin and there are not enough elements across the wall for
+        the stress to be trustworthy. See the note on the mesh below.
+
+regions:
+  - name: root_face
+    description: Flat end bolted to the centre plate
+    # Three faces on this part point back along -x: this one, the back of the
+    # motor pad, and the end wall of the cavity. The box picks out the one at
+    # x = 0. It is deliberately generous in y and z, because the arm section
+    # is a design variable and this face grows and shrinks with it.
+    selector:
+      surface_type: plane
+      normal: [-1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      within_box: { xmin: -1.0, ymin: -20.0, zmin: -35.0, xmax: 1.0, ymax: 20.0, zmax: 1.0 }
+
+  - name: motor_pad
+    description: Top face of the motor mount pad, where the thrust is applied
+    # The motor mount plane is the datum this part is built from, so this face
+    # sits at z = 4 and measures 32 x 32 mm at every design point, whatever the
+    # section does. That is why one selector works across the whole range.
+    # `openoptima doctor` reports the area at both ends of the range: it should
+    # read 1024 mm2 at both.
+    min_area_mm2: 1000.0
+    selector:
+      surface_type: plane
+      normal: [0.0, 0.0, 1.0]
+      normal_tolerance_deg: 2.0
+      within_box: { xmin: 115.0, ymin: -20.0, zmin: 3.0, xmax: 155.0, ymax: 20.0, zmax: 5.0 }
+
+material:
+  name: PLA, printed solid
+  density_kg_m3: 1240.0
+
+  # Which failure criterion measures this material against the strengths
+  # below. `hoffman` accounts for stresses acting together and for the
+  # material being stronger in compression than in tension, which a print
+  # very much is. It has a hard limit -- it cannot describe a material whose
+  # weakest direction is too far below its strongest -- and OpenOptima
+  # refuses the material and says so rather than reporting a margin it cannot
+  # justify. The strengths below sit inside that limit.
+  failure_criterion: hoffman
+
+  printed:
+    # Which way the layers stack. See the note at the top of this file: this
+    # is a structural decision.
+    build_direction: [0.0, 0.0, 1.0]
+
+    # Stiffness. Typical of PLA printed near solid; measure your own prints if
+    # the answer matters, because print settings move these a long way.
+    along_layers_modulus_mpa: 3500.0
+    through_layers_modulus_mpa: 2600.0
+    in_plane_poisson: 0.36
+    through_layers_poisson: 0.33
+    through_layers_shear_modulus_mpa: 1100.0
+
+    # STRENGTH IS A DESIGN DECISION, NOT A MATERIAL PROPERTY. Every number
+    # here is a measured strength with a design factor already taken off it.
+    # They are this example's choices and a different engineer would
+    # reasonably choose differently. OpenOptima will not infer any of them.
+    #
+    # Note how much lower the through-layer TENSION is than the in-plane one:
+    # that single number is what makes print direction matter. Compression
+    # through the layers is barely reduced, because layers press together
+    # perfectly well -- it is pulling them apart that they are bad at.
+    strength:
+      along_layers_tension_mpa: 22.0
+      through_layers_tension_mpa: 11.0
+      along_layers_compression_mpa: 30.0
+      through_layers_compression_mpa: 28.0
+      in_plane_shear_mpa: 16.0
+      through_layers_shear_mpa: 9.0
+      basis: >
+        Measured strengths for near-solid PLA divided by a design factor of
+        2.5, at room temperature. PLA softens badly in the sun or beside a
+        warm motor: these numbers do not apply above about 50 C.
+
+load_cases:
+  # Both cases hold the arm the same way -- bolted flat to the centre plate,
+  # which restrains it in all three directions. OpenOptima ENVELOPES load
+  # cases: it reports the worst result across all of them and never the
+  # average. Averaging a failing case against a passing one would hide the
+  # failure.
+  - id: max_thrust
+    description: Full throttle, 8.8 N up at the motor
+    boundary_conditions:
+      - region: root_face
+        kind: fixed
+        dofs: [1, 2, 3]
+    loads:
+      - kind: force
+        region: motor_pad
+        # 1.2 kg all-up at 3:1 thrust to weight, divided by four motors.
+        vector: [0.0, 0.0, 8.8]
+
+  - id: hard_landing
+    description: Hard landing on one arm, on a slope
+    boundary_conditions:
+      - region: root_face
+        kind: fixed
+        dofs: [1, 2, 3]
+    loads:
+      # THIS IS AN ASSUMPTION, NOT A MEASUREMENT. How hard a landing is
+      # depends on the drop height and on how much the airframe and the
+      # ground give, and no analysis here can tell you. 50 N is about four
+      # times the whole aircraft's weight put through this one arm; the 20 N
+      # sideways is landing on a slope or catching a skid. Change it to
+      # something you can defend before sizing a real part.
+      - kind: force
+        region: motor_pad
+        vector: [0.0, 20.0, 50.0]
+
+mesh:
+  # The wall can go as thin as 2 mm, and stress in a thin wall in bending
+  # needs enough elements across it to be believed. At 2 mm and a 1.0 mm
+  # minimum size that is about two second-order elements through the
+  # thickness, which is the least worth trusting. Re-run the design you choose
+  # at a finer mesh and confirm the numbers have stopped moving.
+  global_size: 4.0
+  minimum_size: 1.0
+  element_order: 2
+  algorithm: delaunay
+  curvature_refinement: false
+  min_scaled_jacobian: 0.05
+  volume_tolerance: 0.02
+
+stress_evaluation:
+  # A fully fixed face is a singularity: the peak stress there grows without
+  # bound as the mesh is refined, so optimising it would optimise the mesh
+  # rather than the part. Use a high percentile with that region removed. The
+  # raw peak is still reported on every result.
+  measure: percentile
+  percentile: 99.0
+  excluded_regions: [root_face]
+
+# Buckling is off, and OpenOptima would refuse to switch it on for this
+# material anyway. The check that decides whether a buckling number can be
+# trusted assumes one stiffness in every direction, and a printed part has
+# two. A thin-walled arm in compression is a real concern; this analysis does
+# not cover it.
+buckling:
+  enabled: false
+
+# NATURAL FREQUENCY IS DELIBERATELY OFF, AND THIS IS THE IMPORTANT CAVEAT IN
+# THIS FILE.
+#
+# A drone arm beside a spinning propeller is the textbook case for checking
+# what rates a part likes to vibrate at, and OpenOptima can compute them. It
+# is switched off here because it cannot yet put the motor's mass on the end
+# of the arm, and the motor is most of what sets the answer. The frequency it
+# would report is a bare arm's -- roughly twice the real one, in the direction
+# that looks safe. An optimiser told to keep the frequency above the
+# propeller's rate would happily pick a design that is actually sitting right
+# on it.
+#
+# So it stays off until OpenOptima can carry a lumped mass. Do not turn it on
+# and read the number as a resonance check.
+modal:
+  enabled: false
+
+solver:
+  name: calculix
+  timeout_seconds: 900
+  threads: 1
+
+objectives:
+  - metric: mass_kg
+    direction: minimise
+    label: Mass
+
+constraints:
+  # 2.0 is this example's choice. The right number depends on how well the
+  # loads above are known -- and the landing load is a guess -- on how
+  # consistent your printer is, and on what happens if the arm breaks.
+  - metric: factor_of_safety
+    operator: greater_than_or_equal
+    value: 2.0
+    label: Factor of safety
+
+  # Under the landing case. A springy arm moves the propeller around, which
+  # the flight controller has to fight.
+  - metric: displacement_max_mm
+    operator: less_than_or_equal
+    value: 3.0
+    label: Tip movement
+
+optimisation:
+  initial_sampling:
+    method: sobol
+    evaluations: 16
+    seed: 1
+  algorithm:
+    name: nsga2
+    population_size: 16
+    evaluation_budget: 64
+    seed: 1
+  parallel_jobs: 0
+  max_retries: 1

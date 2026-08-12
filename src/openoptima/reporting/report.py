@@ -11,7 +11,9 @@ from pathlib import Path
 
 import numpy as np
 
+from ..domain.model import AnyMaterial
 from ..domain.objectives import Direction
+from ..domain.orthotropic import OrthotropicMaterial
 from ..domain.project import Project
 from ..domain.results import EvaluationResult
 from ..domain.variables import BoundPin
@@ -22,6 +24,34 @@ from ..optimisation.pareto import (
     rank_by_preference,
 )
 from ..optimisation.study import StudyResult
+
+
+def _strength_caveat(material: AnyMaterial) -> str:
+    """State the strength the factor of safety was measured against.
+
+    A printed material has no single allowable stress, so quoting one would
+    have to invent it. Its weakest direction is quoted instead, because that
+    is the number a reader most needs to sanity-check, alongside the criterion
+    that actually did the measuring.
+    """
+    if isinstance(material, OrthotropicMaterial):
+        if material.strength is None:
+            return (
+                "No factor of safety was computed: this material is stronger along "
+                "its print layers than through them, and no directional strengths "
+                "were given. Stresses and deflections are unaffected."
+            )
+        return (
+            f"{material.name} is printed, so it is weaker between its layers than "
+            f"along them. Its weakest allowable is "
+            f"{material.strength.weakest:g} MPa, on the basis: "
+            f"{material.strength.basis}. These are design decisions, not "
+            f"properties of the plastic."
+        )
+    return (
+        f"Allowable stress is {material.allowable_stress:g} MPa on the basis: "
+        f"{material.allowable_stress_basis}."
+    )
 
 
 def _format_value(value: float) -> str:
@@ -246,8 +276,7 @@ def build_report(study: StudyResult, project: Project) -> str:
             else ""
         )
         + ". The raw peak is recorded on every result and will be higher.\n"
-        f"- Allowable stress is {project.material.allowable_stress:g} MPa on the basis: "
-        f"{project.material.allowable_stress_basis}.\n"
+        f"- {_strength_caveat(project.material)}\n"
         "- Linear static analysis only: no buckling, fatigue, contact, plasticity or "
         "dynamic effects have been considered.\n"
     )

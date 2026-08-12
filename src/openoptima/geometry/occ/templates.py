@@ -342,6 +342,125 @@ def _build_thick_cylinder(gmsh: Any, parameters: dict[str, Any]) -> int:
     return int(cut[0][1])
 
 
+# ---------------------------------------------------------------------------
+# Drone arm — a hollow box beam carrying a motor at its tip
+# ---------------------------------------------------------------------------
+
+_DRONE_ARM_DEFAULTS = {
+    "length": 150.0,
+    "width": 20.0,
+    "height": 18.0,
+    "wall": 3.0,
+    "root_length": 18.0,
+    "pad_length": 32.0,
+    "pad_width": 32.0,
+    "pad_thickness": 4.0,
+}
+
+#: Least material left between the cavity and the outside, as a fraction of
+#: the wall thickness asked for. A cavity that comes within a hair of the
+#: surface is not a design anybody would print, and it meshes badly enough to
+#: waste an evaluation finding that out.
+_MIN_LIGAMENT_FRACTION = 0.5
+
+
+def _build_drone_arm(gmsh: Any, parameters: dict[str, Any]) -> int:
+    """One arm of a multirotor: a hollow box beam with a motor pad on the end.
+
+    **The motor mount plane is the datum, and the arm hangs below it.** The pad
+    top sits at ``z = pad_thickness`` and the arm top at ``z = 0`` whatever
+    ``height`` is set to. That is not a modelling nicety: ``height`` is a design
+    variable, so if the arm were centred on ``z = 0`` instead, every face would
+    move as the optimiser changed it, and a region selector written with a box
+    around the pad would find the arm's own top face at some design points and
+    the pad at others. Anchoring both faces at a fixed height makes one
+    selector correct across the whole design range. See ``regions/AGENTS.md``.
+
+    The root and the tip are left solid: the root is bolted to the centre
+    plate and the tip carries the motor, and a cavity running into either
+    would put a hole where the fasteners go.
+    """
+    p = _merged(_DRONE_ARM_DEFAULTS, parameters)
+    _require_positive(
+        p, "length", "width", "height", "wall", "pad_length", "pad_width", "pad_thickness"
+    )
+    occ = gmsh.model.occ
+
+    length = float(p["length"])
+    width = float(p["width"])
+    height = float(p["height"])
+    wall = float(p["wall"])
+    root_length = float(p["root_length"])
+    pad_length = float(p["pad_length"])
+    pad_width = float(p["pad_width"])
+    pad_thickness = float(p["pad_thickness"])
+
+    # --- analytic feasibility, before touching the CAD kernel --------------
+    # Rejecting a bad design here costs microseconds. Meshing it to find out
+    # costs seconds, and every one of those is an evaluation the optimiser
+    # could have spent somewhere useful.
+    ligament = _MIN_LIGAMENT_FRACTION * wall
+    if 2.0 * wall + ligament >= width:
+        _infeasible(
+            f"a {wall:g} mm wall on both sides leaves no room inside a {width:g} mm "
+            f"wide arm (needs more than {2.0 * wall + ligament:g} mm)",
+            FailureCode.MANUFACTURING_RULE_VIOLATED,
+        )
+    if 2.0 * wall + ligament >= height:
+        _infeasible(
+            f"a {wall:g} mm wall top and bottom leaves no room inside a {height:g} mm "
+            f"deep arm (needs more than {2.0 * wall + ligament:g} mm)",
+            FailureCode.MANUFACTURING_RULE_VIOLATED,
+        )
+    cavity_length = length - root_length - pad_length
+    if cavity_length <= ligament:
+        _infeasible(
+            f"a {root_length:g} mm solid root and a {pad_length:g} mm motor pad leave "
+            f"no hollow section in a {length:g} mm arm",
+            FailureCode.MANUFACTURING_RULE_VIOLATED,
+        )
+
+    # --- build --------------------------------------------------------------
+    # The arm hangs below z = 0; the pad sits on top of it.
+    outer = occ.addBox(0.0, -0.5 * width, -height, length, width, height)
+    cavity = occ.addBox(
+        root_length,
+        -(0.5 * width - wall),
+        -(height - wall),
+        cavity_length,
+        width - 2.0 * wall,
+        height - 2.0 * wall,
+    )
+    hollow, _ = occ.cut([(3, outer)], [(3, cavity)])
+    occ.synchronize()
+    if len(hollow) != 1:
+        _infeasible(f"hollowing the arm produced {len(hollow)} solids; expected 1")
+
+    pad = occ.addBox(
+        length - pad_length, -0.5 * pad_width, 0.0, pad_length, pad_width, pad_thickness
+    )
+    fused, _ = occ.fuse([(3, int(hollow[0][1]))], [(3, pad)])
+    occ.synchronize()
+    if len(fused) != 1:
+        _infeasible(f"adding the motor pad produced {len(fused)} solids; expected 1")
+    return int(fused[0][1])
+
+
+register(
+    Template(
+        name="drone_arm",
+        build=_build_drone_arm,
+        defaults=_DRONE_ARM_DEFAULTS,
+        description=(
+            "One arm of a multirotor: a hollow box beam bolted to the centre plate at "
+            "x=0, carrying a motor on a pad at the far end. The motor mount plane is "
+            "the datum at z=0, so the pad face stays put as the section changes."
+        ),
+        suggested_regions=("root_face", "motor_pad"),
+    )
+)
+
+
 register(
     Template(
         name="thick_cylinder",

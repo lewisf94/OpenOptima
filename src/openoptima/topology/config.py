@@ -23,7 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..domain.model import Material
+from ..domain.model import AnyMaterial
+from ..domain.orthotropic import OrthotropicMaterial
 from ..domain.topology import TopologySettings
 
 #: What the optimiser is trying to do. Deliberately not the full set beso
@@ -58,12 +59,29 @@ class UnsupportedObjective(ValueError):
     """An objective beso offers that OpenOptima will not pass on unchecked."""
 
 
-def _material_card(material: Material, stiffness_scale: float = 1.0) -> str:
+class UnsupportedMaterial(ValueError):
+    """A material the topology backend cannot represent."""
+
+
+def _material_card(material: AnyMaterial, stiffness_scale: float = 1.0) -> str:
     """One CalculiX ``*ELASTIC`` card, as beso wants it: a string with ``\\n``.
 
     beso writes this straight into the deck it generates, after its own
     ``*MATERIAL`` line.
     """
+    if isinstance(material, OrthotropicMaterial):
+        # beso builds its own deck around this card and has no place to put an
+        # *ORIENTATION, so the layer direction would be silently dropped and
+        # the run would optimise a part made of a material nobody asked for.
+        # A topology run also decides where material exists at all, which for a
+        # printed part depends on the print direction it is later built in --
+        # so this needs designing, not defaulting.
+        raise UnsupportedMaterial(
+            f"Topology optimisation cannot use {material.name!r} yet: it is "
+            f"printed, so it is stiffer along its layers than through them, and "
+            f"the topology backend can only be given one stiffness. Use an "
+            f"ordinary material for the topology run."
+        )
     modulus = material.elastic_modulus * stiffness_scale
     return f"*ELASTIC \n{modulus:.9g},  {material.poisson_ratio:.9g}"
 
@@ -90,7 +108,7 @@ def objective_for(name: str) -> str:
 def render_config(
     *,
     settings: TopologySettings,
-    material: Material,
+    material: AnyMaterial,
     solver_executable: Path | str,
     working_directory: Path | str,
     deck_name: str,

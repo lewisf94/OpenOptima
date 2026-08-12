@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .orthotropic import OrthotropicMaterial
 from .units import density_kg_m3_to_internal
 
 
@@ -60,6 +61,14 @@ class Material:
     @property
     def density_kg_m3(self) -> float:
         return self.density / 1.0e-12
+
+
+#: Either an ordinary material, equally strong in every direction, or a printed
+#: one that is not. Anything downstream that only needs mass or stiffness works
+#: with both. Anything that needs a *single* allowable stress must ask first --
+#: a printed material does not have one, and reading ``allowable_stress`` off
+#: it raises rather than quietly producing a number.
+AnyMaterial = Material | OrthotropicMaterial
 
 
 class ConstraintKind(str, Enum):
@@ -349,7 +358,7 @@ class AnalysisModel:
     """
 
     name: str
-    material: Material
+    material: AnyMaterial
     load_cases: tuple[LoadCase, ...]
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     element_order: int = 2

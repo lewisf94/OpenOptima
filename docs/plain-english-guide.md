@@ -532,6 +532,93 @@ OpenOptima will not guess this value for you. It asks you to write down
 that reason in every report. Anyone who reviews your work can then see
 your reasoning.
 
+### If the part is 3D printed, say so
+
+A printed part is built from stacked layers that are fused together rather
+than being one continuous lump of plastic. It is much weaker **between**
+those layers than **along** them. So it has no single strength, and the
+block above cannot describe it. Use `printed:` instead:
+
+```yaml
+material:
+  name: PLA, printed solid
+  density_kg_m3: 1240.0
+  failure_criterion: hoffman
+
+  printed:
+    build_direction: [0.0, 0.0, 1.0]   # which way the layers stack
+
+    # How stiff it is, along the layers and through them.
+    along_layers_modulus_mpa: 3500.0
+    through_layers_modulus_mpa: 2600.0
+    in_plane_poisson: 0.36
+    through_layers_poisson: 0.33
+    through_layers_shear_modulus_mpa: 1100.0
+
+    # How hard you are willing to work it, in each direction.
+    strength:
+      along_layers_tension_mpa: 22.0        # pulling along the layers
+      through_layers_tension_mpa: 11.0      # pulling them apart — the weak one
+      along_layers_compression_mpa: 30.0
+      through_layers_compression_mpa: 28.0  # pressing them together — barely weaker
+      in_plane_shear_mpa: 16.0
+      through_layers_shear_mpa: 9.0
+      basis: "measured strengths divided by a design factor of 2.5, at room temperature"
+```
+
+Everything said above about allowable stress applies to every one of these
+strengths. **They are your decisions, not properties of PLA.** They depend
+on your printer, your settings, and how warm the part gets in service.
+
+`build_direction` says which way the layers stack. Laying a part flat on
+the bed stacks them upward, which is `[0, 0, 1]`.
+
+**Which way up you print it is a structural decision, and OpenOptima can
+now show you what it costs.** The drone arm example is one arm of a
+quadcopter, 150 mm long, bending under the motor. Printed flat, bending
+stretches it along its length — the strong direction. Stand the same arm
+on its end to print it and the layers stack along the arm instead, so
+bending pulls them straight apart. Same shape, same load, same file, only
+`build_direction` changed:
+
+| | printed flat | printed standing up |
+|---|---|---|
+| Stress | 7.53 MPa | 7.54 MPa |
+| Factor of safety | **3.07** | **1.55** |
+| Tip movement | 1.82 mm | 2.42 mm |
+| Verdict | passes | **fails** |
+
+**Look at the stress row.** It does not move. The part is half as strong
+and the stress is the same number to three figures. That is the whole
+reason this exists: if you judged this part by stress alone — which is
+what almost every quick check does — you would see nothing at all wrong
+with the version that fails.
+
+`failure_criterion` picks how the strengths above are compared against
+what the part is actually feeling. `hoffman` is the better answer and the
+default. It has one hard limit: it cannot describe a material whose weak
+direction is too far below its strong one, because past that point it
+stops predicting failure at all for one particular combination of
+stresses, and would report an unlimited margin. OpenOptima checks this
+**when it reads your file**, and refuses with a message telling you to set
+`failure_criterion: max_stress` instead. It does not wait until after a
+run to tell you.
+
+In practice most real prints are fine on `hoffman`. The limit bites on the
+product of tension and compression, and a print is only bad at being
+pulled apart — layers press together perfectly well — so the compression
+figure holds it clear. Measured on the PLA above: `hoffman` is still
+accepted with through-layer tension as low as 6 MPa against 22 MPa in
+plane, and refused at 5 MPa.
+
+Two things `printed:` does **not** switch on:
+
+- **Buckling.** OpenOptima refuses to combine the two, because the check
+  that decides whether a buckling number can be trusted assumes one
+  stiffness in every direction. See below.
+- **Any check on whether your printer can make the shape.** Nothing looks
+  at overhangs, wall thickness against nozzle size, or build volume.
+
 ### The loads
 
 ```yaml
@@ -851,20 +938,37 @@ chance.
 
 ### A warning if you plan to 3D print the part
 
-**OpenOptima assumes a material that is equally strong in every
-direction. A printed part is not.** A printed part is made from stacked
-layers that are fused together, and it is typically 30 to 50 per cent
-weaker *between* those layers than *along* them. OpenOptima cannot see
-this. It can report a part as safe that will peel apart along its print
-layers under a load it appeared to survive.
+**The strength half of this is handled now, but only if you ask for it.**
+Describe the part under `printed:` and OpenOptima knows the material is
+weaker between its layers than along them, and works out the factor of
+safety accordingly. See ["If the part is 3D printed, say
+so"](#if-the-part-is-3d-printed-say-so).
 
-It also knows nothing about what a printer can make. There is no check on
-overhang angles, no check that a wall is thicker than your nozzle can
-produce, and no check that the part fits your build volume.
+If you describe a printed part with an ordinary `allowable_stress_mpa`
+instead, you get the old behaviour and the old danger: one strength in
+every direction, and a part that can be reported as safe when it is about
+to peel apart along its layers. OpenOptima cannot tell that you meant to
+print it. Nothing in the file says so unless you say so.
 
-Both of these are planned — see [`roadmap.md`](roadmap.md) — but neither
-exists today. Until they do, treat any result for a printed part with
-real caution, and remember that fatigue is invisible as well.
+**Three things are still missing, and two of them matter a lot.**
+
+- **Nothing checks whether your printer can make the shape.** There is no
+  check on overhang angles, no check that a wall is thicker than your
+  nozzle can produce, and no check that the part fits your build volume.
+  Planned — see [`roadmap.md`](roadmap.md).
+- **Vibration cannot be trusted for a part carrying something heavy.**
+  OpenOptima can work out the rates a part likes to vibrate at, but it
+  cannot yet put a lump of mass on it — a motor on the end of an arm, a
+  camera on a mount. That mass is usually most of what sets the answer,
+  and leaving it out reports a rate roughly twice too high, in the
+  direction that looks safe. This is why the drone arm example has
+  vibration switched **off** rather than switched on with a caveat.
+- **Fatigue is invisible**, as it is for every material here. PLA is also
+  worse than metals in two ways this analysis says nothing about: it
+  **creeps** — it keeps slowly deforming under a load it is holding
+  steadily — and it **softens badly when warm**. A part in a hot car, in
+  direct sun, or bolted next to a warm motor is not the part these numbers
+  describe.
 
 ### Buckling — worth understanding
 
@@ -975,7 +1079,26 @@ OpenOptima checks for it and refuses with `model_not_held`, naming the
 supports to look at. Getting a number here instead of a refusal would mean
 being told the frequency of a part held in a way you never described.
 
-**What this does not tell you**, and none of it is a small print detail:
+**It cannot yet carry something heavy that is bolted to the part, and this
+is the limitation most likely to catch you out.** A natural frequency
+comes from stiffness and mass. OpenOptima counts the mass of the part
+itself, and nothing else. A motor on the end of an arm, a camera on a
+mount, a battery on a tray — none of it is there.
+
+That is not a small correction. For the drone arm example, a bare 150 mm
+arm and the same arm carrying a 35 g motor differ by roughly a factor of
+two, and the error runs in the **reassuring** direction: OpenOptima
+reports the higher, safer-looking rate. An optimiser told to keep the
+frequency above the propeller's rate would happily choose a design sitting
+right on top of it.
+
+So the drone arm example — the textbook case for this whole feature — has
+`modal.enabled: false`, deliberately. Use this on a part that carries only
+itself. On a part carrying something heavy, treat the number as an upper
+bound and nothing more.
+
+**What this does not tell you either**, and none of it is a small print
+detail:
 
 - **How hard it shakes.** This says which rates are dangerous. It says
   nothing about how big the movement gets, because that depends on damping
@@ -997,6 +1120,7 @@ being told the frequency of a part held in a way you never described.
 |---|---|
 | **Allowable stress** | How hard you have decided to work the material. This is your choice, not a property of the material. |
 | **Boundary condition** | Somewhere the part is held, and cannot move. |
+| **Build direction** | Which way the layers stack in a 3D print. The weak direction, and a structural decision rather than a workshop one. |
 | **Buckling** | Something long and thin suddenly folding sideways, like an empty can when you press its side. |
 | **Buckling factor** | How many times your load the part takes before it folds. Below 1.0 means it folds now. |
 | **Chamfer** | A corner cut off flat, at 45 degrees. OpenOptima can add one to an imported shape and vary how far back it cuts. |
@@ -1012,6 +1136,7 @@ being told the frequency of a part held in a way you never described.
 | **Factor of safety** | How much margin you have. 2.0 = stress is half the allowable. |
 | **Fillet** | A rounded corner. OpenOptima can add one to an imported shape and vary its radius. |
 | **Gmsh** | The free program that builds the shape and chops it into pieces. |
+| **Hoffman criterion** | The sum used to judge a printed part, where one allowable stress will not do. It accounts for the material being stronger along its layers than through them, and stronger in compression than in tension. |
 | **Infeasible** | The design itself is no good. |
 | **Knee point** | Where you stop getting good value for what you pay. |
 | **Load case** | One scenario the part must survive. |
@@ -1022,6 +1147,7 @@ being told the frequency of a part held in a way you never described.
 | **Objective** | Something to push as far as you can. |
 | **Pareto front** | The set of best available deals; no single winner. |
 | **Percentile (99th)** | Ignore the top 1%, take the next value down. Avoids meaningless infinities. |
+| **Printed material** | One that is weaker between its print layers than along them, so it has no single strength. Described under `printed:` rather than with one allowable stress. |
 | **Poisson contraction** | The material narrowing sideways as it stretches lengthwise. Ordinary beam theory ignores this effect. |
 | **Provenance** | The record of exactly what produced a number. |
 | **Region** | A named face or set of faces you push or hold. |

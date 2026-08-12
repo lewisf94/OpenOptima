@@ -343,16 +343,74 @@ safety from a proper criterion instead. Two are available.
 | `hoffman` (default) | general use. Accounts for stresses acting together, and for a material being stronger in compression than in tension |
 | `max_stress` | Hoffman refuses your material, see below |
 
+Declare one in the project file under `material.printed`:
+
+```yaml
+material:
+  name: PLA, printed solid
+  density_kg_m3: 1240.0
+  failure_criterion: hoffman        # or max_stress
+  printed:
+    build_direction: [0.0, 0.0, 1.0]
+    along_layers_modulus_mpa: 3500.0
+    through_layers_modulus_mpa: 2600.0
+    in_plane_poisson: 0.36
+    through_layers_poisson: 0.33
+    through_layers_shear_modulus_mpa: 1100.0
+    strength:
+      along_layers_tension_mpa: 22.0
+      through_layers_tension_mpa: 11.0
+      along_layers_compression_mpa: 30.0
+      through_layers_compression_mpa: 28.0
+      in_plane_shear_mpa: 16.0
+      through_layers_shear_mpa: 9.0
+      basis: "measured, divided by a design factor of 2.5"
+```
+
+An ordinary material and a printed one are mutually exclusive: giving both
+`printed:` and `elastic_modulus_mpa` is refused, because a printed part has
+no single modulus and no single allowable stress. Worked example:
+`examples/drone_arm/project.yaml`.
+
+**`build_direction` changes the answer, and the stress does not show it.**
+Measured on that example — one arm of a quadcopter, identical shape,
+identical loads, identical mesh, only the print direction changed:
+
+| | printed flat `[0,0,1]` | printed upright `[1,0,0]` |
+|---|---|---|
+| 99th-percentile stress | 7.53 MPa | 7.54 MPa |
+| Factor of safety | 3.07 | 1.55 |
+| Tip displacement | 1.82 mm | 2.42 mm |
+| Verdict | feasible | **infeasible** |
+
+The stress is identical to three significant figures while the factor of
+safety halves. Any check based on von Mises stress sees nothing.
+
 **Hoffman has a hard limit, and OpenOptima refuses rather than hides it.**
-The criterion cannot describe a material whose weakest direction is less
-than **half** its strongest. Past that point its failure surface stops
-being closed: it predicts that one particular combination of stresses —
-pulling along the layers while pressing across them — never causes
-failure at all, at any magnitude. That is not a conservative error. It is
-an infinitely optimistic one, and nothing in the arithmetic reveals it.
-So OpenOptima refuses the material and tells you to use `max_stress`,
-which is always well posed. Many real prints fall on the wrong side of
-this line.
+Past that limit its failure surface stops being closed: it predicts that
+one particular combination of stresses — pulling along the layers while
+pressing across them — never causes failure at all, at any magnitude. That
+is not a conservative error. It is an infinitely optimistic one, and
+nothing in the arithmetic reveals it. So OpenOptima refuses the material
+and tells you to use `max_stress`, which is always well posed.
+
+**The limit binds on the product of tension and compression on each axis,
+not on strength alone**, and the difference matters in practice. The
+admissibility test requires the through-layer product to exceed **a
+quarter** of the in-plane product. Where tension and compression fall
+together, that is the familiar "weakest under half the strongest" — a
+factor of 0.51 on both is accepted and 0.50 is refused, measured. But a
+print is only bad at being *pulled apart*: layers press together perfectly
+well, so through-layer compression stays high and holds the product up.
+Measured with in-plane strengths at 22/30 MPa and through-layer
+compression at 28 MPa, `hoffman` is accepted with through-layer tension as
+low as 6.0 MPa (product ratio 0.2545) and refused at 5.0 MPa (0.2121).
+That is a tension ratio of 0.27, not 0.5. Most real prints therefore stay
+inside Hoffman, and only a badly bonded one needs `max_stress`.
+
+**The refusal happens when the project file is read**, not after a solve,
+so a material Hoffman cannot bound costs seconds rather than a whole
+optimisation run.
 
 Two further points that are easy to get wrong, and are handled for you:
 

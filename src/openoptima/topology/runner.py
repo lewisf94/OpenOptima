@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..domain.failures import EvaluationFailure, FailureCode
-from ..domain.model import Material
+from ..domain.model import AnyMaterial
 from ..domain.topology import TopologySettings
 from .config import render_config
 from .fetch import InstalledBeso
@@ -279,7 +279,7 @@ def _count_rounds(meshes: tuple[Path, ...]) -> int:
 def run_topology(
     *,
     settings: TopologySettings,
-    material: Material,
+    material: AnyMaterial,
     deck: Path,
     beso: InstalledBeso,
     solver_executable: Path | str,

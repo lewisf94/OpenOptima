@@ -328,6 +328,50 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     that has to be kept in step with an enum will eventually not be.
     `tests/unit/test_mesh_retry_classification.py` fails without the fix.
 
+17. **Which way a part is printed halves its strength and does not move the
+    stress at all.** Measured on `examples/drone_arm` — identical shape,
+    identical loads, identical mesh, changing only `build_direction`:
+
+        printed flat      stress 7.53 MPa   factor of safety 3.07   passes
+        printed upright   stress 7.54 MPa   factor of safety 1.55   FAILS
+
+    The stress agrees to three significant figures while the part goes from
+    a comfortable pass to infeasible. There is no signature in a stress
+    field to catch this, which is the point: **von Mises stress cannot
+    express a material that is not equally strong in every direction**, and
+    a reviewer eyeballing a stress plot has nothing to notice. The factor of
+    safety has to come from a criterion that takes the whole stress tensor
+    in the material's own axes — `results/directional.py`, trap 10 above.
+
+    Two process lessons came out of the same work, and the first is the
+    wider one.
+
+    **A capability nobody can reach is not done, however well it is
+    verified.** The entire directional stack — `domain/orthotropic.py`, both
+    criteria, the `*ELASTIC, TYPE=ORTHO` deck writer, and verification
+    benchmark V10 — was built, tested, and written up in
+    `docs/engineering-assumptions.md` as something a user could do. No
+    `project.yaml` could reach any of it, because `MaterialSchema` accepted
+    only an isotropic material. The docs described a feature the software
+    would refuse. When finishing a capability, load it from a project file
+    and run it, or it is not finished.
+
+    **Hoffman's admissibility limit binds on tension times compression, not
+    on strength.** The docstring's "weakest direction under half the
+    strongest" is right only when tension and compression fall together.
+    A print is bad at being pulled apart and fine at being pressed, so its
+    compression term holds the product up: measured with in-plane strengths
+    at 22/30 MPa, Hoffman is accepted at 6.0 MPa through-layer tension
+    (product ratio 0.2545) and refused at 5.0 (0.2121). Stating the limit as
+    a strength ratio sends real prints to `max_stress` unnecessarily.
+    `tests/unit/test_printed_material_schema.py` pins both facts.
+
+    Related: **buckling and topology refuse a printed material outright**
+    rather than picking one of its two stiffnesses. Both rest on a single
+    modulus — the buckling cross-check compares against beam theory, and
+    beso has nowhere to put an `*ORIENTATION`. Guessing which modulus to use
+    would validate the answer against the wrong material, optimistically.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

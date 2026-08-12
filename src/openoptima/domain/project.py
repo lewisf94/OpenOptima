@@ -10,21 +10,59 @@ from typing import Any
 from .features import EdgeFeature
 from .model import (
     AnalysisModel,
+    AnyMaterial,
     BucklingSettings,
     LoadCase,
-    Material,
     MeshSpecification,
     ModalSettings,
     SolverSpecification,
     StressEvaluation,
 )
 from .objectives import Constraint, Objective, PreferenceModel
+from .orthotropic import OrthotropicMaterial
 from .regions import SemanticRegion
 from .units import UnitSystem, get_unit_system
 from .variables import DesignSpace
 
 #: Bumped whenever the on-disk project format changes incompatibly.
 CURRENT_SCHEMA_VERSION = 1
+
+
+def _material_digest(material: AnyMaterial) -> dict[str, Any]:
+    """The part of a material that can change a number, for the cache hash.
+
+    A printed material and an ordinary one share only a name and a density, so
+    each contributes its own fields. Both carry a ``kind``: without it a
+    printed material whose stiffness happened to match an ordinary one would
+    hash identically, and a cached result computed with the layers running one
+    way would be served for a part built the other way.
+    """
+    if isinstance(material, OrthotropicMaterial):
+        strength = material.strength
+        return {
+            "kind": "printed",
+            "name": material.name,
+            "E": list(material.modulus),
+            "nu": list(material.poisson),
+            "G": list(material.shear_modulus),
+            "rho": material.density,
+            "build_direction": list(material.normalised_build_direction),
+            "strength": None
+            if strength is None
+            else {
+                "tension": list(strength.tension),
+                "compression": list(strength.compression),
+                "shear": list(strength.shear),
+            },
+        }
+    return {
+        "kind": "isotropic",
+        "name": material.name,
+        "E": material.elastic_modulus,
+        "nu": material.poisson_ratio,
+        "rho": material.density,
+        "allowable": material.allowable_stress,
+    }
 
 
 @dataclass(frozen=True)
@@ -78,7 +116,7 @@ class Project:
     geometry: GeometryDefinition
     design_space: DesignSpace
     regions: tuple[SemanticRegion, ...]
-    material: Material
+    material: AnyMaterial
     load_cases: tuple[LoadCase, ...]
     mesh: MeshSpecification
     objectives: tuple[Objective, ...]
@@ -121,6 +159,25 @@ class Project:
         case_ids = [lc.id for lc in self.load_cases]
         if len(set(case_ids)) != len(case_ids):
             raise ValueError(f"Duplicate load case ids: {case_ids}")
+
+        if self.buckling.enabled and isinstance(self.material, OrthotropicMaterial):
+            # The buckling result is only reported when it agrees with a beam
+            # theory cross-check, and that check needs one stiffness for the
+            # whole part (see results/buckling_check.py). A printed part has a
+            # different stiffness along its layers and through them, so there
+            # is no single number to check against, and picking either one
+            # would validate the answer against the wrong material. Refused
+            # rather than guessed: an unchecked buckling number fails in the
+            # optimistic direction, which is the one that selects an unsafe
+            # design.
+            raise ValueError(
+                f"Material {self.material.name!r} is printed, so it is stiffer along "
+                f"its layers than through them. OpenOptima cannot check a buckling "
+                f"result for such a material yet: the check it runs to decide whether "
+                f"a buckling number is trustworthy assumes one stiffness in every "
+                f"direction. Set `buckling.enabled: false`. Stress, deflection and "
+                f"natural frequency are unaffected."
+            )
 
     @property
     def unit_system(self) -> UnitSystem:
@@ -196,13 +253,7 @@ class Project:
                 }
                 for r in self.regions
             ],
-            "material": {
-                "name": self.material.name,
-                "E": self.material.elastic_modulus,
-                "nu": self.material.poisson_ratio,
-                "rho": self.material.density,
-                "allowable": self.material.allowable_stress,
-            },
+            "material": _material_digest(self.material),
             "load_cases": [
                 {
                     "id": lc.id,

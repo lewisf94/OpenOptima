@@ -27,13 +27,13 @@ then a parametric model of that shape to tune it and verify it properly.
 Neither mode should ever be forced on a user, and the parametric path must
 keep working exactly as it does now.
 
-**A second intended direction is 3D printing.** OpenOptima currently
-assumes a material that is equally strong in every direction, which a
-printed part is not, and it has no idea what a printer can and cannot
-make. The "Printing and real-world materials" section below closes that
-gap. Until it does, a result for a printed part should be treated with
-real caution — the two things most likely to break such a part, layer
-adhesion and fatigue, are both invisible today.
+**A second intended direction is 3D printing**, and it is now half open. A
+project can describe a material that is weaker between its print layers
+than along them, and OpenOptima judges it against a criterion that can
+express that difference — see `examples/drone_arm`. What it still has no
+idea about is whether a printer can make the shape at all, and fatigue,
+which is very often what actually breaks a printed part. The "Printing and
+real-world materials" section below covers both.
 
 ## How much of this needs writing
 
@@ -512,30 +512,59 @@ Nothing new here. This tier makes what already exists defensible.
 ## Printing and real-world materials (v0.3–v0.4)
 
 These are grouped because they share one purpose: making a result
-trustworthy for a **3D-printed** part. Today it is not. OpenOptima assumes
-material that is equally strong in every direction, and knows nothing
-about what a printer can make.
+trustworthy for a **3D-printed** part. The strength half is now done. What
+a printer can actually make is still unknown to OpenOptima, and so is
+fatigue.
 
-1. **Orthotropic material — the single biggest correctness fix for
-   printed parts.** A printed part is not equally strong in every
-   direction. It is markedly weaker *between* layers than *along* them,
-   often by 30 to 50 per cent, because adjacent layers are fused rather
-   than continuous. OpenOptima currently assumes one strength in all
-   directions, so it can report a part as safe that will peel apart
-   along its print layers under a load it appeared to survive.
+1. **Orthotropic material — done.** A printed part is markedly weaker
+   *between* its layers than *along* them, because adjacent layers are
+   fused rather than continuous. A project file now describes one under
+   `material.printed`, with a build direction and a strength in each
+   direction, and the factor of safety comes from the Hoffman or maximum
+   stress criterion rather than from von Mises stress. Worked example:
+   `examples/drone_arm`, one arm of a quadcopter in PLA.
 
-   CalculiX supports this natively (`*ELASTIC, TYPE=ORTHO`), so the work
-   is in the material model, the deck writer, and the schema — not in
-   the solver. It also needs the **print direction** as part of the
-   project, since "between layers" is meaningless without knowing which
-   way the part was built. A sensible extension is to let the build
-   direction itself be a design variable, because rotating a part on the
-   bed can matter more than any dimension on it.
+   **Measured, and the reason this mattered:** identical shape, loads and
+   mesh, changing only the print direction moved the factor of safety from
+   3.07 to 1.55 — while the 99th-percentile stress stayed at 7.53 against
+   7.54 MPa. The part is half as strong and the stress does not move, so
+   nothing built on von Mises stress could ever have caught it.
 
-   This one is a correctness fix rather than a new capability: it makes
-   existing numbers right, instead of adding new ones.
+   Two things were found in the doing and are worth recording. The whole
+   directional stack — material, both criteria, deck writer, and
+   verification benchmark V10 — had been built and verified, and then
+   `MaterialSchema` accepted only an ordinary material, so no project file
+   could reach any of it. And Hoffman's admissibility limit binds on
+   tension times compression, not strength alone, so it tolerates a print
+   far better than the "half the strongest" rule of thumb suggests: with
+   in-plane strengths at 22/30 MPa it accepts through-layer tension down to
+   6.0 MPa and refuses at 5.0. See `docs/engineering-assumptions.md`.
 
-2. **Print rules as a trade-off, not a hard limit.** Overhang angle,
+   **Still to do here:** letting the build direction be a *design
+   variable*, so the optimiser can rotate the part on the bed. Rotating a
+   part can matter more than any dimension on it, and the numbers above are
+   the evidence.
+
+2. **A lumped mass, so vibration works on a part that carries something.**
+   Natural frequency comes from stiffness and mass, and OpenOptima counts
+   only the mass of the part itself. A motor on the end of a drone arm, a
+   camera on a mount, a battery on a tray — none of it is there, and it is
+   usually most of what sets the answer.
+
+   Measured effect: for the 150 mm arm in `examples/drone_arm`, adding a
+   35 g motor at the tip roughly halves the first natural frequency. The
+   error runs in the **reassuring** direction, so an optimiser told to keep
+   the frequency above the propeller's rate would select a design sitting
+   on top of it.
+
+   This is why that example ships with `modal.enabled: false` despite a
+   drone arm beside a propeller being the textbook case for the feature.
+   The capability is not trustworthy for the part it most obviously suits.
+   CalculiX supports a point mass natively (`*MASS`), so the work is in the
+   schema, the deck writer and a verification benchmark against the
+   closed-form tip-mass cantilever — not in the solver.
+
+3. **Print rules as a trade-off, not a hard limit.** Overhang angle,
    minimum wall thickness for the nozzle, and build-volume fit.
 
    **These must be adjustable, not absolute.** How much performance
@@ -565,7 +594,7 @@ about what a printer can make.
    here is turning its answer into a number the optimiser can trade
    against.
 
-3. **Fatigue.** Failing after many load cycles, at a stress the part
+4. **Fatigue.** Failing after many load cycles, at a stress the part
    would easily survive if applied once. This is very often what
    actually breaks a part in service, and a drone arm is the textbook
    case: the propellers vibrate it millions of times.

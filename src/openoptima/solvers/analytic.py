@@ -21,7 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
+from ..domain.failures import EvaluationFailure, FailureCode
 from ..domain.model import AnalysisModel, LoadKind, SolverSpecification
+from ..domain.orthotropic import OrthotropicMaterial
 from ..meshing.base import MeshData
 from .base import AnalysisResults, LoadCaseFields
 
@@ -60,6 +62,22 @@ class AnalyticSolver:
         depth = float(extents[section_axes[1]])
 
         material = model.material
+        if isinstance(material, OrthotropicMaterial):
+            # This backend idealises the part as a beam with one stiffness. A
+            # printed material has two, and the beam formulae below have
+            # nowhere to put the second. Picking the in-plane one would make
+            # the stand-in silently disagree with CalculiX by the ratio of the
+            # two moduli -- on the drone arm example that is a factor of 1.35,
+            # comfortably plausible and completely wrong. Refuse instead: this
+            # backend exists to exercise the pipeline, and a project using a
+            # printed material needs a real solve.
+            raise EvaluationFailure(
+                FailureCode.SOLVER_NOT_FOUND,
+                f"The analytic backend cannot handle {material.name!r}, which is "
+                f"printed and so has a different stiffness along its layers and "
+                f"through them. This backend idealises the part as a beam with a "
+                f"single stiffness. Use the CalculiX solver for a printed material.",
+            )
         second_moment = max(breadth * depth**3 / 12.0, 1e-12)
         area = max(breadth * depth, 1e-12)
 

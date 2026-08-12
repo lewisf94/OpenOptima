@@ -49,8 +49,8 @@ only open-source tools for the shape, the mesh, and the calculation.
 ### Geometry and meshing
 
 - **Parametric geometry** from a built-in template, or from your own model
-  written with CadQuery. Four templates exist today: `cantilever_box`,
-  `l_bracket`, `plate_with_hole` and `thick_cylinder`.
+  written with CadQuery. Five templates exist today: `cantilever_box`,
+  `drone_arm`, `l_bracket`, `plate_with_hole` and `thick_cylinder`.
 - **Regions found by shape, never by face number.** You describe a face —
   "the biggest flat face pointing at −X" — and OpenOptima finds it again
   every time it rebuilds the part. See
@@ -296,11 +296,17 @@ openoptima optimise examples/l_bracket/project.yaml
 openoptima converge examples/l_bracket/project.yaml
 ```
 
-Three examples ship with OpenOptima:
+Five examples ship with OpenOptima:
 
 - **`l_bracket`** minimises the mass of an aluminium bracket carrying a
   2.5 kN load, with a factor of safety of at least 2 and under 1 mm of
   deflection.
+- **`drone_arm`** is one arm of a quadcopter, **3D printed in PLA**. A
+  printed part is weaker between its layers than along them, so it has no
+  single strength and von Mises stress cannot describe it. Changing only
+  the print direction on this example moves the factor of safety from 3.07
+  to 1.55 — while the stress stays at 7.53 against 7.54 MPa. The part is
+  half as strong and the stress does not move.
 - **`strut`** demonstrates buckling. At its lightest allowed section the
   stress factor of safety is 4.8, which looks very safe, while the
   buckling factor is 1.08 — within 8% of collapsing.

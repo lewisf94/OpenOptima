@@ -27,6 +27,7 @@ from typing import Any
 from ..config import forget_solver, remember_solver
 from ..domain.failures import EvaluationFailure
 from ..domain.model import SolverSpecification
+from ..domain.orthotropic import OrthotropicMaterial
 from ..domain.variables import DesignSpace, VariableType
 from ..evaluation.evaluator import default_job_count
 from ..evaluation.runspace import tool_versions
@@ -355,6 +356,30 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, path.read_bytes(), "text/plain; charset=utf-8")
 
 
+def _material_summary(material: Any) -> dict[str, Any]:
+    """What the page shows about the material.
+
+    A printed material has no single allowable stress. Reporting one anyway --
+    by picking a direction, or by falling back to a default -- would put a
+    number on the page that no part of the analysis actually used.
+    """
+    if isinstance(material, OrthotropicMaterial):
+        strength = material.strength
+        return {
+            "name": material.name,
+            "printed": True,
+            "allowable_stress_mpa": None,
+            "weakest_allowable_mpa": None if strength is None else strength.weakest,
+            "basis": "unspecified" if strength is None else strength.basis,
+        }
+    return {
+        "name": material.name,
+        "printed": False,
+        "allowable_stress_mpa": material.allowable_stress,
+        "basis": material.allowable_stress_basis,
+    }
+
+
 def _describe(project, path: Path) -> dict[str, Any]:
     return {
         "path": str(path),
@@ -377,11 +402,7 @@ def _describe(project, path: Path) -> dict[str, Any]:
             for v in project.design_space
         ],
         "regions": [r.name for r in project.regions],
-        "material": {
-            "name": project.material.name,
-            "allowable_stress_mpa": project.material.allowable_stress,
-            "basis": project.material.allowable_stress_basis,
-        },
+        "material": _material_summary(project.material),
         "load_cases": [{"id": lc.id, "description": lc.description} for lc in project.load_cases],
         "objectives": [
             {"metric": o.metric, "label": o.display_name, "direction": o.direction.value}

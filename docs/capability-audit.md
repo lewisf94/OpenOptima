@@ -251,6 +251,29 @@ the equation — it was the stress rotation, the sign conventions, and finding
 that Hoffman cannot describe a material whose weakest direction is under half
 its strongest.
 
+**Reachable from a project file since 2026-08-12**, under `material.printed`.
+That gap is worth recording, because it is a failure mode this audit does not
+otherwise catch: the material model, both criteria, the deck writer and
+verification benchmark V10 were all built, tested and documented as a user
+feature, and `MaterialSchema` still accepted only an ordinary material. The
+capability existed and nobody could reach it. **An audit entry marked done
+means the calculation is trusted, not that a user can run it** — those are
+separate claims and this one was true of the first while being false of the
+second for as long as the docs said otherwise.
+
+Measured once it was reachable, on `examples/drone_arm`: changing only the
+print direction moves the factor of safety from 3.07 to 1.55 while the
+99th-percentile stress stays at 7.53 against 7.54 MPa.
+
+One correction to the note above. Hoffman's limit binds on **tension times
+compression** on each axis, not on strength alone — the through-layer product
+must stay above a quarter of the in-plane product. Where both fall together
+that is the familiar "under half"; but a print is weak only in *tension*
+through its layers, so its compression term holds the product up and the
+criterion tolerates far more than the rule of thumb suggests. Measured with
+in-plane strengths at 22/30 MPa: accepted at 6.0 MPa through-layer tension,
+refused at 5.0.
+
 ### Surrogate optimisation — Blocked
 
 Using a fast approximate model to cut down how many real analyses are needed.
