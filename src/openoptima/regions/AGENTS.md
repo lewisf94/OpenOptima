@@ -13,6 +13,30 @@ plausible, wrong answer — the worst failure mode in the system.
 - `REGION_NOT_FOUND` and `REGION_AMBIGUOUS` are classified as **errors**, not
   infeasible designs: they mean the project is set up wrong, and reporting them
   to the optimiser as a bad design would teach it something false.
+- `REGION_TOO_SMALL` is the one exception, and it goes the other way. A region
+  can carry `min_area_mm2`, and falling below it is a fact about *this* shape,
+  so it is **infeasible** and the optimiser should learn it. See `_checked`.
+
+## When a region can shrink under you
+
+A feature OpenOptima adds — a rounded or cut-back corner, `geometry/features.py`
+— trims back the faces beside it, and the selector goes on resolving to
+whatever is left. Measured: a face went 1140 → 240 → 6.0 → **0.6 mm²** as a
+radius grew, resolving cleanly at every step, with the full 2.5 kN still
+landing on it. The kernel refuses the corner outright a hair further on, which
+sounds like a backstop and is not: the dangerous band is immediately below the
+point where it starts refusing.
+
+`min_area_mm2` has **no default and must not be given one**. How small is too
+small depends on what the face is for, which is the engineer's judgement.
+What the software owes them instead is the number: `openoptima doctor` reports
+each region's area at both ends of the design range whether or not a floor is
+set.
+
+Note also that a region named by a feature is resolved **twice against
+different shapes** — once before that feature is applied, to find the edges,
+and once on the finished part, to place the loads. Both must work, and an
+error has to say which one failed, because the fixes differ.
 
 ## Normals
 

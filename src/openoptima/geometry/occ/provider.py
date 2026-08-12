@@ -13,9 +13,10 @@ from typing import Any
 
 from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.project import GeometryDefinition
-from ...domain.regions import BoundingBox
+from ...domain.regions import BoundingBox, SemanticRegion
 from ...domain.variables import DesignVector
 from ..base import GeometryArtifact, ValidationReport
+from ..features import FeatureRecord, apply_features
 from ..gmsh_session import drain_log, gmsh_session, suppress_native_output
 from .templates import available_templates, get_template
 
@@ -25,10 +26,14 @@ class OccGeometryProvider:
 
     name = "occ"
 
-    def __init__(self, definition: GeometryDefinition) -> None:
+    def __init__(
+        self, definition: GeometryDefinition, regions: tuple[SemanticRegion, ...] = ()
+    ) -> None:
         self.definition = definition
         self.template_name = definition.template
         self.fixed_parameters = dict(definition.parameters)
+        #: Needed only to place features; see ``geometry/features.py``.
+        self.regions = regions
 
     # -- introspection -------------------------------------------------------
     def validate_definition(self) -> ValidationReport:
@@ -88,6 +93,12 @@ class OccGeometryProvider:
                     detail={"parameters": parameters},
                 )
 
+            feature_records: list[FeatureRecord] = []
+            if self.definition.features:
+                volume_tag, feature_records = apply_features(
+                    gmsh, volume_tag, self.definition.features, self.regions, parameters
+                )
+
             volume = float(occ.getMass(3, volume_tag))
             if not (volume > 0.0):
                 raise EvaluationFailure(
@@ -99,8 +110,16 @@ class OccGeometryProvider:
             centre = tuple(float(c) for c in occ.getCenterOfMass(3, volume_tag))
             bounds = occ.getBoundingBox(3, volume_tag)
             bbox = BoundingBox(*(float(b) for b in bounds))
+            # Faces of *this solid*. Applying a feature replaces the solid, so
+            # asking the model at large would add up surfaces that are no
+            # longer part of the part.
             surface_area = float(
-                sum(occ.getMass(2, tag) for _dim, tag in gmsh.model.getEntities(2))
+                sum(
+                    occ.getMass(2, abs(int(tag)))
+                    for _dim, tag in gmsh.model.getBoundary(
+                        [(3, volume_tag)], combined=False, oriented=False, recursive=False
+                    )
+                )
             )
 
             gmsh.write(str(brep_path))
@@ -121,5 +140,9 @@ class OccGeometryProvider:
             centre_of_mass=(centre[0], centre[1], centre[2]),
             surface_area=surface_area,
             warnings=warnings[:20],
-            metadata={"template": template.name, "parameters": parameters},
+            metadata={
+                "template": template.name,
+                "parameters": parameters,
+                "features": [record.to_dict() for record in feature_records],
+            },
         )

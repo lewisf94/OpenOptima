@@ -388,6 +388,43 @@ better. A "minimum mass" result is the minimum mass *within your chosen
 parameterisation*, subject to *your* constraints, under *this* analysis
 only.
 
+## Corners OpenOptima adds to an imported shape
+
+An imported CAD file holds no dimensions, so a project can ask OpenOptima
+to add a rounded corner (`fillet`) or a corner cut off flat (`chamfer`) on
+top of it and vary that. Three things about those are engineering facts
+rather than software details, and each one can change a number.
+
+**The corner is real material, and it changes the answer.** It is applied
+before meshing, so the stress, the deflection and the mass are all those of
+the part *with* the corner. Nothing is approximated or added afterwards.
+
+**The corner shrinks the faces beside it, and your loads stay on them.**
+This is the one to watch. A load or a support attached to a face that the
+corner has trimmed back is now spread over a smaller area, at a
+correspondingly higher stress, and the analysis is a correct analysis of a
+part you may not have intended. Measured on the example bracket: the loaded
+end face falls from 1140 mm² to 240 mm² at a 15 mm radius and to 0.6 mm² at
+18.99 mm, with the load resolving onto it at every step and no warning
+raised.
+
+Set `min_area_mm2` on any region whose area you are relying on. Below it,
+the design is rejected as infeasible and the optimiser learns to stay
+away. **There is no default, and OpenOptima will not choose one for you**:
+how small is too small depends on what the face represents — a bolted
+joint, a bearing pad, a pressure face — and that is your judgement.
+`openoptima doctor` reports every region's area at both ends of the design
+range whether or not you set a floor, so you can see a face collapsing
+before a study starts.
+
+**A corner that cannot be built is a bad design, not a broken run.** Asking
+for a round larger than the material around the corner is refused by the
+CAD kernel, and OpenOptima reports that as infeasible so the search treats
+it as a boundary. Note that the refusal comes later than you might expect:
+on a 19 mm tall face, an 18.99 mm round builds without complaint and only
+19.0 mm is refused. The kernel refusing is not a safety net for the case
+above.
+
 ## Before trusting a result
 
 1. `openoptima doctor` passes, with every region resolving uniquely across

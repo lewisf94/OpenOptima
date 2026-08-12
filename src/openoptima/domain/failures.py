@@ -68,6 +68,24 @@ class FailureCode(str, Enum):
     MANUFACTURING_RULE_VIOLATED = "manufacturing_rule_violated"
     PACKAGING_VIOLATED = "packaging_violated"
     ENGINEERING_CONSTRAINT_FAILED = "engineering_constraint_failed"
+    #: A feature OpenOptima adds -- a rounded or cut-back corner -- could not be
+    #: built at this size. The usual cause is asking for more than the material
+    #: around the corner allows: on the example bracket, a 19 mm round on a
+    #: 19 mm tall face is refused by the kernel outright. That is a fact about
+    #: *this* design and nothing else, so the optimiser should learn it and
+    #: stay away, exactly as it would from a wall driven to zero thickness.
+    FEATURE_FAILED = "feature_failed"
+    #: The two regions a feature sits between share no edge on this shape, so
+    #: there is no corner to round off. Infeasible rather than a setup mistake
+    #: because a dimension can genuinely pull two faces apart -- but if it
+    #: happens at every size, the project is wrong rather than the design, and
+    #: ``openoptima doctor`` says so in ten seconds instead of leaving the
+    #: optimiser to quietly avoid a whole region of the design space.
+    FEATURE_EDGES_NOT_FOUND = "feature_edges_not_found"
+    #: A named region survived, but shrank below the smallest area the engineer
+    #: said it may have. Only ever raised when they set that figure: OpenOptima
+    #: does not invent one. See ``domain/regions.py::SemanticRegion``.
+    REGION_TOO_SMALL = "region_too_small"
 
     # --- Infrastructure errors ---------------------------------------------
     REGION_NOT_FOUND = "region_not_found"
@@ -103,6 +121,9 @@ INFEASIBLE_CODES: frozenset[FailureCode] = frozenset(
         FailureCode.MANUFACTURING_RULE_VIOLATED,
         FailureCode.PACKAGING_VIOLATED,
         FailureCode.ENGINEERING_CONSTRAINT_FAILED,
+        FailureCode.FEATURE_FAILED,
+        FailureCode.FEATURE_EDGES_NOT_FOUND,
+        FailureCode.REGION_TOO_SMALL,
     }
 )
 

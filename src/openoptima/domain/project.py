@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from .features import EdgeFeature
 from .model import (
     AnalysisModel,
     BucklingSettings,
@@ -37,6 +38,11 @@ class GeometryDefinition:
     source: str | None = None
     #: Fixed parameters that are *not* design variables.
     parameters: dict[str, Any] = field(default_factory=dict)
+    #: Rounded or cut-back corners OpenOptima adds on top of the shape above,
+    #: in the order they are applied. This is what gives an imported CAD file
+    #: something to vary: the file itself holds no dimensions. See
+    #: ``domain/features.py``.
+    features: tuple[EdgeFeature, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -157,6 +163,18 @@ class Project:
                 "template": self.geometry.template,
                 "source": self.geometry.source,
                 "parameters": self.geometry.parameters,
+                # A feature changes the shape, so it changes every number that
+                # comes out of it. Adding one to a project must invalidate the
+                # results computed before it existed.
+                "features": [
+                    {
+                        "name": f.name,
+                        "kind": f.kind.value,
+                        "between": list(f.between),
+                        "size": f.size,
+                    }
+                    for f in self.geometry.features
+                ],
             },
             "variables": [
                 {
@@ -170,7 +188,14 @@ class Project:
                 }
                 for v in self.design_space
             ],
-            "regions": [{"name": r.name, "selector": r.selector.describe()} for r in self.regions],
+            "regions": [
+                {
+                    "name": r.name,
+                    "selector": r.selector.describe(),
+                    "min_area_mm2": r.min_area_mm2,
+                }
+                for r in self.regions
+            ],
             "material": {
                 "name": self.material.name,
                 "E": self.material.elastic_modulus,

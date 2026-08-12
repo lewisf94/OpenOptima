@@ -21,7 +21,7 @@ from typing import Any
 
 import numpy as np
 
-from ..domain.failures import EvaluationFailure, FailureCode
+from ..domain.failures import EvaluationFailure, FailureCode, Outcome
 from ..domain.model import MeshAlgorithm, MeshSpecification
 from ..domain.regions import RegionMap, SemanticRegion
 from ..geometry.base import GeometryArtifact, SurfaceArtifact
@@ -171,16 +171,29 @@ class GmshMesher:
                     write_mesh_file=write_mesh_file,
                 )
             except EvaluationFailure as failure:
-                if failure.code in (
+                # Only a meshing problem is worth another go at a coarser
+                # setting. Two other kinds arrive here and neither is:
+                #
+                # * a selector that found nothing, or could not choose between
+                #   two faces -- a mistake in the project, identical on every
+                #   attempt;
+                # * anything that says the *design* is bad, such as a shape
+                #   that came apart into pieces or a face a feature has shrunk
+                #   past the size the engineer allowed.
+                #
+                # Both used to be caught by name in a list here, which was one
+                # forgotten entry away from a real defect: a design failure
+                # that falls through is retried four times and then reported
+                # as MESH_GENERATION_FAILED, an infrastructure error. The
+                # optimiser then learns nothing from a design it should have
+                # learned to avoid, and the evaluation budget pays for four
+                # attempts that could not have succeeded. Asking the taxonomy
+                # rather than a list means a new failure code cannot reopen it.
+                if failure.outcome is Outcome.INFEASIBLE or failure.code in (
                     FailureCode.REGION_NOT_FOUND,
                     FailureCode.REGION_AMBIGUOUS,
-                    # The shape itself is wrong -- it does not close up, or it
-                    # came apart into pieces. No mesh setting changes that, and
-                    # retrying only buries the real reason under four identical
-                    # failures.
-                    FailureCode.INVALID_SOLID,
                 ):
-                    raise  # a setup problem; retrying cannot help
+                    raise  # retrying cannot help, and relabelling would mislead
                 problems.append(f"attempt {attempt_number} ({attempt.description}): {failure}")
                 continue
 

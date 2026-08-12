@@ -35,7 +35,7 @@ def run_doctor(project: Project, path: Path) -> dict[str, Any]:
         }
     )
 
-    provider = create_provider(project.geometry)
+    provider = create_provider(project.geometry, project.regions)
     if hasattr(provider, "root"):
         # A relative geometry.source is written relative to the project
         # file, not to whatever directory the app process happens to be

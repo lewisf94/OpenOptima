@@ -315,15 +315,103 @@ export — and you have found out in ten seconds rather than after a run.
 **One thing an imported part cannot do.** A STEP file is a finished shape.
 The dimensions whoever drew it typed in — this wall is 5 mm, this hole is
 8 mm — are not saved in the file, only the resulting surfaces. So there is
-nothing for OpenOptima to search over: `openoptima evaluate` works on an
-imported part, but `openoptima optimise` has no dimensions to try. If you
-want OpenOptima to search for the best size of something, that something
-needs to be a design variable, and design variables are described in the
-next section — which only works with OpenOptima's own shapes, not an
-import, unless you add a new feature (a fillet, a hole) on top of it
-yourself.
+nothing *in the file* for OpenOptima to search over. On an import by
+itself, `openoptima evaluate` works and `openoptima optimise` has nothing
+to try.
 
-See `examples/imported_bracket` for a complete, working example.
+See `examples/imported_bracket` for a complete, working example of that.
+
+### Giving an imported part something to change
+
+You do not have to go back to SolidWorks. OpenOptima can add its own
+corner to the shape you imported, and search for the best size of *that*.
+The imported part never changes; the corner is the only thing that moves.
+
+```yaml
+geometry:
+  provider: step
+  source: bracket.step
+
+  variables:
+    - id: corner_radius
+      minimum: 2.0
+      maximum: 16.0
+      default: 6.0
+
+  features:
+    - name: outer_corner
+      kind: fillet
+      between: [arm_top, load_face]
+      size: corner_radius
+```
+
+That reads: "round off the corner where the top of the arm meets the end
+face, and try radii between 2 and 16 mm."
+
+Two kinds exist:
+
+| `kind` | What it does | What `size` means |
+|---|---|---|
+| `fillet` | Rounds the corner off | The radius of the round |
+| `chamfer` | Cuts the corner off flat, at 45 degrees | How far back the cut reaches |
+
+`size` is either a plain number, or the `id` of a design variable — that
+is what makes it something to optimise rather than a fixed change.
+
+**You never say which edge.** You say which two faces the corner lies
+*between*, using the names you already gave those faces. OpenOptima works
+out the edge from the shape itself, every time it builds. This is the same
+rule as everywhere else in the software, and here is why it matters:
+adding one fillet to the example bracket **renumbered every single face of
+the part**. The top of the arm went from face 5 to face 2, the loaded end
+from 7 to 5, the base from 8 to 7. Anything that had remembered a number
+would now be pointing at the wrong surface.
+
+**A corner OpenOptima adds is a face you can then use.** It shows up in
+the 3D picker and in `openoptima faces` like any other, so you can refine
+the mesh on it or leave it out of the stress measure.
+
+#### The thing to watch out for
+
+A corner eats into the faces beside it. Round it enough and a face you are
+loading gets small — and OpenOptima will still find it, because it is
+still there.
+
+Measured on the example bracket, where the loaded end face starts at
+1140 mm²:
+
+| Radius | What is left of the loaded face |
+|---|---|
+| 2 mm | 1020 mm² |
+| 15 mm | 240 mm² |
+| 18.9 mm | 6 mm² |
+| 18.99 mm | **0.6 mm²** |
+| 19 mm | the corner cannot be built at all |
+
+At 18.99 mm the whole 2.5 kN load goes onto a strip **1900 times smaller**
+than the face you clicked, at a stress to match, and nothing anywhere says
+so. The part builds, meshes, solves and reports a number.
+
+Two things protect you, and you should use both:
+
+1. **`openoptima doctor` prints each face's area at the smallest and
+   largest settings**, so you can see a face collapsing before you run
+   anything. If a face changes by more than about ten times across the
+   range, it says so out loud.
+2. **You can set a floor.** On any region:
+
+   ```yaml
+   - name: load_face
+     min_area_mm2: 300.0
+     selector: ...
+   ```
+
+   Below that, the design is refused as a bad design — which is exactly
+   what the optimiser needs, because it then learns to stay away. There is
+   no default. The right number depends on what the face is *for*, and
+   that is your decision, not the software's.
+
+See `examples/imported_bracket_fillet` for the complete working version.
 
 ### The dimensions the software is allowed to change
 
@@ -911,6 +999,7 @@ being told the frequency of a part held in a way you never described.
 | **Boundary condition** | Somewhere the part is held, and cannot move. |
 | **Buckling** | Something long and thin suddenly folding sideways, like an empty can when you press its side. |
 | **Buckling factor** | How many times your load the part takes before it folds. Below 1.0 means it folds now. |
+| **Chamfer** | A corner cut off flat, at 45 degrees. OpenOptima can add one to an imported shape and vary how far back it cuts. |
 | **Cache** | Saved results, reused when you ask an identical question. |
 | **CalculiX** | The free program that does the actual stress calculation. |
 | **Cantilever** | A beam or part fixed at one end and free at the other, like a diving board. |
@@ -918,8 +1007,10 @@ being told the frequency of a part held in a way you never described.
 | **Design space** | Every combination of dimensions the software may try. |
 | **Design variable** | One dimension the software is allowed to change. |
 | **DOE** (design of experiments) | A planned spread of trial designs, used to survey what is possible. |
+| **Edge feature** | A rounded or cut-back corner OpenOptima adds on top of a shape. It is named by the two faces it lies between, never by an edge number. |
 | **Element** | One small piece the part is chopped into. |
 | **Factor of safety** | How much margin you have. 2.0 = stress is half the allowable. |
+| **Fillet** | A rounded corner. OpenOptima can add one to an imported shape and vary its radius. |
 | **Gmsh** | The free program that builds the shape and chops it into pieces. |
 | **Infeasible** | The design itself is no good. |
 | **Knee point** | Where you stop getting good value for what you pay. |

@@ -178,7 +178,7 @@ class EvaluationPipeline:
         """Build the parametric solid and mesh it."""
         project = self.project
 
-        provider = create_provider(project.geometry)
+        provider = create_provider(project.geometry, project.regions)
         if hasattr(provider, "root"):
             provider.root = self.project_root  # type: ignore[attr-defined]
         geometry = provider.build(design, run.geometry_dir)

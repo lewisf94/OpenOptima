@@ -10,6 +10,10 @@ The contract this module upholds:
 Both are raised as ``EvaluationFailure`` with ERROR (not INFEASIBLE) outcomes:
 an ambiguous selector is a problem with the *project setup*, not evidence that
 the design is bad, so it must never be fed to the optimiser as a poor score.
+
+There is one exception, and it is deliberately the other way round.  A region
+can carry ``min_area_mm2``, the smallest area the engineer says it may shrink
+to.  Falling below that *is* a fact about the design -- see :func:`_checked`.
 """
 
 from __future__ import annotations
@@ -134,13 +138,16 @@ def resolve_region(
     )
 
     if selector.mode is SelectionMode.ALL:
-        return RegionMatch(
-            name=region.name,
-            face_tags=tuple(s.tag for _, s in scored),
-            signatures=tuple(s for _, s in scored),
-            score=float(sum(p for p, _ in scored) / len(scored)),
-            margin=float("inf"),
-            candidate_count=len(scored),
+        return _checked(
+            region,
+            RegionMatch(
+                name=region.name,
+                face_tags=tuple(s.tag for _, s in scored),
+                signatures=tuple(s for _, s in scored),
+                score=float(sum(p for p, _ in scored) / len(scored)),
+                margin=float("inf"),
+                candidate_count=len(scored),
+            ),
         )
 
     best_penalty, best = scored[0]
@@ -163,13 +170,44 @@ def resolve_region(
                 },
             )
 
-    return RegionMatch(
-        name=region.name,
-        face_tags=(best.tag,),
-        signatures=(best,),
-        score=float(best_penalty),
-        margin=margin,
-        candidate_count=len(scored),
+    return _checked(
+        region,
+        RegionMatch(
+            name=region.name,
+            face_tags=(best.tag,),
+            signatures=(best,),
+            score=float(best_penalty),
+            margin=margin,
+            candidate_count=len(scored),
+        ),
+    )
+
+
+def _checked(region: SemanticRegion, match: RegionMatch) -> RegionMatch:
+    """Refuse a region that has shrunk below the engineer's stated floor.
+
+    Note the failure code: this is the one thing in this module that describes
+    the *design* rather than the project setup. A selector that finds nothing,
+    or cannot choose between two faces, is a mistake in the project and reads
+    the same at every design point. A face that has been shrunk to a sliver is
+    a fact about the particular shape in front of us, and the optimiser should
+    learn it and stay away. See ``domain/regions.py::SemanticRegion`` for the
+    measurement that made this necessary.
+    """
+    floor = region.min_area_mm2
+    if floor is None or match.total_area >= floor:
+        return match
+    raise EvaluationFailure(
+        FailureCode.REGION_TOO_SMALL,
+        f"Region {region.name!r} has shrunk to {match.total_area:.4g} mm2, below the "
+        f"{floor:g} mm2 you set as its smallest useful size. A load or support "
+        f"spread over an area this small does not represent what you described.",
+        detail={
+            "region": region.name,
+            "area_mm2": match.total_area,
+            "min_area_mm2": floor,
+            "face_tags": list(match.face_tags),
+        },
     )
 
 

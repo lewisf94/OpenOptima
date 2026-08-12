@@ -124,8 +124,101 @@ Build order, because each step only makes sense once the one before exists:
 | 1 | ~~Read a STEP file as a shape~~ | Sonnet | **Done.** `geometry: {provider: step, source: ...}`. See below. |
 | 2 | ~~Turn a click into a lasting face description~~ | **Opus** | **Done.** `regions/describe.py`, and `openoptima faces` to use it without a viewer. See below. |
 | 3 | ~~3D viewer, click to pick~~ | Sonnet | **Done.** A turn-and-click panel inside `openoptima-app`. See below. |
-| 4 | Features you can add and vary on an imported shape | **Opus** | Adding a fillet creates and destroys faces; a face picked before the fillet may not exist afterwards in the same form. The hardest version of the naming problem this project exists to solve |
+| 4 | ~~Features you can add and vary on an imported shape~~ | **Opus** | **Done.** A fillet or chamfer, placed between two named faces, with its size as a design variable. See below. |
 | 5 | Wizard flow, sensible defaults, plain-English errors | Sonnet | Usability polish once the above works |
+
+**Piece 4, done 2026-08-12.** An imported part can now be optimised.
+`geometry.features` adds a rounded corner (`fillet`) or a corner cut off
+flat (`chamfer`) on top of the imported shape, and its size can be a design
+variable. The import itself never changes. See
+`examples/imported_bracket_fillet`, which searches for the largest radius
+that still leaves enough end face to put the load on.
+
+That example was run start to finish: **32 evaluations, 30 feasible, 2
+infeasible, 0 errors, 121.5 s**, settling on a 13.78 mm radius at
+0.584814 kg with a factor of safety of 2.309. The two rejected designs are
+the interesting part. Both were refused for shrinking the loaded face
+below the floor the project sets, both were classified as *infeasible*
+rather than as errors, and the search then converged to 13.78 mm — against
+the 14.0 mm where 1140 − 60r crosses 300 mm². The optimiser learned the
+boundary from the rejections and pushed right up to it, which is exactly
+what the infeasible/error split is for.
+
+**The edge is never named.** A feature names the two *regions* it lies
+between, and the shared edges are worked out from the shape on every
+build. This is not caution for its own sake: adding one fillet to the
+example bracket renumbered **every face of the part** — the top of the arm
+went from face 5 to face 2, the loaded end from 7 to 5, the base from 8 to
+7. Nothing kept its number. Because regions were already resolved by what
+a face looks like, this needed no new naming machinery at all; it calls
+`resolve_region`, the same function the loads use.
+
+**The defect this piece exists to prevent, measured.** A corner eats into
+the faces beside it, and the selector goes on finding what is left. On the
+example bracket the loaded end face starts at 1140 mm²:
+
+| Radius | Loaded face left | Selector resolves? |
+|---|---|---|
+| 15 mm | 240 mm² | yes |
+| 18.9 mm | 6 mm² | yes |
+| 18.99 mm | **0.6 mm²** | yes |
+| 19 mm | — | the kernel refuses the fillet |
+
+At 18.99 mm the whole 2.5 kN load lands on a strip 1900 times smaller than
+the face that was picked, at a stress to match, with no error anywhere.
+The loud failure at 19 mm is *not* protection, because the dangerous band
+sits immediately below it. Two answers, both kept: `openoptima doctor`
+reports every region's area at each end of the design range and says so
+when one moves by more than about ten times, and a region can carry
+`min_area_mm2` to make the collapse an infeasible design. There is no
+default for that figure — it depends on what the face is for, which is the
+engineer's judgement, not the software's.
+
+**The face picker had to move with it.** The 3D viewer and `openoptima
+faces` build *through* the feature stack, so what you click is the finished
+part. Without that, every description would be written from a shape that
+exists at no point in the design range, and the face the fillet creates
+could not be picked at all because it would not be there. The added corner
+shows up as an ordinary face — and the describer, unprompted, describes it
+by position rather than by radius, because the radius is the thing being
+varied. That is the piece-2 algorithm choosing from evidence, not a special
+case for features.
+
+**Two defects found while building it, one of them pre-existing.** Both
+were found by running the code and reading real output.
+
+1. `openoptima doctor` reported an infeasible design at the edge of the
+   design range as a broken project. A design space with a boundary in it
+   is ordinary, and the optimiser handles it by staying inside; calling
+   that a setup fault is the exact conflation this codebase exists to
+   avoid.
+2. **The one that was already there.** The mesher retries at coarser
+   settings when meshing fails, and it decided what *not* to retry from a
+   hardcoded list of failure codes. Anything not on that list was retried
+   four times and then reported as `MESH_GENERATION_FAILED` — an
+   infrastructure error. A new infeasible code fell straight through it,
+   and so did `MANUFACTURING_RULE_VIOLATED`, which has been in the
+   taxonomy all along. The optimiser would have learned nothing from a
+   design it should have learned to avoid, and paid four evaluations for
+   the privilege. It now asks the taxonomy instead of a list, so a future
+   code cannot reopen it. `tests/unit/test_mesh_retry_classification.py`
+   fails without the fix.
+
+**Volumes are checked against the closed form, not against a recorded
+run.** A fillet of radius *r* on a straight 90-degree corner of length *L*
+removes `r²(1 − π/4)L`; a chamfer of size *s* removes `s²L/2`. Both match
+to every digit measured — a 10 mm fillet removes 1287.61 mm² against
+1287.6129 predicted, a 12 mm chamfer exactly 4320.00 mm³. A feature on the
+wrong edge, or built at the wrong size, does not land on those figures by
+accident.
+
+**What is deliberately not in this piece.** A hole, a pocket and a wall
+offset are not implemented. A hole needs a position on a face, which needs
+a coordinate convention and raises its own ambiguity questions; shipping
+half of one would have been worse than shipping neither. Features on the
+`cadquery` provider are refused with a message rather than silently
+ignored — a script already builds its own shape from its own dimensions,
+so the corner belongs there.
 
 **Piece 3, done 2026-08-11.** Inside `openoptima-app`, step 2 ("Check the
 setup") now has a **"Look at the part and pick faces"** panel: turn the

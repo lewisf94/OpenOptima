@@ -153,7 +153,7 @@ def command_doctor(args: argparse.Namespace) -> int:
             "element solver. Its numbers are not engineering results."
         )
 
-    provider = create_provider(project.geometry)
+    provider = create_provider(project.geometry, project.regions)
     if hasattr(provider, "root"):
         # Same reasoning as the app's setup check: a relative geometry.source
         # is written relative to the project file, not to the terminal's
@@ -178,10 +178,21 @@ def command_doctor(args: argparse.Namespace) -> int:
     }
 
     workspace = _workspace(root, args.workspace) / "doctor"
+    #: Region name -> area at each probe that built, for the swing report below.
+    areas: dict[str, list[tuple[str, float]]] = {}
+
     for label, design in probes.items():
         print(f"\n  {label}: {design.canonical_text().replace(chr(10), ', ')}")
         try:
             geometry = provider.build(design, workspace / label.replace(" ", "_"))
+        except EvaluationFailure as exc:
+            # An infeasible design at the edge of the range is not a fault. It
+            # is the design space having a boundary in it, which is ordinary
+            # and which the optimiser handles by staying inside. Reporting it
+            # as a broken project is the exact conflation this whole codebase
+            # exists to avoid -- see domain/failures.py.
+            _report_probe_failure(exc, problems, label)
+            continue
         except Exception as exc:
             print(f"    geometry FAILED: {exc}")
             problems.append(f"geometry failed at '{label}': {exc}")
@@ -191,6 +202,16 @@ def command_doctor(args: argparse.Namespace) -> int:
             f"    volume {geometry.volume:,.1f} mm^3, "
             f"mass {geometry.volume * project.material.density * 1e3:.4f} kg"
         )
+        # What each added feature actually did. A selector that quietly found
+        # the wrong face still builds a perfectly good part -- with the corner
+        # in the wrong place. The edge count and the metal removed are the
+        # numbers that give that away.
+        for record in geometry.metadata.get("features", []):
+            print(
+                f"    feature {record['name']}: {record['kind']} of "
+                f"{record['size_mm']:g} mm on {record['edge_count']} edge(s), "
+                f"removing {record['volume_before_mm3'] - record['volume_after_mm3']:,.1f} mm^3"
+            )
         try:
             with gmsh_session() as gmsh:
                 gmsh.model.add("doctor")
@@ -210,10 +231,14 @@ def command_doctor(args: argparse.Namespace) -> int:
                     f"    {name:<18} {len(match.face_tags)} face(s), "
                     f"{match.total_area:9.1f} mm^2, {margin}"
                 )
+                areas.setdefault(name, []).append((label, match.total_area))
+        except EvaluationFailure as exc:
+            _report_probe_failure(exc, problems, label)
         except Exception as exc:
             print(f"    regions FAILED: {exc}")
             problems.append(f"region resolution failed at '{label}': {exc}")
 
+    _report_area_swing(areas, project)
     print()
     if problems:
         print(f"{len(problems)} problem(s) found:")
@@ -222,6 +247,61 @@ def command_doctor(args: argparse.Namespace) -> int:
         return _EXIT_FAILED
     print("All checks passed. The project is ready to run.")
     return _EXIT_OK
+
+
+#: A region whose area moves by more than this across the design range is
+#: reported. It is a prompt to look, not a limit: a dimension that is meant to
+#: vary a face tenfold is a perfectly reasonable thing to ask for. What it
+#: catches is the case nobody intended -- a feature eating a face the loads sit
+#: on, which stays silent because the selector goes on finding the remains of
+#: it. The engineer's own limit, when they have one, is the region's
+#: ``min_area_mm2``, and that one is enforced rather than merely reported.
+_AREA_SWING_REPORTABLE = 10.0
+
+
+def _report_probe_failure(exc: EvaluationFailure, problems: list[str], label: str) -> None:
+    """Print a probe failure, keeping a bad design apart from a broken project."""
+    if exc.outcome is Outcome.INFEASIBLE:
+        print(f"    this design is not allowed, which is fine: {exc.message}")
+        print("    the optimiser treats that as a boundary and searches inside it.")
+        return
+    print(f"    FAILED: {exc.message}")
+    problems.append(f"'{label}': {exc.message}")
+
+
+def _report_area_swing(areas: dict[str, list[tuple[str, float]]], project: Project) -> None:
+    """Show how much each region's area moves across the design range."""
+    movers = {
+        name: samples
+        for name, samples in areas.items()
+        if len(samples) > 1 and max(a for _, a in samples) - min(a for _, a in samples) > 1e-9
+    }
+    if not movers:
+        return
+    print("\n  How much each region changes across that range:")
+    for name, samples in movers.items():
+        smallest = min(samples, key=lambda pair: pair[1])
+        largest = max(samples, key=lambda pair: pair[1])
+        ratio = largest[1] / smallest[1] if smallest[1] > 0 else float("inf")
+        print(
+            f"    {name:<18} {smallest[1]:9.1f} mm^2 at {smallest[0]} -> "
+            f"{largest[1]:9.1f} mm^2 at {largest[0]}  (x{ratio:.2f})"
+        )
+        if ratio < _AREA_SWING_REPORTABLE:
+            continue
+        region = next((r for r in project.regions if r.name == name), None)
+        floor = region.min_area_mm2 if region else None
+        print(
+            f"      ^ this face is {ratio:.0f} times bigger at one end of the range "
+            f"than the other. Check that is what you meant: a load or support "
+            f"spread over the small version is a different thing from the one "
+            f"you picked."
+        )
+        if floor is None:
+            print(
+                f"        You can set `min_area_mm2` on region '{name}' to make "
+                f"OpenOptima refuse a design that shrinks it too far."
+            )
 
 
 def command_evaluate(args: argparse.Namespace) -> int:
@@ -688,7 +768,7 @@ def command_faces(args: argparse.Namespace) -> int:
 
     project, root = _load(args.project)
     workspace = _workspace(root, args.workspace)
-    provider = create_provider(project.geometry)
+    provider = create_provider(project.geometry, project.regions)
     if hasattr(provider, "root"):
         provider.root = root  # type: ignore[attr-defined]
 

@@ -310,6 +310,9 @@ Three examples ship with OpenOptima:
   picking a face by what it looks like works the same way on a part you
   drew elsewhere. See [Bringing in your own part](#bringing-in-your-own-part)
   below.
+- **`imported_bracket_fillet`** is that same imported part with something
+  to optimise: OpenOptima rounds off one corner and searches for the
+  largest radius that still leaves enough face to put the load on.
 
 ---
 
@@ -386,13 +389,51 @@ numbers, one declaring metres at 1000×. A 100 × 10 × 5 inch box arrives as
 millimetres regardless, so `openoptima doctor` prints the size it read as
 a check that the export was what you meant.
 
-**What this cannot do, and why that is a fact about the file rather than a
-missing feature.** A STEP file is a finished shape. The dimensions whoever
-drew it typed in are not saved in the file — only the resulting surfaces —
-so there is nothing for `openoptima optimise` to search over. Evaluating
-the part as drawn works today; varying it needs a dimension of your own
-added on top, such as a fillet radius or a hole diameter on a face you
-pick. See [`docs/roadmap.md`](docs/roadmap.md) for where that stands.
+**A STEP file holds no dimensions, so bring your own.** The numbers whoever
+drew the part typed in are not saved in the file — only the resulting
+surfaces. There is therefore nothing *in the file* for `openoptima
+optimise` to search over. What you can do is have OpenOptima add a corner
+of its own on top of the imported shape and vary that:
+
+```yaml
+geometry:
+  provider: step
+  source: bracket.step
+  variables:
+    - id: corner_radius
+      minimum: 2.0
+      maximum: 16.0
+      default: 6.0
+  features:
+    - name: outer_corner
+      kind: fillet            # or `chamfer`, which cuts the corner off flat
+      between: [arm_top, load_face]
+      size: corner_radius     # a design variable id, or a plain number
+```
+
+The imported shape never changes; the corner is the only thing that moves.
+`size` naming a design variable is what turns it into something to search
+over.
+
+**You name the two faces, never the edge.** Adding one fillet to the
+example bracket renumbered every face of the part: the top of the arm went
+from face 5 to face 2, the loaded end from 7 to 5, the base from 8 to 7.
+So the edges are worked out from the two named regions on every build, by
+the same resolver the loads use.
+
+**A corner eats the faces beside it, and the selector keeps finding what is
+left.** Measured on the example bracket, whose loaded end face starts at
+1140 mm²: a 15 mm round leaves 240 mm², 18.9 mm leaves 6 mm², and 18.99 mm
+leaves **0.6 mm²** — with the load still resolving onto it, at a stress to
+match, and no error anywhere. The kernel refusing the round outright at
+19 mm is no protection, because the dangerous band is just below it.
+
+Two things address that. `openoptima doctor` prints every region's area at
+each end of the design range and says so out loud when one moves by more
+than about ten times. And a region can carry `min_area_mm2`, below which
+the design is refused as infeasible so the optimiser learns the boundary.
+There is no default: the right figure depends on what the face is for, and
+that is the engineer's call. See `examples/imported_bracket_fillet`.
 
 ---
 

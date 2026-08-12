@@ -314,7 +314,7 @@ class Handler(BaseHTTPRequestHandler):
         except ProjectLoadError as exc:
             return self._error(str(exc))
 
-        provider = create_provider(project.geometry)
+        provider = create_provider(project.geometry, project.regions)
         if hasattr(provider, "root"):
             # Same reasoning as _doctor: a relative geometry.source is
             # written relative to the project file, not to wherever the app

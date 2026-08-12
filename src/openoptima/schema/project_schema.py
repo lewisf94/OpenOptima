@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..domain.features import EdgeFeature, FeatureKind
 from ..domain.model import (
     BoundaryCondition,
     BucklingSettings,
@@ -104,12 +105,34 @@ class VariableSchema(Strict):
         )
 
 
+class FeatureSchema(Strict):
+    """A rounded or cut-back corner OpenOptima adds on top of the shape."""
+
+    name: str
+    kind: Literal["fillet", "chamfer"]
+    #: The two region names whose shared edges the feature is applied to.
+    between: tuple[str, str]
+    #: Millimetres, or the id of a design variable that supplies the number.
+    size: float | str
+    description: str = ""
+
+    def to_domain(self) -> EdgeFeature:
+        return EdgeFeature(
+            name=self.name,
+            kind=FeatureKind(self.kind),
+            between=self.between,
+            size=self.size,
+            description=self.description,
+        )
+
+
 class GeometrySchema(Strict):
     provider: Literal["occ", "cadquery", "step"] = "occ"
     template: str = ""
     source: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     variables: list[VariableSchema] = Field(default_factory=list)
+    features: list[FeatureSchema] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_source(self) -> GeometrySchema:
@@ -178,10 +201,17 @@ class RegionSchema(Strict):
     name: str
     selector: SelectorSchema
     description: str = ""
+    #: Smallest area this region may shrink to before the design is infeasible.
+    #: See ``domain/regions.py::SemanticRegion`` for the measured failure that
+    #: makes this worth setting when a feature can eat into the face.
+    min_area_mm2: float | None = None
 
     def to_domain(self) -> SemanticRegion:
         return SemanticRegion(
-            name=self.name, selector=self.selector.to_domain(), description=self.description
+            name=self.name,
+            selector=self.selector.to_domain(),
+            description=self.description,
+            min_area_mm2=self.min_area_mm2,
         )
 
 
@@ -507,6 +537,59 @@ class ProjectSchema(Strict):
             )
         return value
 
+    @model_validator(mode="after")
+    def _check_features(self) -> ProjectSchema:
+        """Catch a feature that names something that does not exist.
+
+        A typo here is worth ten seconds at load time rather than a failure
+        part way through a study. The size check matters most: ``size:
+        corner_radius`` with no variable of that name is not a small mistake,
+        it is a project that cannot build at all.
+        """
+        if not self.geometry.features:
+            return self
+        region_names = {region.name for region in self.regions}
+        value_names = set(self.geometry.parameters) | {
+            variable.id for variable in self.geometry.variables
+        }
+        seen: set[str] = set()
+        for feature in self.geometry.features:
+            if feature.name in seen:
+                raise ValueError(f"two features are both named {feature.name!r}")
+            seen.add(feature.name)
+            for name in feature.between:
+                if name not in region_names:
+                    known = ", ".join(sorted(region_names)) or "<none>"
+                    raise ValueError(
+                        f"feature {feature.name!r} sits between {feature.between[0]!r} "
+                        f"and {feature.between[1]!r}, but no region is named {name!r}. "
+                        f"Regions in this project: {known}"
+                    )
+            if feature.between[0] == feature.between[1]:
+                raise ValueError(
+                    f"feature {feature.name!r} names {feature.between[0]!r} on both "
+                    f"sides. A corner lies between two different faces."
+                )
+            if isinstance(feature.size, str):
+                if feature.size not in value_names:
+                    known = ", ".join(sorted(value_names)) or "<none>"
+                    raise ValueError(
+                        f"feature {feature.name!r} takes its size from {feature.size!r}, "
+                        f"which is not a design variable or a fixed parameter in this "
+                        f"project. Available: {known}"
+                    )
+            elif feature.size <= 0.0:
+                # A fixed size of zero is never valid, at any design point, so
+                # it belongs here rather than in the build. A design *variable*
+                # that can reach zero is a different matter -- that depends on
+                # the design and is refused per evaluation, as infeasible.
+                raise ValueError(
+                    f"feature {feature.name!r} has a size of {feature.size:g} mm. "
+                    f"{FeatureKind(feature.kind).size_meaning.capitalize()} must be "
+                    f"greater than zero."
+                )
+        return self
+
     def to_domain(self) -> Project:
         return Project(
             name=self.name,
@@ -518,6 +601,7 @@ class ProjectSchema(Strict):
                 template=self.geometry.template,
                 source=self.geometry.source,
                 parameters=dict(self.geometry.parameters),
+                features=tuple(feature.to_domain() for feature in self.geometry.features),
             ),
             design_space=DesignSpace(
                 tuple(variable.to_domain() for variable in self.geometry.variables)

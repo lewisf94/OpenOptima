@@ -101,6 +101,35 @@ class TestBuildingAView:
         assert data["shape_can_change"] is False
         assert data["checked_against"] == 0
 
+    def test_an_import_with_a_feature_shows_the_face_the_feature_made(self, app):
+        """The hazard this piece exists to close.
+
+        A description is written from what the viewer shows. If the viewer
+        showed the raw import, every description would be written against a
+        shape that exists at no point in the design range -- and the face the
+        fillet creates could not be picked at all, because it would not be
+        there. So the viewer builds through the features, and the extremes it
+        checks against are featured shapes too.
+        """
+        _status, data = post(
+            app,
+            "/api/faces/build",
+            {"path": str(EXAMPLES / "imported_bracket_fillet" / "project.yaml")},
+        )
+        # 11 faces on the bare import, 12 once the corner is rounded.
+        assert len(data["faces"]) == 12
+        assert data["shape_can_change"] is True
+        assert data["checked_against"] == 2
+
+        rounds = sorted(
+            (f for f in data["faces"] if f["surface_type"] == "cylinder"),
+            key=lambda f: f["area_mm2"],
+        )
+        # The added corner at the 6 mm default: a quarter cylinder 60 mm long,
+        # pi/2 * 6 * 60 = 565.5 mm2. Neither bolt hole nor the internal fillet
+        # is that size, so finding it proves the feature reached the viewer.
+        assert any(abs(f["area_mm2"] - 565.49) < 0.5 for f in rounds)
+
     def test_a_missing_project_is_a_clear_error(self, app):
         with pytest.raises(urllib.error.HTTPError) as info:
             post(app, "/api/faces/build", {"path": "/nowhere/project.yaml"})

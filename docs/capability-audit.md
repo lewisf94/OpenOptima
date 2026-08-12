@@ -369,6 +369,42 @@ rather than a solution, and which is tied to FreeCAD's document model.
 
 **Nothing to reuse.** This is the core problem OpenOptima exists to solve.
 
+### Adding a fillet or chamfer to an imported shape — Use ✔ done
+
+Cutting a rounded or flat corner into a solid, and doing it on an edge that
+is found rather than remembered.
+
+| Part of the job | Verdict |
+|---|---|
+| The solid modelling itself | **Use.** `gmsh.model.occ.fillet` and `.chamfer` are OpenCASCADE, the same kernel that already builds and imports every shape in the project. Writing a surface-blending algorithm would be absurd |
+| Deciding *which* edge | **Build.** This is region resolution again, and it is the thing OpenOptima exists to own |
+
+**Verdict: use OpenCASCADE for the geometry, own the naming.** No new
+dependency: this reaches the exact kernel already in use through the mesher
+that is already a hard requirement, so there was no licence to read and no
+version to pin.
+
+The split matters more than it looks. Every CAD kernel offers "fillet these
+edge numbers", and every edge number is worthless the moment the shape is
+rebuilt — measured here, adding one fillet renumbered every face of the
+part. So the reusable half is the blend surface, and the half that had to be
+written is a single call to `resolve_region` on each of the two faces the
+edge lies between. That is about thirty lines, and it is the only part of
+the operation that could have produced a plausible, wrong answer.
+
+**Verification was not inherited.** Following [ADR
+9](adr/0009-build-versus-reuse.md), OpenCASCADE's answer faces a check of its
+own: a fillet of radius *r* on a straight 90-degree corner of length *L* must
+remove `r²(1 − π/4)L` and a chamfer of size *s* must remove `s²L/2`. Both
+match to every digit measured — a 10 mm fillet removed 1287.61 mm³ against
+1287.6129 predicted, a 12 mm chamfer exactly 4320.00 mm³. That check also
+catches a feature landing on the wrong edge, which is the failure that
+actually worries us.
+
+**Not done: holes, pockets, wall offsets.** A hole needs a position on a
+face, which needs a coordinate convention and its own ambiguity rules. It is
+a separate piece of work, not a missing corner of this one.
+
 ### Telling a bad design from a broken run — Build
 
 No library models this, because no library owns the optimisation loop. A design

@@ -1,0 +1,167 @@
+# OpenOptima example: optimising a part you did not build in OpenOptima
+#
+# `examples/imported_bracket` shows the other half of this story -- an
+# imported CAD file evaluated exactly as drawn. It ends by saying there is
+# nothing to optimise, because a STEP file is a finished shape: the numbers
+# whoever drew it typed in are not in the file, only the surfaces those
+# numbers produced.
+#
+# This project is the answer to that. The imported shape still never changes.
+# What changes is a rounded corner OpenOptima adds *on top* of it, and that
+# radius is the design variable. So you can take a part out of SolidWorks and
+# optimise something about it without going back to SolidWorks.
+#
+# Run it:
+#   openoptima doctor   examples/imported_bracket_fillet/project.yaml
+#   openoptima evaluate examples/imported_bracket_fillet/project.yaml
+#   openoptima optimise examples/imported_bracket_fillet/project.yaml
+
+schema_version: 1
+name: Imported bracket with a corner OpenOptima rounds off
+description: >
+  The same imported L-bracket as examples/imported_bracket. OpenOptima adds
+  one rounded corner where the top of the horizontal arm meets the loaded end
+  face, and searches for the largest radius that still leaves enough face to
+  put the load on. Shows how a shape with no dimensions inside it can still
+  be given something to vary.
+
+unit_system: mm_N_MPa_t
+
+geometry:
+  provider: step
+  source: bracket.step
+
+  variables:
+    - id: corner_radius
+      type: continuous
+      minimum: 2.0
+      maximum: 16.0
+      default: 6.0
+      unit: mm
+      label: Corner radius
+      description: >
+        Radius of the round OpenOptima cuts into the top outer corner of the
+        arm. Bigger removes more metal, and eats further into the end face
+        the load is applied to.
+
+  # Applied in the order written, each to the shape the one before it left.
+  # The edges are never named by number: they are whatever `arm_top` and
+  # `load_face` have in common on the shape at that moment. Adding this one
+  # fillet renumbers every face of the part, which is exactly why.
+  features:
+    - name: outer_corner
+      kind: fillet          # a rounded corner; `chamfer` cuts it off flat instead
+      between: [arm_top, load_face]
+      size: corner_radius   # the design variable above; a plain number also works
+
+regions:
+  - name: mounting_face
+    description: Flat face bolted to the wall
+    selector:
+      surface_type: plane
+      normal: [-1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      prefer_largest: true
+
+  - name: arm_top
+    description: >
+      Top face of the horizontal arm. Named so the fillet has something to sit
+      against -- it must be findable both before the fillet is applied and
+      after, and `openoptima doctor` checks both.
+    selector:
+      surface_type: plane
+      normal: [0.0, 0.0, 1.0]
+      normal_tolerance_deg: 2.0
+      within_box: { xmin: 30.0, ymin: -1.0, zmin: 10.0, xmax: 121.0, ymax: 61.0, zmax: 25.0 }
+
+  - name: load_face
+    description: End face of the horizontal arm where the load is applied
+    # The floor below is this example's choice, not a property of the part.
+    # Without it the search would happily round the corner until the face it
+    # is loading is a sliver: measured on this shape, a 18.99 mm radius leaves
+    # 0.6 mm2 of it, the selector still finds it, and 2.5 kN goes onto a strip
+    # 1900 times smaller than the face that was picked -- with no error
+    # anywhere. 300 mm2 is roughly a quarter of the original 1140 mm2, and a
+    # different engineer would reasonably choose differently.
+    min_area_mm2: 300.0
+    selector:
+      surface_type: plane
+      normal: [1.0, 0.0, 0.0]
+      normal_tolerance_deg: 2.0
+      within_box: { xmin: 119.0, ymin: -1.0, zmin: -1.0, xmax: 121.0, ymax: 61.0, zmax: 91.0 }
+
+  - name: fillet_surface
+    description: Internal corner fillet — mesh-refined, and counted in the stress measure
+    selector:
+      surface_type: cylinder
+      within_box: { xmin: -1.0, ymin: -1.0, zmin: -1.0, xmax: 46.0, ymax: 61.0, zmax: 46.0 }
+
+material:
+  name: Aluminium 6082-T6
+  elastic_modulus_mpa: 70000.0
+  poisson_ratio: 0.33
+  density_kg_m3: 2700.0
+  allowable_stress_mpa: 160.0
+  allowable_stress_basis: "0.2% proof stress 260 MPa with a 1.6 design factor"
+
+load_cases:
+  - id: vertical_end_load
+    description: 2.5 kN downward at the end of the horizontal arm
+    boundary_conditions:
+      - region: mounting_face
+        kind: fixed
+        dofs: [1, 2, 3]
+    loads:
+      - kind: force
+        region: load_face
+        vector: [0.0, 0.0, -2500.0]
+
+mesh:
+  global_size: 6.0
+  minimum_size: 1.5
+  element_order: 2
+  algorithm: delaunay
+  curvature_refinement: true
+  curvature_elements: 12.0
+  local_refinements:
+    - region: fillet_surface
+      size: 2.0
+      distance: 12.0
+  min_scaled_jacobian: 0.05
+  volume_tolerance: 0.02
+
+stress_evaluation:
+  measure: percentile
+  percentile: 99.0
+  excluded_regions: [mounting_face]
+
+solver:
+  name: calculix
+  timeout_seconds: 900
+  threads: 1
+
+objectives:
+  - metric: mass_kg
+    direction: minimise
+    label: Mass
+
+constraints:
+  - metric: factor_of_safety
+    operator: greater_than_or_equal
+    value: 2.0
+    label: Factor of safety
+  - metric: displacement_max_mm
+    operator: less_than_or_equal
+    value: 1.0
+    label: Tip deflection
+
+optimisation:
+  initial_sampling:
+    method: lhs
+    evaluations: 6
+    seed: 1
+  algorithm:
+    name: nsga2
+    population_size: 8
+    evaluation_budget: 32
+    seed: 1

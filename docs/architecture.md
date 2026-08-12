@@ -130,6 +130,24 @@ coarse; it exists only so a mouse click has something to land on, tagged
 with the same face identity `regions/describe.py` already measures from
 the same build.
 
+**Selectors also decide where a feature goes.** An imported CAD file holds
+no dimensions, so OpenOptima can add its own rounded or cut-back corner on
+top of it and vary that instead (`geometry/features.py`). A feature never
+names an edge: it names the two regions the edge lies between, and the
+edges are the ones those regions have in common on the shape as it stands.
+This adds no new naming machinery — it calls `resolve_region` exactly as
+the loads do — and it has to, because adding one fillet to the example
+bracket renumbered every face of the part.
+
+Two consequences are worth stating. A region used by a feature must resolve
+on the shape *before* that feature is applied, as well as on the finished
+part, and the two are different shapes; the error message says which stage
+failed, because the fixes differ. And a feature eats into the faces beside
+it, which the selector goes on finding: measured, a face fell from 1140 to
+0.6 mm² with the load still landing on it. A region can carry
+`min_area_mm2` to make that an infeasible design; there is no default,
+because the right figure is an engineering judgement.
+
 **The same selectors also work on a shape with no CAD behind it.** A
 topology result arrives as a skin of triangles, so there is nothing to ask
 what a face is; every face is measured from the triangles instead

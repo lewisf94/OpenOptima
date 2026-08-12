@@ -285,6 +285,49 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     cannot work: a real first mode was measured at 18.6 Hz on a long thin
     beam, and at 419 Hz on a stubby one, both correct.
 
+15. **A feature eats the face beside it, and the selector keeps finding what
+    is left.** Adding a rounded corner where two faces meet trims both of
+    them back. The region selector goes on resolving to the remains, with no
+    error and nothing in the output to say the face is no longer the face
+    that was picked. Measured on the example bracket, whose loaded end face
+    starts at 1140 mm²: a 15 mm round leaves 240 mm², 18.9 mm leaves 6 mm²,
+    and **18.99 mm leaves 0.6 mm²** — a strip 1900 times smaller than the
+    face the user clicked, carrying the whole 2.5 kN.
+
+    The kernel refuses the round outright at 19.0 mm, and that loud failure
+    is worth nothing as protection: the dangerous band sits immediately
+    below the point where it starts refusing. There is no threshold the
+    software can pick here, because how small is too small depends on what
+    the face is *for*. So `SemanticRegion.min_area_mm2` is the engineer's
+    number with no default, enforced as **infeasible** in
+    `regions/matcher.py::_checked`, and `openoptima doctor` always reports
+    each region's area at both ends of the design range whether or not one
+    is set. Do not invent a default for it.
+
+    Two more things came out of the same work, both worth keeping in mind.
+    **Adding one fillet renumbered every face of the part** — 5→2, 7→5, 8→7,
+    nothing kept its number — which is why a feature names the two regions
+    an edge lies between rather than the edge. And a region used to place a
+    feature must resolve on the shape *before* that feature is applied as
+    well as on the finished part; those are different shapes, and the error
+    message has to say which one failed, because the fixes differ.
+
+16. **The mesher's retry ladder decided what not to retry from a hardcoded
+    list of failure codes.** Anything not on the list was retried at four
+    coarser settings and then reported as `MESH_GENERATION_FAILED` — an
+    infrastructure error. So an infeasible design arrived at the optimiser
+    as "we could not find out", teaching it nothing about a design it should
+    have learned to avoid, and costing four evaluations that could not have
+    succeeded. `MANUFACTURING_RULE_VIOLATED` had been falling through it
+    since the list was written; `REGION_TOO_SMALL` fell through it the day
+    it was added, which is how this was found.
+
+    It now asks `Outcome.INFEASIBLE` rather than naming codes, so a failure
+    code added later cannot reopen it. The general lesson: **where the
+    taxonomy already answers a question, ask the taxonomy.** A list of codes
+    that has to be kept in step with an enum will eventually not be.
+    `tests/unit/test_mesh_retry_classification.py` fails without the fix.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

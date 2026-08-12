@@ -143,6 +143,29 @@ class SemanticRegion:
     name: str
     selector: RegionSelector
     description: str = ""
+    #: Smallest total area, in mm^2, this region may shrink to before the
+    #: design counts as infeasible. ``None`` means no limit, which is the
+    #: default: the correct figure depends on what the region is *for*, and
+    #: OpenOptima will not invent it.
+    #:
+    #: **This exists because of a measured, silent failure.** A feature that
+    #: OpenOptima adds can eat into a face the user picked. On the example
+    #: bracket, rounding off the edge above the loaded end face -- a face
+    #: 19 mm tall, 1140 mm^2 -- with rounds of increasing size left it at
+    #: 240 mm^2 at 15 mm, 6 mm^2 at 18.9 mm, and **0.6 mm^2 at 18.99 mm**.
+    #: The selector resolved happily at every one of those. A 2.5 kN load
+    #: would have gone onto a strip 1900 times smaller than the face that was
+    #: clicked, at a stress to match, with no error anywhere.
+    #:
+    #: The kernel does refuse the round outright at 19 mm, which is loud --
+    #: but that is no protection at all, because the dangerous band sits just
+    #: below the point where it refuses.
+    #:
+    #: Setting this makes the collapse a fact about the design, so the
+    #: optimiser learns to avoid it. Leaving it unset is a legitimate choice
+    #: and ``openoptima doctor`` still reports the area at every size in the
+    #: design range, so the collapse is visible before a study starts.
+    min_area_mm2: float | None = None
 
 
 @dataclass(frozen=True)
