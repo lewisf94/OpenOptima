@@ -235,6 +235,20 @@ it reports a part nobody held as a set of zero-hertz modes with a successful
 exit code. Neither is documented and neither announces itself. Traps 13 and 14
 in `AGENTS.md`, and V14 in the verification plan.
 
+**A carried mass followed, and it was the missing half.** A frequency comes
+from stiffness and mass, and the parts that most need this check are the ones
+carrying something: a drone arm with a motor, a mount with a camera. Until
+`point_masses` landed, only the part's own mass counted, so `examples/drone_arm`
+read 191.4 Hz bare against 121.5 Hz with its 35 g motor — 58% high, in the
+reassuring direction. CalculiX has a `MASS` element, so again nothing needed
+inventing; and again the work was in what it does not tell you. A `MASS`
+element is not in the `Eall` element set, so the gravity load already being
+written left it weightless at 0.3843 N against 2.3463 N, with a clean exit.
+Trap 18, verified as V15.
+
+The general shape of both: **the calculation was never the risk, and reuse
+saved none of the verification.**
+
 ### Directional failure criteria — Build ✔ done
 
 Whether a material that is weaker in one direction than another has failed.

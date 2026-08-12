@@ -26,6 +26,31 @@ from ..optimisation.pareto import (
 from ..optimisation.study import StudyResult
 
 
+def _scope_caveat(project: Project) -> str:
+    """What this study did not look at.
+
+    Named from what the project actually switched on, rather than a fixed
+    sentence: a report that says "no dynamic effects considered" beside a
+    natural frequency constraint teaches a reader to stop believing the
+    caveats, which are the part of a report that most needs believing.
+    """
+    missing = ["fatigue", "contact", "plasticity", "large deflection"]
+    if not project.buckling.enabled:
+        missing.insert(0, "buckling")
+    covered = []
+    if project.buckling.enabled:
+        covered.append("buckling")
+    if project.modal.enabled:
+        covered.append("natural frequency")
+
+    ran = (
+        f"Linear static analysis, plus {' and '.join(covered)}."
+        if covered
+        else "Linear static analysis only."
+    )
+    return f"{ran} Not considered: {', '.join(missing)}."
+
+
 def _strength_caveat(material: AnyMaterial) -> str:
     """State the strength the factor of safety was measured against.
 
@@ -41,16 +66,19 @@ def _strength_caveat(material: AnyMaterial) -> str:
                 "its print layers than through them, and no directional strengths "
                 "were given. Stresses and deflections are unaffected."
             )
+        # `.strip()` because a YAML folded block ends with a newline, which
+        # would break the sentence across two bullet lines in the rendered
+        # report.
         return (
             f"{material.name} is printed, so it is weaker between its layers than "
             f"along them. Its weakest allowable is "
             f"{material.strength.weakest:g} MPa, on the basis: "
-            f"{material.strength.basis}. These are design decisions, not "
+            f"{material.strength.basis.strip()} These are design decisions, not "
             f"properties of the plastic."
         )
     return (
         f"Allowable stress is {material.allowable_stress:g} MPa on the basis: "
-        f"{material.allowable_stress_basis}."
+        f"{material.allowable_stress_basis.strip()}"
     )
 
 
@@ -277,8 +305,7 @@ def build_report(study: StudyResult, project: Project) -> str:
         )
         + ". The raw peak is recorded on every result and will be higher.\n"
         f"- {_strength_caveat(project.material)}\n"
-        "- Linear static analysis only: no buckling, fatigue, contact, plasticity or "
-        "dynamic effects have been considered.\n"
+        f"- {_scope_caveat(project)}\n"
     )
 
     warned = [r for r in study.front if r.warnings]

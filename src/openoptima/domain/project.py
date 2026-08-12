@@ -15,6 +15,7 @@ from .model import (
     LoadCase,
     MeshSpecification,
     ModalSettings,
+    PointMass,
     SolverSpecification,
     StressEvaluation,
 )
@@ -120,6 +121,9 @@ class Project:
     load_cases: tuple[LoadCase, ...]
     mesh: MeshSpecification
     objectives: tuple[Objective, ...]
+    #: Heavy things the part carries but is not made of -- a motor, a camera,
+    #: a battery. They add mass and weight, never stiffness. See ``PointMass``.
+    point_masses: tuple[PointMass, ...] = ()
     constraints: tuple[Constraint, ...] = ()
     solver: SolverSpecification = field(default_factory=SolverSpecification)
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
@@ -152,6 +156,16 @@ class Project:
         for name in self.stress_evaluation.excluded_regions:
             if name not in known_regions:
                 raise ValueError(f"stress_evaluation excludes unknown region {name!r}")
+        seen_masses: set[str] = set()
+        for point_mass in self.point_masses:
+            if point_mass.region not in known_regions:
+                raise ValueError(
+                    f"Point mass {point_mass.name!r} is attached to unknown region "
+                    f"{point_mass.region!r}. Defined regions: {sorted(known_regions)}"
+                )
+            if point_mass.name in seen_masses:
+                raise ValueError(f"Duplicate point mass name {point_mass.name!r}")
+            seen_masses.add(point_mass.name)
         for refinement in self.mesh.local_refinements:
             if refinement.region not in known_regions:
                 raise ValueError(f"Mesh refinement references unknown region {refinement.region!r}")
@@ -194,6 +208,7 @@ class Project:
             name=self.name,
             material=self.material,
             load_cases=self.load_cases,
+            point_masses=self.point_masses,
             stress_evaluation=self.stress_evaluation,
             element_order=self.mesh.element_order,
             buckling=self.buckling,
@@ -254,6 +269,12 @@ class Project:
                 for r in self.regions
             ],
             "material": _material_digest(self.material),
+            # A carried mass changes every natural frequency and every
+            # acceleration load, so a result computed without one is not a
+            # cache hit for a project that has one.
+            "point_masses": [
+                {"name": pm.name, "region": pm.region, "mass": pm.mass} for pm in self.point_masses
+            ],
             "load_cases": [
                 {
                     "id": lc.id,

@@ -900,6 +900,22 @@ it: the material, the loads, the mesh, the stress settings, and the exact
 program versions that produced it. If you change any of these, OpenOptima
 correctly ignores the old result.
 
+**Changing a limit is different, and it is handled differently.** If you
+decide you want a factor of safety of 2.5 instead of 2, none of the
+*numbers* change — the stress, the mass and the vibration rate of every
+design are exactly what they were. Only your view of which designs are
+acceptable has changed. So OpenOptima keeps the saved numbers, which saves
+a great deal of time, and re-decides pass or fail against your new limit.
+
+It is worth knowing that this used to be wrong, because it shows the shape
+of the mistake. OpenOptima used to save the *verdict* along with the
+numbers and hand back the old verdict. Lowering the drone arm example's
+vibration limit from 195 Hz to 170 Hz meant 30 of the next run's 50
+designs came back still judged against 195 — and one of them, a perfectly
+good 72 g design, was reported as unacceptable while the run went on to
+recommend a heavier one. Every number on screen was correct. Only the
+pass-or-fail beside them was answering a question you had already changed.
+
 ### The run folder
 
 Every analysis leaves behind a folder. That folder contains:
@@ -1079,23 +1095,45 @@ OpenOptima checks for it and refuses with `model_not_held`, naming the
 supports to look at. Getting a number here instead of a refusal would mean
 being told the frequency of a part held in a way you never described.
 
-**It cannot yet carry something heavy that is bolted to the part, and this
-is the limitation most likely to catch you out.** A natural frequency
-comes from stiffness and mass. OpenOptima counts the mass of the part
-itself, and nothing else. A motor on the end of an arm, a camera on a
-mount, a battery on a tray — none of it is there.
+**Tell it about anything heavy the part carries, or the answer is wrong.**
+A natural frequency comes from stiffness and mass, and on a part whose job
+is to carry something, the carried thing is usually most of the mass. A
+motor on the end of an arm, a camera on a mount, a battery on a tray:
 
-That is not a small correction. For the drone arm example, a bare 150 mm
-arm and the same arm carrying a 35 g motor differ by roughly a factor of
-two, and the error runs in the **reassuring** direction: OpenOptima
-reports the higher, safer-looking rate. An optimiser told to keep the
-frequency above the propeller's rate would happily choose a design sitting
-right on top of it.
+```yaml
+point_masses:
+  - name: motor
+    region: motor_pad     # the face it is bolted to
+    mass_kg: 0.035
+```
 
-So the drone arm example — the textbook case for this whole feature — has
-`modal.enabled: false`, deliberately. Use this on a part that carries only
-itself. On a part carrying something heavy, treat the number as an upper
-bound and nothing more.
+Measured on the drone arm example — same arm, same everything, the only
+difference being whether the 35 g motor is in the model:
+
+| | first natural frequency |
+|---|---|
+| With the motor | **121.5 Hz** |
+| Without it | **191.4 Hz** |
+
+The bare number is 58% high, and high is the **reassuring** direction. If
+you left the motor out and told OpenOptima to keep the arm above the
+propeller's rate, it would happily hand you a design sitting right on top
+of it.
+
+Two things to know about a carried mass:
+
+- **It is not counted in `mass_kg`.** That figure is the mass of the part
+  you print, which is what you are trying to reduce. The motor is not
+  something the optimiser can make lighter.
+- **It has weight as well as inertia.** If you apply an acceleration load
+  — the whole thing pulling *g* in a turn, say — the carried mass pulls
+  its share too.
+
+**What it does not model**, and both make the real frequency a little
+**lower** than the reported one, so treat the number as an upper bound:
+the carried thing is treated as having no size, so its centre of gravity
+sits on the mounting face rather than above it, and its resistance to
+being *rotated* is not counted.
 
 **What this does not tell you either**, and none of it is a small print
 detail:

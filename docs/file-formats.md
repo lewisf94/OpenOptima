@@ -13,7 +13,8 @@ Top-level sections:
 |---|---|
 | `geometry` | provider, template, fixed parameters, design `variables` |
 | `regions` | named selectors — never face indices |
-| `material` | properties plus `allowable_stress_basis` |
+| `material` | properties plus `allowable_stress_basis`, or a `printed` block for a 3D-printed part |
+| `point_masses` | heavy things the part carries but is not made of — a motor, a camera |
 | `load_cases` | independent analyses, each with loads and constraints |
 | `mesh` | sizes, order, algorithm, local refinements, quality gates |
 | `stress_evaluation` | which stress measure drives the objective |

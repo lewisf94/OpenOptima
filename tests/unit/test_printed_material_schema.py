@@ -314,7 +314,6 @@ def test_the_drone_arm_example_declares_a_printed_material() -> None:
     assert project.material.strength is not None
     # Printed flat on the bed: bending runs along the layers, the strong way.
     assert project.material.normalised_build_direction == (0.0, 0.0, 1.0)
-    # A number the analysis cannot see: switching buckling on must be refused,
-    # and switching modal on would report a bare arm with no motor on it.
+    # Buckling must stay off: the check that decides whether a buckling factor
+    # can be trusted needs one stiffness, and a print has two.
     assert not project.buckling.enabled
-    assert not project.modal.enabled

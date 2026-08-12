@@ -301,12 +301,21 @@ Five examples ship with OpenOptima:
 - **`l_bracket`** minimises the mass of an aluminium bracket carrying a
   2.5 kN load, with a factor of safety of at least 2 and under 1 mm of
   deflection.
-- **`drone_arm`** is one arm of a quadcopter, **3D printed in PLA**. A
-  printed part is weaker between its layers than along them, so it has no
+- **`drone_arm`** is one arm of a quadcopter, **3D printed in PLA**, and it
+  makes two points a stress check cannot.
+
+  A printed part is weaker between its layers than along them, so it has no
   single strength and von Mises stress cannot describe it. Changing only
-  the print direction on this example moves the factor of safety from 3.07
-  to 1.55 — while the stress stays at 7.53 against 7.54 MPa. The part is
-  half as strong and the stress does not move.
+  the print direction moves the factor of safety from 3.07 to 1.55 — while
+  the stress stays at 7.53 against 7.54 MPa. The part is half as strong and
+  the stress does not move.
+
+  It also carries a motor, and the motor is most of the moving mass. With
+  it the arm vibrates at 121.5 Hz and without it at 191.4 Hz, so leaving it
+  out reads 58% high in the direction that looks safe. The arm that stress
+  alone would choose passes at a factor of safety of 3.07 and sits right in
+  the range the propeller turns at. Sizing it clear of that takes it from
+  40.7 g to 72.7 g — nearly double, for a failure no stress check can see.
 - **`strut`** demonstrates buckling. At its lightest allowed section the
   stress factor of safety is 4.8, which looks very safe, while the
   buckling factor is 1.08 — within 8% of collapsing.

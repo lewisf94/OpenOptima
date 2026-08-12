@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 import traceback
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from ..domain.failures import (
@@ -294,21 +295,83 @@ class EvaluationPipeline:
 
     def _constraint_violations(self, metrics: dict[str, float]) -> dict[str, float]:
         """Evaluate hard constraints. Missing metrics are a setup error, not a pass."""
-        violations: dict[str, float] = {}
-        all_constraints = list(self.project.constraints) + list(
-            self.project.preferences.hard_limits
+        return constraint_violations(self.project, metrics)
+
+
+def constraint_violations(project: Project, metrics: dict[str, float]) -> dict[str, float]:
+    """Which of the project's hard limits this set of metrics breaks.
+
+    Module level rather than a method because a *cached* result has to be
+    judged by exactly the same rule as a fresh one -- see :func:`rejudge`.
+    """
+    violations: dict[str, float] = {}
+    all_constraints = list(project.constraints) + list(project.preferences.hard_limits)
+    for constraint in all_constraints:
+        if constraint.metric not in metrics:
+            raise EvaluationFailure(
+                FailureCode.INTERNAL_ERROR,
+                f"constraint refers to unknown metric {constraint.metric!r}. "
+                f"Available metrics: {sorted(metrics)}",
+            )
+        violation = constraint.violation(metrics[constraint.metric])
+        if violation > 0:
+            violations[constraint.describe()] = violation
+    return violations
+
+
+def rejudge(result: EvaluationResult, project: Project) -> EvaluationResult:
+    """Apply the project's *current* constraints to a result read from cache.
+
+    **A constraint threshold is not part of the evaluation hash, and must not
+    be.** Changing "factor of safety at least 2" to "at least 2.5" changes no
+    computed number: the stress, the mass and the frequency are all still
+    correct, and re-solving them would be waste. So the cache keeps serving
+    them, which is right.
+
+    What is *not* right is replaying the verdict that was stored alongside
+    them. Feasibility is a judgement about metrics against limits, and the
+    limits have moved. Measured on ``examples/drone_arm`` when its frequency
+    limit was lowered from 195 to 170 Hz: 30 of 50 designs in the next run
+    came back from cache carrying their old verdict, 9 of them marked
+    infeasible while actually clearing the new limit -- and the lightest of
+    those, 72.1 g at 175 Hz, beat the 72.7 g the run went on to report as its
+    best. The optimiser was told its own answer was unavailable.
+
+    Only a verdict that constraints decided is revisited. An infeasible design
+    that broke a manufacturing rule, lost a region to a feature or failed to
+    build is a fact about the shape, not about a limit, and no change to a
+    constraint makes it feasible.
+    """
+    decided_by_constraints = result.outcome is Outcome.OK or (
+        result.failure_code is FailureCode.ENGINEERING_CONSTRAINT_FAILED
+    )
+    if not decided_by_constraints or not result.metrics:
+        return result
+
+    violations = constraint_violations(project, result.metrics)
+    if violations == result.constraint_violations:
+        return result
+
+    if violations:
+        return replace(
+            result,
+            outcome=Outcome.INFEASIBLE,
+            state=EvaluationState.CHECKS_COMPLETE,
+            failure_code=FailureCode.ENGINEERING_CONSTRAINT_FAILED,
+            message="; ".join(
+                f"{name} violated by {value:.4g} (normalised)"
+                for name, value in sorted(violations.items())
+            ),
+            constraint_violations=violations,
         )
-        for constraint in all_constraints:
-            if constraint.metric not in metrics:
-                raise EvaluationFailure(
-                    FailureCode.INTERNAL_ERROR,
-                    f"constraint refers to unknown metric {constraint.metric!r}. "
-                    f"Available metrics: {sorted(metrics)}",
-                )
-            violation = constraint.violation(metrics[constraint.metric])
-            if violation > 0:
-                violations[constraint.describe()] = violation
-        return violations
+    return replace(
+        result,
+        outcome=Outcome.OK,
+        state=EvaluationState.ACCEPTED,
+        failure_code=None,
+        message="",
+        constraint_violations={},
+    )
 
 
 def outcome_of(code: FailureCode | None) -> Outcome:

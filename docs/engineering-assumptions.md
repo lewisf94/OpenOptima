@@ -427,6 +427,63 @@ Two further points that are easy to get wrong, and are handled for you:
 The directional strengths are **design decisions**, exactly like
 `allowable_stress_mpa`. OpenOptima will not infer them.
 
+## Things the part carries but is not made of
+
+A motor on the end of an arm, a camera on a mount, a battery on a tray.
+Declare them under `point_masses`:
+
+```yaml
+point_masses:
+  - name: motor
+    region: motor_pad
+    mass_kg: 0.035
+```
+
+**They add mass and weight, never stiffness.** The mass is spread evenly
+over the nodes of the named face.
+
+**This exists mostly because of natural frequency.** A frequency comes
+from stiffness and mass, and on a part whose job is to carry something the
+carried thing is most of the mass. Measured on `examples/drone_arm`, a
+150 mm arm carrying a 35 g motor:
+
+| | First natural frequency |
+|---|---|
+| Motor in the model | 121.5 Hz |
+| Motor left out | 191.4 Hz |
+
+The bare figure is 58% high, in the direction that looks safe.
+
+Three details that each change a number:
+
+- **A carried mass is not part of `mass_kg`.** That metric is the mass of
+  the part itself, which is what an optimiser can reduce. Including the
+  motor would change what "minimise mass" means and put an unremovable
+  35 g into every result.
+- **It has weight under an acceleration load.** A CalculiX `MASS` element
+  is not part of the `Eall` element set, so a gravity load naming only
+  `Eall` leaves it weightless — measured at 0.3843 N against 2.3463 N on
+  the V15 benchmark, with a clean exit and nothing in the log. OpenOptima
+  names every mass element set in every gravity load for that reason.
+- **The mass is split by node count, not by the consistent rule used for a
+  surface load.** The consistent weights integrate the element shape
+  functions, and for a quadratic face those integrals are zero at the
+  corner nodes and negative for some element types. That is correct for a
+  load. Applied to a mass it would put zero mass on the corners and a
+  negative mass elsewhere, and a negative mass makes an eigenvalue solve
+  meaningless. The total is exact either way, and the total is what sets
+  the frequency.
+
+**What is not modelled**, and both make the true frequency *lower* than
+the reported one, so treat the answer as an upper bound:
+
+- **The carried thing has no size.** Its centre of gravity is taken to lie
+  on the mounting face. A real motor's centre sits above its pad.
+- **No rotary inertia.** A carried item resists being turned as well as
+  being moved, and only the second is counted.
+
+Neither is large for a compact item on a slender part.
+
 ## Multiple load cases
 
 OpenOptima always **envelopes** load cases — it takes the worst result

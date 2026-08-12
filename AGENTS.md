@@ -372,6 +372,65 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     beso has nowhere to put an `*ORIENTATION`. Guessing which modulus to use
     would validate the answer against the wrong material, optimistically.
 
+18. **A CalculiX `MASS` element is not in `Eall`, so it has no weight.**
+    Gravity written as `Eall, GRAV, ...` — which is what the deck writer did
+    — never reaches a point mass. Measured on a 100 mm steel cantilever
+    carrying 0.2 kg: reaction 0.3843 N with `Eall` alone, the beam's own
+    weight, against 2.3463 N when both sets are named (hand calculation
+    2.3470). Exit code 0, nothing in the log. A part sized against an
+    acceleration case would have been sized without the thing it carries.
+    `deck.py::_write_gravity` names every mass set;
+    `tests/verification/test_point_mass.py` fails with exactly 0.3843 N if
+    that is removed.
+
+    **The mass is split between the face's nodes by count, not by the
+    consistent rule — and that is trap 5 inverted.** Trap 5 says to
+    integrate the shape functions for a surface *load*, because lumping
+    evenly is wrong. For a *mass* the same integral is the wrong answer: it
+    is exactly zero at the corner nodes of a quadratic face and negative for
+    some element types. A zero is merely odd; a **negative mass** makes an
+    eigenvalue solve return numbers with no physical meaning, and nothing
+    downstream would flag it. The total is exact either way, and the total is
+    what sets the frequency. So the rule is not "always integrate" — it is
+    *integrate what is conserved as a force, count what is conserved as a
+    quantity*.
+
+    Two things about the capability itself. **Leaving a carried mass out is
+    not a small error**: on `examples/drone_arm` the arm reads 191.4 Hz bare
+    and 121.5 Hz with its 35 g motor — 58% high, in the direction that looks
+    safe. And a carried mass is deliberately **not** added to `mass_kg`,
+    because that metric is what the optimiser is trying to reduce and the
+    motor is not something it can make lighter.
+
+19. **The cache stores a verdict as well as the numbers, and the verdict
+    goes stale when a limit moves.** A constraint threshold is deliberately
+    *not* in the evaluation hash, and must not be: changing "factor of
+    safety at least 2" to "at least 2.5" changes no computed number, so the
+    cached stress, mass and frequency are all still right and re-solving
+    them is waste. What was wrong was replaying the stored *feasibility*
+    alongside them.
+
+    Measured on `examples/drone_arm` when its frequency limit was lowered
+    from 195 to 170 Hz: **30 of the next run's 50 designs came back from
+    cache still carrying "First natural frequency >= 195"**, 9 of them
+    marked infeasible while their own stored frequency cleared 170. The
+    lightest of those was 72.1 g at 175.14 Hz — **lighter than the 72.7 g
+    the run went on to report as its best**. The optimiser was told its own
+    best answer was unavailable, and nothing in the output said so: the run
+    completed, every number in it was real, and only the verdict attached to
+    them was from a question nobody was asking any more.
+
+    `evaluation/pipeline.py::rejudge` re-applies the current constraints to
+    every cached result. Only a verdict that constraints decided is
+    revisited — an infeasible design that broke a manufacturing rule, lost a
+    region or failed to build is a fact about the shape, and no change to a
+    limit makes it buildable. `tests/unit/test_cached_constraint_rejudge.py`
+    fails in both directions without the fix.
+
+    The general lesson, and it is the wider one: **cache what was computed,
+    never what was concluded.** A derived judgement has to be re-derived,
+    because its inputs are not only the ones that went into the hash.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

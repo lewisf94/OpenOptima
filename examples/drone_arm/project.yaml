@@ -26,6 +26,18 @@
 #   openoptima optimise examples/drone_arm/project.yaml
 #   openoptima report   examples/drone_arm/project.yaml
 #
+# WHAT IT FINDS. 50 designs, 16 of them usable, no errors, about three
+# minutes. The answer is a 26 x 26 mm box with a 2.2 mm wall: 72.7 g, a
+# factor of safety of 5.2, and vibrating at 177 Hz.
+#
+# Sized on strength alone the same arm comes out at 40.7 g. Staying clear of
+# the propeller costs 32 g, nearly doubling it -- and a stress check would
+# never have asked. That is the point of the example.
+#
+# Note the shape of the answer: a big section with a thin wall. Stiffness is
+# what matters here, and stiffness comes from how far the material sits from
+# the centre, not from how much of it there is.
+#
 # WHICH WAY UP YOU PRINT IT IS A STRUCTURAL DECISION, NOT A WORKSHOP ONE.
 # `build_direction` below says the layers stack upward, which is what you get
 # by laying the arm flat on the bed. That is the right way round for this
@@ -166,6 +178,19 @@ material:
         2.5, at room temperature. PLA softens badly in the sun or beside a
         warm motor: these numbers do not apply above about 50 C.
 
+# The motor is carried by the arm, not part of it. It adds weight and inertia
+# but no strength. This is what makes the vibration check below mean anything:
+# on a 150 mm arm the motor is most of the moving mass, and leaving it out
+# reports a rate far higher than the real one.
+point_masses:
+  - name: motor
+    region: motor_pad
+    mass_kg: 0.035
+    description: >
+      A 2207-size brushless motor with its propeller. Weigh yours: motors of
+      the same nominal size vary by 10 g or more between makes, and this
+      number moves the frequency more than any dimension of the arm does.
+
 load_cases:
   # Both cases hold the arm the same way -- bolted flat to the centre plate,
   # which restrains it in all three directions. OpenOptima ENVELOPES load
@@ -232,22 +257,20 @@ stress_evaluation:
 buckling:
   enabled: false
 
-# NATURAL FREQUENCY IS DELIBERATELY OFF, AND THIS IS THE IMPORTANT CAVEAT IN
-# THIS FILE.
+# What rates the arm likes to vibrate at. A drone arm beside a spinning
+# propeller is the textbook case: the propeller drives the arm at a known
+# rate, and if that rate lands on one of the arm's own, small pushes build
+# into large movements and the arm cracks -- under a load it would carry all
+# day if it were steady.
 #
-# A drone arm beside a spinning propeller is the textbook case for checking
-# what rates a part likes to vibrate at, and OpenOptima can compute them. It
-# is switched off here because it cannot yet put the motor's mass on the end
-# of the arm, and the motor is most of what sets the answer. The frequency it
-# would report is a bare arm's -- roughly twice the real one, in the direction
-# that looks safe. An optimiser told to keep the frequency above the
-# propeller's rate would happily pick a design that is actually sitting right
-# on it.
-#
-# So it stays off until OpenOptima can carry a lumped mass. Do not turn it on
-# and read the number as a resonance check.
+# THIS NUMBER IS ONLY MEANINGFUL BECAUSE THE MOTOR IS IN THE MODEL. The motor
+# is most of the moving mass on a 150 mm arm. Measured on this example, with
+# the motor 121.5 Hz and without it 191.4 Hz -- 58% high, in the direction
+# that looks safe. Delete the `point_masses` block above and the number stays
+# plausible while being wrong.
 modal:
-  enabled: false
+  enabled: true
+  modes: 6
 
 solver:
   name: calculix
@@ -274,6 +297,30 @@ constraints:
     operator: less_than_or_equal
     value: 3.0
     label: Tip movement
+
+  # Keep the arm's own rate clear of the propeller's.
+  #
+  # The arithmetic, so you can redo it for your own aircraft. A 7-inch
+  # propeller making the 900 gf each motor needs here turns at roughly 6500
+  # rpm, and tops out near 8000 at full throttle. A propeller that is even
+  # slightly out of balance shakes the arm once per turn, so 8000 rpm is
+  # 8000/60 = 133 shakes a second, or 133 Hz. Asking for 170 Hz leaves about
+  # 25% margin above that.
+  #
+  # BOTH NUMBERS ARE THIS EXAMPLE'S CHOICE, AND YOURS WILL DIFFER. The top
+  # rate depends on your motor, propeller and battery -- measure it rather
+  # than taking 8000 from here. How much margin is enough depends on how well
+  # balanced your propellers are and on what happens if an arm fails.
+  #
+  # This constraint is what makes the example worth running. On stress alone
+  # the starting design passes comfortably at a factor of safety of 3.07 --
+  # and it vibrates at 121.5 Hz, inside the range the propeller turns at. A
+  # stress check cannot see that at all, and the arm that avoids it is about
+  # twice the mass of the one stress alone would have chosen.
+  - metric: natural_frequency_hz
+    operator: greater_than_or_equal
+    value: 170.0
+    label: First natural frequency
 
 optimisation:
   initial_sampling:

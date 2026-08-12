@@ -137,6 +137,15 @@ def command_doctor(args: argparse.Namespace) -> int:
     print(f"Setup digest : {project.setup_digest()}")
     print(f"Variables    : {len(project.design_space)} -> {', '.join(project.design_space.ids)}")
     print(f"Regions      : {', '.join(r.name for r in project.regions)}")
+    if project.point_masses:
+        # Worth its own line: a carried mass is usually most of what sets a
+        # natural frequency, and it is a number the user typed rather than one
+        # the software measured. Seeing it here beats finding out afterwards
+        # that the motor weighs what last year's motor weighed.
+        carried = ", ".join(
+            f"{pm.name} {pm.mass_kg:g} kg on {pm.region}" for pm in project.point_masses
+        )
+        print(f"Carrying     : {carried}")
     print(f"Parallel jobs: {default_job_count(project.optimisation.parallel_jobs)}")
     print()
 
@@ -728,28 +737,39 @@ def command_report(args: argparse.Namespace) -> int:
 
 
 def _record_to_result(record: dict, project: Project):
+    """Rebuild a stored result, judged against the project as it stands now.
+
+    The stored verdict was reached under whatever limits were in force when
+    the design was solved. If any have moved since, replaying it would report
+    a design as failing a limit it now passes -- see ``pipeline.rejudge``. The
+    measured numbers are untouched; only pass or fail is worked out again.
+    """
     import json
 
     from ..domain.failures import EvaluationState, FailureCode
     from ..domain.results import EvaluationResult
+    from ..evaluation.pipeline import rejudge
 
     try:
         design = project.design_space.decode(json.loads(record["design_json"]))
     except Exception:
         return None
-    return EvaluationResult(
-        design=design,
-        outcome=Outcome(record["outcome"]),
-        state=EvaluationState(record["state"]),
-        metrics=json.loads(record["metrics_json"]),
-        constraint_violations=json.loads(record["violations_json"]),
-        failure_code=FailureCode(record["failure_code"]) if record["failure_code"] else None,
-        message=record["message"],
-        warnings=json.loads(record["warnings_json"]),
-        run_id=record["run_id"],
-        run_directory=record["run_directory"],
-        evaluation_hash=record["evaluation_hash"],
-        wall_time=record["wall_time"],
+    return rejudge(
+        EvaluationResult(
+            design=design,
+            outcome=Outcome(record["outcome"]),
+            state=EvaluationState(record["state"]),
+            metrics=json.loads(record["metrics_json"]),
+            constraint_violations=json.loads(record["violations_json"]),
+            failure_code=FailureCode(record["failure_code"]) if record["failure_code"] else None,
+            message=record["message"],
+            warnings=json.loads(record["warnings_json"]),
+            run_id=record["run_id"],
+            run_directory=record["run_directory"],
+            evaluation_hash=record["evaluation_hash"],
+            wall_time=record["wall_time"],
+        ),
+        project,
     )
 
 

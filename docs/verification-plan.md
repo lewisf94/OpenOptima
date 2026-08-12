@@ -640,6 +640,62 @@ rather than discarding the zeros and answering a question nobody asked.
 - **No answer for how long it survives.** Vibration is what drives the
   load cycles that break a part by fatigue, and fatigue is not built yet.
 
+### V15 — Something heavy bolted on really is carried
+
+`tests/verification/test_point_mass.py`
+
+V14 above answers for a part carrying only itself. Most parts that need a
+vibration check are not like that: a drone arm carries a motor, a mount
+carries a camera, a tray carries a battery. That carried weight is usually
+most of the moving mass, so leaving it out does not shift the answer
+slightly — it changes it completely, in the direction that looks safe.
+
+The same 100 x 10 x 5 mm steel cantilever as V14, now carrying 0.2 kg on
+its free end. Against the closed form for a cantilever with a tip mass,
+where `M_eff` adds the standard 0.2235 share of the beam's own mass:
+
+    f = (1 / 2 pi) sqrt( 3 E I / (L^3 M_eff) )
+
+| | OpenOptima | Published | Difference |
+|---|---|---|---|
+| Bare (V14) | 418.88 Hz | 417.8 Hz | +0.26% |
+| Carrying 0.2 kg | 89.332 Hz | 89.232 Hz | **+0.11%** |
+
+**The bare answer is 4.69 times the real one.** That is the whole case for
+this benchmark existing.
+
+The second mode is the same beam bending the stiff way. The section is
+10 x 5, so its second moment of area differs by exactly 4 and its
+frequency by exactly 2 — measured 1.9901. That ratio depends only on the
+shape, so it catches an error in the material, the units or the mass that
+a single absolute frequency could not.
+
+**The second half of this benchmark is gravity, and it is the half that
+failed silently.** A CalculiX `MASS` element is not in the `Eall` element
+set, so a gravity load naming only `Eall` never reaches it:
+
+| Gravity applied to | Support reaction |
+|---|---|
+| `Eall` only | 0.3843 N — the beam alone |
+| `Eall` and the mass set | 2.3463 N (hand calculation 2.3470) |
+
+The first figure comes back with exit code 0 and nothing in the solver
+log. A part sized against an acceleration case would have been sized
+without the thing it is carrying. The test fails with exactly that number
+if the fix is removed.
+
+**What this does not cover**, and both leave the reported frequency
+slightly higher than the real one:
+
+- **The carried thing has no size.** Its mass is spread over the face it
+  is attached to, so its centre of gravity is taken to lie on that face. A
+  real motor's centre sits above its mounting pad.
+- **No turning inertia.** A carried item resists being rotated as well as
+  being moved, and only the second is modelled.
+
+Neither is large for a compact item on a slender part, but both run the
+same way, so the number is an upper bound rather than an exact answer.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

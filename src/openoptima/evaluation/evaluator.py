@@ -19,7 +19,7 @@ from ..domain.results import EvaluationResult
 from ..domain.variables import DesignVector
 from ..storage.database import ResultStore
 from .cache import evaluation_hash
-from .pipeline import EvaluationPipeline
+from .pipeline import EvaluationPipeline, rejudge
 from .runspace import tool_versions
 
 
@@ -99,7 +99,7 @@ class Evaluator:
         if use_cache:
             cached = self.store.cached_result(digest, self.project.design_space)
             if cached is not None:
-                return cached
+                return rejudge(cached, self.project)
 
         attempts = max(1, self.project.optimisation.max_retries + 1)
         result = self.pipeline.evaluate(design, digest)
@@ -146,9 +146,10 @@ class Evaluator:
             if use_cache:
                 cached = self.store.cached_result(digest, self.project.design_space)
                 if cached is not None:
-                    results[index] = cached
+                    judged = rejudge(cached, self.project)
+                    results[index] = judged
                     if on_result:
-                        on_result(cached)
+                        on_result(judged)
                     continue
             pending.append((index, design, digest))
 

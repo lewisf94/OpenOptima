@@ -545,24 +545,36 @@ fatigue.
    part can matter more than any dimension on it, and the numbers above are
    the evidence.
 
-2. **A lumped mass, so vibration works on a part that carries something.**
-   Natural frequency comes from stiffness and mass, and OpenOptima counts
-   only the mass of the part itself. A motor on the end of a drone arm, a
-   camera on a mount, a battery on a tray — none of it is there, and it is
-   usually most of what sets the answer.
+2. **A lumped mass, so vibration works on a part that carries something —
+   done.** Natural frequency comes from stiffness and mass, and OpenOptima
+   used to count only the mass of the part itself. A motor on the end of a
+   drone arm, a camera on a mount, a battery on a tray — none of it was
+   there, and it is usually most of what sets the answer.
 
-   Measured effect: for the 150 mm arm in `examples/drone_arm`, adding a
-   35 g motor at the tip roughly halves the first natural frequency. The
-   error runs in the **reassuring** direction, so an optimiser told to keep
-   the frequency above the propeller's rate would select a design sitting
-   on top of it.
+   `point_masses` now attaches one to a named face. Measured on the 150 mm
+   arm in `examples/drone_arm`: **121.5 Hz with its 35 g motor against
+   191.4 Hz without** — the bare figure 58% high, in the reassuring
+   direction. Verified as V15 against the closed-form tip-mass cantilever,
+   agreeing to +0.11%.
 
-   This is why that example ships with `modal.enabled: false` despite a
-   drone arm beside a propeller being the textbook case for the feature.
-   The capability is not trustworthy for the part it most obviously suits.
-   CalculiX supports a point mass natively (`*MASS`), so the work is in the
-   schema, the deck writer and a verification benchmark against the
-   closed-form tip-mass cantilever — not in the solver.
+   That let the same example turn its vibration check on, and the result is
+   the point of the example now. The design that stress alone would pick
+   passes at a factor of safety of 3.07 and vibrates at 121.5 Hz, right in
+   the range the propeller turns at. Sized clear of it — 50 designs, 16
+   feasible, no errors, three minutes — the answer is **72.7 g at 177 Hz
+   against 40.7 g on stress alone**: 32 g, nearly double, for a failure no
+   stress check can see.
+
+   One trap found in the doing, recorded as trap 18 in `AGENTS.md`: a
+   CalculiX `MASS` element is not in the `Eall` element set, so the gravity
+   load the deck already wrote left it weightless — 0.3843 N against
+   2.3463 N — with a clean exit and nothing in the log.
+
+   **Still to do here:** a carried item is treated as having no size, so its
+   centre of gravity sits on the mounting face and it has no resistance to
+   being turned. Both make the reported frequency slightly higher than the
+   true one. An offset centre of gravity and a rotary inertia would close
+   that, and CalculiX supports both.
 
 3. **Print rules as a trade-off, not a hard limit.** Overhang angle,
    minimum wall thickness for the nozzle, and build-volume fit.

@@ -26,6 +26,7 @@ from ..domain.model import (
     MeshAlgorithm,
     MeshSpecification,
     ModalSettings,
+    PointMass,
     SolverSpecification,
     StressEvaluation,
 )
@@ -398,6 +399,32 @@ class MaterialSchema(Strict):
         )
 
 
+class PointMassSchema(Strict):
+    """Something heavy the part carries but is not made of.
+
+    A motor on the end of an arm, a camera on a mount, a battery on a tray.
+    It is spread over the face named by ``region``, and it adds mass and
+    weight but no stiffness.
+
+    This matters most for natural frequency, where the carried thing is
+    usually most of the mass. See ``domain/model.py::PointMass`` for what it
+    does not model.
+    """
+
+    name: str
+    region: str
+    mass_kg: float
+    description: str = ""
+
+    def to_domain(self) -> PointMass:
+        return PointMass.from_engineering_units(
+            name=self.name,
+            region=self.region,
+            mass_kg=self.mass_kg,
+            description=self.description,
+        )
+
+
 class LoadSchema(Strict):
     kind: Literal["force", "pressure", "acceleration"] = "force"
     region: str | None = None
@@ -680,6 +707,7 @@ class ProjectSchema(Strict):
     geometry: GeometrySchema
     regions: list[RegionSchema]
     material: MaterialSchema
+    point_masses: list[PointMassSchema] = Field(default_factory=list)
     load_cases: list[LoadCaseSchema]
     mesh: MeshSchema
     objectives: list[ObjectiveSchema]
@@ -773,6 +801,7 @@ class ProjectSchema(Strict):
             regions=tuple(region.to_domain() for region in self.regions),
             material=self.material.to_domain(),
             failure_criterion=self.material.failure_criterion,
+            point_masses=tuple(mass.to_domain() for mass in self.point_masses),
             load_cases=tuple(case.to_domain() for case in self.load_cases),
             mesh=self.mesh.to_domain(),
             objectives=tuple(objective.to_domain() for objective in self.objectives),

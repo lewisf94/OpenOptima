@@ -71,6 +71,55 @@ class Material:
 AnyMaterial = Material | OrthotropicMaterial
 
 
+@dataclass(frozen=True)
+class PointMass:
+    """Something heavy bolted to the part that is not part of the part.
+
+    A motor on the end of an arm, a camera on a mount, a battery on a tray.
+    It adds weight and it adds inertia, but no stiffness: it is carried, not
+    structural.
+
+    **This is here mainly because of what it does to natural frequency.** A
+    frequency comes from stiffness and mass, and for a part carrying something
+    heavy the carried thing is most of the mass. Leaving it out does not shift
+    the answer slightly -- measured on a 100 mm cantilever, a 0.2 kg mass on
+    the end took the first mode from 418.88 Hz to 89.33 Hz. The error runs in
+    the reassuring direction, so a search told to keep a part clear of some
+    driving rate would happily choose one sitting on top of it.
+
+    **What this does not model, and both make the real frequency lower than
+    the one reported.** The mass is spread over the face it is attached to, so
+    its centre of gravity is taken to lie *on* that face. A real motor's centre
+    sits above its mounting pad, which adds a turning inertia this does not
+    carry. Neither effect is large for a compact item on a slender part, and
+    both leave the answer slightly optimistic. Say so rather than implying the
+    number is exact.
+    """
+
+    name: str
+    #: The region it is attached to. The mass is spread over that face's nodes.
+    region: str
+    #: Internal units: tonnes. Use :meth:`from_engineering_units` for kg.
+    mass: float
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if self.mass <= 0:
+            raise ValueError(
+                f"Point mass {self.name!r} must weigh more than nothing, received {self.mass:g} t"
+            )
+
+    @classmethod
+    def from_engineering_units(
+        cls, *, name: str, region: str, mass_kg: float, description: str = ""
+    ) -> PointMass:
+        return cls(name=name, region=region, mass=mass_kg * 1.0e-3, description=description)
+
+    @property
+    def mass_kg(self) -> float:
+        return self.mass * 1.0e3
+
+
 class ConstraintKind(str, Enum):
     FIXED = "fixed"
     PRESCRIBED_DISPLACEMENT = "prescribed_displacement"
@@ -360,6 +409,9 @@ class AnalysisModel:
     name: str
     material: AnyMaterial
     load_cases: tuple[LoadCase, ...]
+    #: Heavy things carried by the part but not part of it. They add mass and
+    #: weight, never stiffness. See :class:`PointMass`.
+    point_masses: tuple[PointMass, ...] = ()
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     element_order: int = 2
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
