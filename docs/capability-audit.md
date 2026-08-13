@@ -218,6 +218,23 @@ surface against the build direction. OpenOptima decides what that means — and
 the decision is the part worth building, because printability must be a
 trade-off the user sets, not a gate that silently deletes good designs.
 
+**Confirmed against the installed version (2026-08-13), not just the docs
+page.** Nothing here is blocked; the three sub-capabilities differ in how much
+judgement sits on top of the library call.
+
+| Sub-capability | trimesh gives you | What OpenOptima still has to decide |
+|---|---|---|
+| Overhang | `mesh.face_normals`, `mesh.area_faces` — direct arrays | The critical angle (a manufacturing setting, not a material constant), and how to turn per-face angles into one number: worst angle, or area beyond the threshold |
+| Wall thickness | `trimesh.proximity.thickness(mesh, points, method='max_sphere'\|'ray')` — confirmed present | Which points to sample. Too sparse and it can miss a genuinely thin sliver the same way `min_area_mm2` exists because a region can shrink to 0.6 mm² with no selector noticing — trap 15 in `AGENTS.md`. The library computes an established primitive; sampling density is still ours to get right and verify |
+| Build volume | None needed — a bounding-box comparison | Which model axis is "up" depends on `build_direction`, which may itself be a design variable (`examples/drone_arm`). Mapping the wrong axis to the bed's height is the same shape of mistake as trap 2: a sign applied where it should not be, plausible and silently wrong |
+
+So: **use the library for the geometry query, own the threshold and the
+sampling** — the split this audit's own verdict already implies, stated in
+enough detail that implementing it does not start by re-deriving this table.
+Building any of the three touches a computed metric the optimiser will trade
+mass against, so it is Opus work under this project's own model-selection
+rule, not "mostly wiring."
+
 ### Modal analysis — Build ✔ done
 
 The frequencies a part naturally vibrates at.
