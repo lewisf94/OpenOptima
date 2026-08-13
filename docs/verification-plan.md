@@ -684,17 +684,63 @@ log. A part sized against an acceleration case would have been sized
 without the thing it is carrying. The test fails with exactly that number
 if the fix is removed.
 
-**What this does not cover**, and both leave the reported frequency
-slightly higher than the real one:
+**What this does not cover.** The carried thing has no size here: its mass
+is spread over the face it bolts to, so its middle is taken to lie in that
+face and it is taken not to resist being turned. Both leave the reported
+frequency higher than the real one. **V16 below covers that**, and a
+carried item that still has no size is reported as one.
 
-- **The carried thing has no size.** Its mass is spread over the face it
-  is attached to, so its centre of gravity is taken to lie on that face. A
-  real motor's centre sits above its mounting pad.
-- **No turning inertia.** A carried item resists being rotated as well as
-  being moved, and only the second is modelled.
+### V16 — A carried item has a size, and the size changes the answer
 
-Neither is large for a compact item on a slender part, but both run the
-same way, so the number is an upper bound rather than an exact answer.
+`tests/verification/test_carried_size.py`
+
+V15 proves something bolted on is carried at all. It was still carried
+flat. A real motor's middle sits above its pad and it is a solid object
+that resists being turned, and both make the part vibrate more slowly.
+
+This matters more than its size suggests, because the error only ever runs
+one way — the reported frequency is too high — and a search converges onto
+a constraint boundary by construction. So every design it returns sits
+exactly where that error bites. Measured on `examples/drone_arm`, a 35 g
+motor 28 mm across and 32 mm tall reads **169.8 Hz flat and 165.5 Hz where
+it really sits**, across the 170 Hz limit that example holds the arm to.
+
+The same 100 x 10 x 5 mm steel cantilever, carrying 0.2 kg on its free end,
+now with a shape and a height. Two freedoms at the tip — how far it moves
+and how far it tilts — with the standard cantilever flexibility:
+
+    w = F L^3/3EI + M L^2/2EI
+    t = F L^2/2EI + M L  /EI
+
+An item whose middle sits `e` beyond the tip and resists turning by `J`
+about its own middle moves by `w + e t`, so it weighs
+`[[m, m e], [m e, m e^2 + J]]` in those two freedoms. The lowest frequency
+is the largest eigenvalue of flexibility times mass.
+
+| Carried item | OpenOptima | Closed form | Difference |
+|---|---|---|---|
+| No size (V15 again) | 89.3320 Hz | 89.2315 Hz | +0.11% |
+| Cylinder 4 across, 10 tall | 83.2489 Hz | 83.1035 Hz | +0.17% |
+| Cylinder 4 across, 20 tall | 77.7067 Hz | 77.5513 Hz | +0.20% |
+| Cylinder 4 across, 40 tall | 68.1554 Hz | 67.9979 Hz | +0.23% |
+| Box 8 x 8 x 20 | 77.6771 Hz | 77.5217 Hz | **+0.20%** |
+
+The residual is the beam's own mass, added as a fixed 0.2235 share at the
+tip while the real share moves with the mode shape. It is the only
+approximation in the comparison, which is why every row sits about 0.2%
+above rather than scattering.
+
+**A published cross-check needing no solver.** A slender item standing on
+the face resists turning *about that face* by exactly `m h^2 / 3` — the
+textbook value for a uniform rod about its end. That figure is the sum of
+two separate pieces of code, the shift of the middle away from the face and
+the item's own resistance about its middle, so an error in either fails it.
+
+**What this does not cover.** The item is treated as a uniform solid, and a
+real motor is not. Assuming uniform puts its middle half way up, which is
+**not guaranteed to be on the safe side**: a motor carrying a propeller on
+top has its weight higher than that, and the true frequency is lower than
+the reported one. `centre_height_mm` exists for when that is known.
 
 ### V8 — NAFEMS benchmarks
 

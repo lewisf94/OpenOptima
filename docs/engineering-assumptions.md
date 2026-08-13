@@ -503,15 +503,61 @@ Three details that each change a number:
   meaningless. The total is exact either way, and the total is what sets
   the frequency.
 
-**What is not modelled**, and both make the true frequency *lower* than
-the reported one, so treat the answer as an upper bound:
+### How big it is
 
-- **The carried thing has no size.** Its centre of gravity is taken to lie
-  on the mounting face. A real motor's centre sits above its pad.
-- **No rotary inertia.** A carried item resists being turned as well as
-  being moved, and only the second is counted.
+Without a `size`, a carried item is flat: its middle lies in the mounting
+face and it does not resist being turned. Both make the reported frequency
+higher than the real one, and `openoptima doctor` and every result say so
+rather than leaving it implied.
 
-Neither is large for a compact item on a slender part.
+```yaml
+    size:
+      shape: cylinder          # or box, which also needs depth_mm
+      across_mm: 28.0          # the diameter, for a cylinder
+      height_mm: 32.0          # straight up off the face
+      # centre_height_mm: 21.0 # where its middle sits, if not half way
+```
+
+Measured on `examples/drone_arm` at the section it settles on:
+
+| | First natural frequency |
+|---|---|
+| Motor flat against the pad | 169.8 Hz |
+| Motor 16 mm up, no bulk | 166.6 Hz |
+| Motor where it really sits | **165.5 Hz** |
+
+The height is 85% of the correction and the motor's own bulk the other
+15%. Verified as V16 to +0.23% at worst against a two-freedom closed form.
+
+**This is 2.5%, and 2.5% matters here.** The error only ever runs one way,
+and an optimiser converges onto a constraint boundary by construction, so
+every design it returns sits exactly where that error bites. The 170 Hz
+limit in that example separates the two rows above.
+
+Three things about how this is done:
+
+- **The item is a group of point masses held rigidly to the face.**
+  CalculiX 2.21 has no rotary inertia element, so resistance to turning
+  cannot be asked for directly. Seven masses reproduce a real item's mass,
+  middle and turning resistance exactly, and once the group is rigid those
+  three are the only properties that reach the solve.
+- **A rigid tie, not a distributing coupling.** The gentler attachment
+  silently drops the whole effect: measured with the identical item at the
+  identical place, `*DISTRIBUTING COUPLING` gave 170.293 Hz against
+  166.572 Hz — within 0.02 Hz of the answer for an item with no height at
+  all. The rigid tie's own cost was measured: +0.29% on the first mode and
+  nothing at all on the stress, 4.4517 against 4.4512 MPa.
+- **A face that is not flat is refused, not averaged.** A sized item has to
+  stand off its face in *some* direction, and a curved or folded region has
+  no single answer. Picking one would put the item somewhere nobody asked
+  for and report a plausible frequency. `CARRIED_MASS_UNPLACEABLE`, an
+  infrastructure error rather than a bad design.
+
+**What is still not modelled.** The item is treated as a uniform solid, so
+its middle sits half way up unless `centre_height_mm` says otherwise. That
+is **not guaranteed to be on the safe side**: a motor carrying a propeller
+on top has its weight higher than the middle, and the true frequency is
+lower than the reported one.
 
 ## Multiple load cases
 

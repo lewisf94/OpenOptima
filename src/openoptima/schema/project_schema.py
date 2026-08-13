@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..domain.carried import CarriedShape, CarriedSize
 from ..domain.failure_criteria import criterion_for
 from ..domain.features import EdgeFeature, FeatureKind
 from ..domain.model import (
@@ -449,22 +450,67 @@ class MaterialSchema(Strict):
         )
 
 
+class CarriedSizeSchema(Strict):
+    """How big a carried item is, so it can be put where it really sits.
+
+    ``height_mm`` is measured straight up off the face it bolts to.
+    ``across_mm`` and ``depth_mm`` are the two directions in the plane of that
+    face; a cylinder uses ``across_mm`` as its diameter and ignores
+    ``depth_mm``.
+
+    The item is treated as a uniform solid of this size, so its middle sits at
+    half the height unless ``centre_height_mm`` says otherwise. That is not
+    guaranteed to be on the safe side: a motor with a propeller on top has its
+    middle higher, and the real frequency is lower than the reported one.
+    """
+
+    shape: Literal["cylinder", "box"]
+    across_mm: float
+    depth_mm: float = 0.0
+    height_mm: float
+    centre_height_mm: float | None = None
+
+    @model_validator(mode="after")
+    def _a_box_needs_a_depth(self) -> CarriedSizeSchema:
+        if self.shape == "box" and self.depth_mm <= 0.0:
+            raise ValueError(
+                "A box-shaped carried item needs a depth_mm as well as an "
+                "across_mm. Use shape: cylinder if it is round."
+            )
+        return self
+
+    def to_domain(self) -> CarriedSize:
+        return CarriedSize(
+            shape=CarriedShape(self.shape),
+            across=self.across_mm,
+            deep=self.depth_mm,
+            height=self.height_mm,
+            centre_height=self.centre_height_mm,
+        )
+
+
 class PointMassSchema(Strict):
     """Something heavy the part carries but is not made of.
 
     A motor on the end of an arm, a camera on a mount, a battery on a tray.
-    It is spread over the face named by ``region``, and it adds mass and
-    weight but no stiffness.
+    It attaches to the face named by ``region``, and it adds mass and weight
+    but no stiffness.
 
     This matters most for natural frequency, where the carried thing is
-    usually most of the mass. See ``domain/model.py::PointMass`` for what it
-    does not model.
+    usually most of the mass.
+
+    **Give it a ``size`` if you know one.** Without one it is treated as flat
+    in the face: no height above it, and no resistance to being turned. Both
+    make the reported frequency higher than the real one. Measured on
+    ``examples/drone_arm``, a 35 g motor 28 mm across and 32 mm tall reads
+    169.8 Hz flat and 165.9 Hz where it really sits, across a 170 Hz limit.
     """
 
     name: str
     region: str
     mass_kg: float
     description: str = ""
+    size: CarriedSizeSchema | None = None
 
     def to_domain(self) -> PointMass:
         return PointMass.from_engineering_units(
@@ -472,6 +518,7 @@ class PointMassSchema(Strict):
             region=self.region,
             mass_kg=self.mass_kg,
             description=self.description,
+            size=None if self.size is None else self.size.to_domain(),
         )
 
 

@@ -143,9 +143,25 @@ def command_doctor(args: argparse.Namespace) -> int:
         # the software measured. Seeing it here beats finding out afterwards
         # that the motor weighs what last year's motor weighed.
         carried = ", ".join(
-            f"{pm.name} {pm.mass_kg:g} kg on {pm.region}" for pm in project.point_masses
+            f"{pm.name} {pm.mass_kg:g} kg on {pm.region}"
+            + (
+                f" ({pm.size.shape.value}, middle {pm.size.effective_centre_height:g} mm up)"
+                if pm.size is not None
+                else " (flat: no size given)"
+            )
+            for pm in project.point_masses
         )
         print(f"Carrying     : {carried}")
+        # Not buried in the run output. An item with no size makes every
+        # natural frequency read high, and the person reading this is the one
+        # who can fix it by measuring their motor.
+        flat = [pm.name for pm in project.point_masses if not pm.has_size]
+        if flat and project.modal.enabled:
+            print(
+                f"               {', '.join(flat)} "
+                f"{'has' if len(flat) == 1 else 'have'} no size, so the natural "
+                f"frequency will read higher than the real one."
+            )
     print(f"Parallel jobs: {default_job_count(project.optimisation.parallel_jobs)}")
     print()
 

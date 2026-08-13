@@ -107,6 +107,13 @@ class FailureCode(str, Enum):
     #: design in a study -- so it must never be fed back to the optimiser as a
     #: poor result, and retrying it cannot help.
     MODEL_NOT_HELD = "model_not_held"
+    #: A carried item was given a size, so it has to stand off its mounting
+    #: face in some direction -- but that face is curved or folded, and there
+    #: is no single direction that is "up" off it. Picking one would put the
+    #: item somewhere nobody asked for, and the resulting frequency would look
+    #: entirely plausible. A setup mistake rather than a bad design, and one
+    #: retrying cannot change.
+    CARRIED_MASS_UNPLACEABLE = "carried_mass_unplaceable"
     WORKER_CRASH = "worker_crash"
     CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"

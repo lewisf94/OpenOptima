@@ -26,12 +26,12 @@
 #   openoptima optimise examples/drone_arm/project.yaml
 #   openoptima report   examples/drone_arm/project.yaml
 #
-# WHAT IT FINDS. 106 designs, 45 of them usable, no errors, about seven
-# minutes. The answer is a 25 x 24 mm box with a 2.5 mm wall, printed on
-# edge: 70.5 g, a factor of safety of 8.1, and vibrating at 171 Hz.
+# WHAT IT FINDS. 106 designs, 41 of them usable, no errors, about six
+# minutes. The answer is a 25.3 x 24.2 mm box with a 2.69 mm wall, printed on
+# edge: 72.4 g, a factor of safety of 6.5, and vibrating at 170.3 Hz.
 #
 # Sized on strength alone the same arm comes out at 40.7 g. Staying clear of
-# the propeller costs 30 g, nearly doubling it -- and a stress check would
+# the propeller costs 32 g, nearly doubling it -- and a stress check would
 # never have asked. That is the point of the example.
 #
 # Note the shape of the answer: a big section with a thin wall. Stiffness is
@@ -60,12 +60,23 @@
 # orientation it reports as "not upright" rather than as a recommendation
 # between the other two.
 #
-# WHAT OPENOPTIMA DOES NOT KNOW ABOUT THIS CHOICE. It picks the strongest
-# orientation and nothing else. It has no idea how much support material an
-# orientation needs, how long it takes to print, what the surface finish comes
-# out like, or whether the part even fits your bed that way up. If the answer
-# below tells you to print it in a way that needs a raft of supports, that is
-# a real cost the analysis never saw.
+# WHAT THE SEARCH USES WHEN IT PICKS AN ORIENTATION. Strength, stiffness and
+# vibration -- and nothing else. The `printing:` block further down does
+# measure how much support material each way up would need and whether the
+# part fits your printer, but those are reported rather than optimised here:
+# neither is an objective or a constraint below, so the search never trades
+# against them. Read them off the result and decide yourself.
+#
+# Print time and surface finish are not measured at all. If the answer below
+# tells you to print it in a way that needs a raft of supports, the support
+# area will say so; how long that takes you is still your problem.
+#
+# HOW BIG THE MOTOR IS CHANGES THE ANSWER, WHICH IS WHY IT IS WRITTEN DOWN.
+# A motor treated as flat against its pad makes the arm look stiffer than it
+# is. At the section this example settles on: 169.8 Hz with the motor flat,
+# 165.5 Hz with it where it really sits -- straight across the 170 Hz limit.
+# The error only ever runs that way, and a search pushes right up against a
+# limit, so it lands exactly where it does harm.
 
 schema_version: 1
 name: 3D-printed drone arm
@@ -225,6 +236,24 @@ point_masses:
       A 2207-size brushless motor with its propeller. Weigh yours: motors of
       the same nominal size vary by 10 g or more between makes, and this
       number moves the frequency more than any dimension of the arm does.
+
+    # HOW BIG IT IS, WHICH IS NOT A DETAIL. Without this the motor is treated
+    # as flat in the pad: no height above it, and no resistance to being
+    # turned. Both make the arm look stiffer than it is. Measured on this
+    # part, at the section this example settles on: 169.8 Hz flat against
+    # 165.5 Hz where the motor really sits -- straight across the 170 Hz
+    # limit below. The error only ever runs that way, and a search pushes
+    # right up to a limit, so it lands exactly where it does damage.
+    #
+    # `height_mm` is measured straight up off the pad. It is treated as a
+    # uniform solid, so its middle sits half way up unless you say otherwise
+    # with `centre_height_mm`. That is NOT guaranteed to be on the safe side:
+    # a motor with the propeller on top carries its weight higher than the
+    # middle, and the real rate is lower still. Measure yours if it matters.
+    size:
+      shape: cylinder
+      across_mm: 28.0
+      height_mm: 32.0
 
 load_cases:
   # Both cases hold the arm the same way -- bolted flat to the centre plate,

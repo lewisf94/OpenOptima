@@ -6,6 +6,7 @@ which needs a CAD kernel. What is here needs no CAE tool.
 
 from __future__ import annotations
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -21,6 +22,18 @@ from openoptima.schema.loader import load_project
 from openoptima.schema.project_schema import PrintingSchema
 
 DRONE_ARM = Path(__file__).resolve().parents[2] / "examples" / "drone_arm" / "project.yaml"
+
+
+def _top_level_key(text: str, key: str) -> int:
+    """Offset of a top-level YAML key, matching only at the start of a line.
+
+    A plain ``text.index("printing:")`` also matches the word in a comment,
+    and this example is heavily commented. That once cut a file in half from
+    the middle of a paragraph and produced a YAML error nobody could read.
+    """
+    match = re.search(rf"^{re.escape(key)}:", text, re.MULTILINE)
+    assert match is not None, f"{key}: not found as a top-level key"
+    return match.start()
 
 
 # -- the settings themselves --------------------------------------------------
@@ -94,8 +107,8 @@ def test_printing_is_off_unless_asked_for() -> None:
     the drone arm, which switches it on deliberately.
     """
     text = DRONE_ARM.read_text()
-    start = text.index("printing:")
-    end = text.index("solver:", start)
+    start = _top_level_key(text, "printing")
+    end = _top_level_key(text, "solver")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "project.yaml"
         path.write_text(text[:start] + text[end:])

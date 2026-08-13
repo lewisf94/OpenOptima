@@ -16,13 +16,17 @@ from pathlib import Path
 
 import numpy as np
 
+from ...domain.carried import mass_group
 from ...domain.failures import EvaluationFailure, FailureCode
 from ...domain.model import AnalysisModel, ConstraintKind, LoadKind, PointMass
 from ...domain.orthotropic import OrthotropicMaterial, local_axes
 from ...meshing.base import MeshData
 from .loads import (
+    FACE_FLATNESS_LIMIT_DEG,
+    build_element_centroids,
     build_face_lookup,
     consistent_nodal_forces,
+    face_frame,
     surface_element_faces,
 )
 
@@ -111,6 +115,23 @@ def write_deck(
         int(tag): mesh.coordinates[index] for index, tag in enumerate(mesh.node_tags)
     }
 
+    # -- carried items with a size -----------------------------------------
+    # Worked out before anything is written, because their lumps need nodes of
+    # their own and those have to go into the mesh file with the rest.
+    sized = [m for m in model.point_masses if m.has_size]
+    attachments: list[CarriedAttachment] = []
+    carried_lumps: dict[str, list[tuple[int, float]]] = {}
+    if sized:
+        element_centroids = build_element_centroids(mesh.connectivity, coordinates_by_tag)
+        next_node = int(max(mesh.node_tags, default=0)) + 1
+        for point_mass in sized:
+            attachment, lumps = _carried_geometry(
+                point_mass, mesh, coordinates_by_tag, element_centroids, next_node
+            )
+            attachments.append(attachment)
+            carried_lumps[point_mass.name] = lumps
+            next_node = attachment.rotation_node + 1
+
     # -- mesh --------------------------------------------------------------
     with mesh_file.open("w", encoding="ascii") as handle:
         handle.write("*NODE, NSET=Nall\n")
@@ -120,6 +141,18 @@ def write_deck(
         for tag, row in zip(mesh.element_tags, mesh.connectivity, strict=True):
             nodes = ", ".join(str(int(n)) for n in row)
             handle.write(f"{int(tag)}, {nodes}\n")
+        for attachment in attachments:
+            handle.write(f"*NODE, NSET={_carried_set_name(attachment.name)}\n")
+            for tag, x, y, z in attachment.nodes:
+                handle.write(f"{tag}, {x:.9g}, {y:.9g}, {z:.9g}\n")
+            # The rotation node is placed at the item's middle. Where it sits
+            # does not change the physics -- it only carries the rigid body's
+            # rotations -- but putting it anywhere else makes the deck read as
+            # though it did.
+            handle.write(
+                f"{attachment.rotation_node}, {attachment.centre[0]:.9g}, "
+                f"{attachment.centre[1]:.9g}, {attachment.centre[2]:.9g}\n"
+            )
 
     # -- node sets ---------------------------------------------------------
     with sets_file.open("w", encoding="ascii") as handle:
@@ -137,6 +170,7 @@ def write_deck(
             model.point_masses,
             mesh,
             first_element_tag=int(max(mesh.element_tags, default=0)) + 1,
+            carried_lumps=carried_lumps,
         )
 
     # -- steps -------------------------------------------------------------
@@ -151,6 +185,7 @@ def write_deck(
         handle.write(f"*INCLUDE, INPUT={mesh_file.name}\n")
         handle.write(f"*INCLUDE, INPUT={sets_file.name}\n")
         handle.write(f"*INCLUDE, INPUT={material_file.name}\n")
+        _write_rigid_bodies(handle, tuple(attachments))
 
         for load_case in model.load_cases:
             total = np.zeros(3)
@@ -409,53 +444,206 @@ def _mass_set_name(name: str) -> str:
     return f"EM_{_safe(name)}".upper()
 
 
+@dataclass(frozen=True)
+class CarriedAttachment:
+    """A sized carried item, placed where it really sits.
+
+    Its lumps live on nodes of their own, off the surface of the part, so they
+    have to be tied to the face before they mean anything. That tie is written
+    into the main deck file rather than here, because ``*RIGID BODY`` is a
+    model-level card.
+    """
+
+    name: str
+    region: str
+    #: New nodes to append to the mesh: ``(tag, x, y, z)``.
+    nodes: tuple[tuple[int, float, float, float], ...]
+    centre: tuple[float, float, float]
+    outward: tuple[float, float, float]
+    #: Node carrying the rigid body's rotations. Massless by construction: its
+    #: rotational freedoms get their inertia from the lumps, which is the only
+    #: way CalculiX 2.21 can supply one.
+    rotation_node: int
+
+
+def _carried_geometry(
+    point_mass: PointMass,
+    mesh: MeshData,
+    coordinates_by_tag: dict[int, np.ndarray],
+    element_centroids: dict[tuple[int, ...], np.ndarray],
+    first_node_tag: int,
+) -> tuple[CarriedAttachment, list[tuple[int, float]]]:
+    """Work out where a sized item's lumps go, in world coordinates.
+
+    Returns the attachment and ``[(node_tag, mass)]`` for the lumps.
+    """
+    size = point_mass.size
+    assert size is not None  # only called for sized items
+
+    triangles = mesh.surface_triangles.get(point_mass.region)
+    if triangles is None or len(triangles) == 0:
+        raise EvaluationFailure(
+            FailureCode.REGION_NOT_FOUND,
+            f"Carried item {point_mass.name!r} is attached to region "
+            f"{point_mass.region!r}, which has no surface elements, so there is "
+            f"nothing to stand it off from.",
+            detail={"point_mass": point_mass.name, "region": point_mass.region},
+        )
+
+    try:
+        centre, outward, worst_deg = face_frame(triangles, coordinates_by_tag, element_centroids)
+    except ValueError as exc:
+        raise EvaluationFailure(FailureCode.INTERNAL_ERROR, str(exc)) from exc
+
+    if worst_deg > FACE_FLATNESS_LIMIT_DEG:
+        raise EvaluationFailure(
+            FailureCode.CARRIED_MASS_UNPLACEABLE,
+            f"Carried item {point_mass.name!r} has a size, so it has to stand off "
+            f"region {point_mass.region!r} in some direction -- but that region is "
+            f"not flat. Parts of it point up to {worst_deg:.1f} degrees apart, and "
+            f"there is no single direction that is 'up' off a curved or folded "
+            f"face. Either attach it to a flat face, or remove its size and accept "
+            f"a natural frequency that reads high.",
+            detail={
+                "point_mass": point_mass.name,
+                "region": point_mass.region,
+                "spread_deg": round(worst_deg, 3),
+                "limit_deg": FACE_FLATNESS_LIMIT_DEG,
+            },
+        )
+
+    # Two directions in the plane of the face. Which two does not matter for a
+    # cylinder and matters only by naming for a box, so they are chosen the
+    # same deterministic way the print axes are: a rebuilt project has to
+    # produce a byte-identical deck or its cached results stop being valid.
+    across, deep = local_axes((float(outward[0]), float(outward[1]), float(outward[2])))
+    axes = (np.asarray(across), np.asarray(deep), np.asarray(outward))
+    origin = np.asarray(centre) + np.asarray(outward) * size.effective_centre_height
+
+    nodes: list[tuple[int, float, float, float]] = []
+    lumps: list[tuple[int, float]] = []
+    tag = first_node_tag
+    for lump in mass_group(point_mass.mass, size):
+        position = origin + axes[0] * lump.across + axes[1] * lump.deep + axes[2] * lump.out
+        nodes.append((tag, float(position[0]), float(position[1]), float(position[2])))
+        lumps.append((tag, lump.mass))
+        tag += 1
+
+    attachment = CarriedAttachment(
+        name=point_mass.name,
+        region=point_mass.region,
+        nodes=tuple(nodes),
+        centre=(float(origin[0]), float(origin[1]), float(origin[2])),
+        outward=(float(outward[0]), float(outward[1]), float(outward[2])),
+        rotation_node=tag,
+    )
+    return attachment, lumps
+
+
 def _write_point_masses(
     handle,
     point_masses: tuple[PointMass, ...],
     mesh: MeshData,
     first_element_tag: int,
+    carried_lumps: dict[str, list[tuple[int, float]]],
 ) -> list[str]:
-    """One CalculiX ``MASS`` element per node of each attached face.
+    """``MASS`` elements for everything the part carries.
 
     Returns the element set names written, so the gravity loads can name them.
 
-    **The mass is split evenly between the face's nodes, and that is
-    deliberate rather than lazy.** The obvious alternative is the consistent
-    split used for a surface *load*, which integrates the element shape
-    functions -- see the deck's ``*CLOAD`` block and trap 5 in ``AGENTS.md``.
-    That is right for a load and wrong here: the exact integral of a corner
-    shape function over a flat 6-node triangle is **zero**, and it is negative
-    for some other element types. Applied to a load that is correct and
-    measurable. Applied to a mass it would put zero mass on every corner node
-    and a negative mass on some, and a negative mass is not a conservative
-    approximation of anything -- it is a term that makes an eigenvalue solve
-    return numbers with no physical meaning at all.
+    **An item with no size is spread evenly between the face's nodes, and the
+    even split is deliberate rather than lazy.** The obvious alternative is
+    the consistent split used for a surface *load*, which integrates the
+    element shape functions -- see the deck's ``*CLOAD`` block and trap 5 in
+    ``AGENTS.md``. That is right for a load and wrong here: the exact integral
+    of a corner shape function over a flat 6-node triangle is **zero**, and it
+    is negative for some other element types. Applied to a load that is
+    correct and measurable. Applied to a mass it would put zero mass on every
+    corner node and a negative mass on some, and a negative mass is not a
+    conservative approximation of anything -- it is a term that makes an
+    eigenvalue solve return numbers with no physical meaning at all.
 
-    So the split here is by node count. The total is exact, which is what sets
-    the frequency; only its distribution across one small face is
-    approximated, and a carried item is compact by assumption.
+    So the split there is by node count. The total is exact, which is what
+    sets the frequency; only its distribution across one small face is
+    approximated.
+
+    **An item with a size gets lumps on nodes of its own instead**, already
+    positioned by :func:`_carried_geometry`, so its middle stands off the face
+    and it resists being turned.
     """
     written: list[str] = []
     tag = first_element_tag
     for point_mass in point_masses:
-        nodes = sorted(int(n) for n in mesh.surface_nodes.get(point_mass.region, ()))
-        if not nodes:
-            raise EvaluationFailure(
-                FailureCode.REGION_NOT_FOUND,
-                f"Point mass {point_mass.name!r} is attached to region "
-                f"{point_mass.region!r}, and no mesh nodes were found on it, so "
-                f"there is nothing to attach {point_mass.mass_kg:g} kg to.",
-                detail={"point_mass": point_mass.name, "region": point_mass.region},
-            )
         set_name = _mass_set_name(point_mass.name)
-        handle.write(f"\n** point mass: {point_mass.name} ({point_mass.mass_kg:g} kg)\n")
-        handle.write(f"*ELEMENT, TYPE=MASS, ELSET={set_name}\n")
-        for node in nodes:
-            handle.write(f"{tag}, {node}\n")
+        placed = carried_lumps.get(point_mass.name)
+
+        if placed is None:
+            nodes = sorted(int(n) for n in mesh.surface_nodes.get(point_mass.region, ()))
+            if not nodes:
+                raise EvaluationFailure(
+                    FailureCode.REGION_NOT_FOUND,
+                    f"Point mass {point_mass.name!r} is attached to region "
+                    f"{point_mass.region!r}, and no mesh nodes were found on it, so "
+                    f"there is nothing to attach {point_mass.mass_kg:g} kg to.",
+                    detail={"point_mass": point_mass.name, "region": point_mass.region},
+                )
+            handle.write(f"\n** point mass: {point_mass.name} ({point_mass.mass_kg:g} kg)\n")
+            handle.write(f"*ELEMENT, TYPE=MASS, ELSET={set_name}\n")
+            for node in nodes:
+                handle.write(f"{tag}, {node}\n")
+                tag += 1
+            handle.write(f"*MASS, ELSET={set_name}\n{point_mass.mass / len(nodes):.9g}\n")
+            written.append(set_name)
+            continue
+
+        # A sized item. Each lump weighs something different, so each needs its
+        # own element set -- one *MASS card carries one value.
+        size = point_mass.size
+        assert size is not None
+        handle.write(
+            f"\n** carried: {point_mass.name} ({point_mass.mass_kg:g} kg, "
+            f"{size.shape.value}, middle {size.effective_centre_height:g} mm off "
+            f"{point_mass.region})\n"
+        )
+        for index, (node, mass) in enumerate(placed):
+            lump_set = f"{set_name}_{index}"
+            handle.write(f"*ELEMENT, TYPE=MASS, ELSET={lump_set}\n{tag}, {node}\n")
+            handle.write(f"*MASS, ELSET={lump_set}\n{mass:.9g}\n")
+            written.append(lump_set)
             tag += 1
-        handle.write(f"*MASS, ELSET={set_name}\n{point_mass.mass / len(nodes):.9g}\n")
-        written.append(set_name)
     return written
+
+
+def _write_rigid_bodies(handle, attachments: tuple[CarriedAttachment, ...]) -> None:
+    """Tie each sized item to the face it bolts to.
+
+    **A rigid tie, and not a distributing coupling.** The gentler-looking
+    option turns out to be silently wrong for this: measured on
+    ``examples/drone_arm`` with the identical mass at the identical place, a
+    ``*DISTRIBUTING COUPLING`` gave 170.293 Hz against 166.572 Hz for the rigid
+    tie -- within 0.02 Hz of the answer for an item with **no height at all**.
+    It carries the force and not the moment arm, with exit code 0 and nothing
+    in the log.
+
+    The tie does make the mounting face rigid, which is a real modelling
+    change. Measured on the same part it moves the first mode by +0.29% and
+    the stress not at all: 4.4517 against 4.4512 MPa at the 99th percentile
+    under the landing case, on a face that carries the load as well as the
+    motor.
+    """
+    for attachment in attachments:
+        handle.write(f"\n** {attachment.name} is bolted to {attachment.region}\n")
+        handle.write(f"*NSET, NSET=NRB_{_safe(attachment.name).upper()}\n")
+        handle.write(f"{_set_name(attachment.region)},\n")
+        handle.write(f"{_carried_set_name(attachment.name)},\n")
+        handle.write(
+            f"*RIGID BODY, NSET=NRB_{_safe(attachment.name).upper()}, "
+            f"REF NODE={attachment.nodes[0][0]}, ROT NODE={attachment.rotation_node}\n"
+        )
+
+
+def _carried_set_name(name: str) -> str:
+    return f"NC_{_safe(name)}".upper()
 
 
 def _write_gravity(handle, magnitude: float, axis, mass_sets: list[str]) -> None:

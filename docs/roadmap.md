@@ -602,11 +602,39 @@ fatigue.
    load the deck already wrote left it weightless — 0.3843 N against
    2.3463 N — with a clean exit and nothing in the log.
 
-   **Still to do here:** a carried item is treated as having no size, so its
-   centre of gravity sits on the mounting face and it has no resistance to
-   being turned. Both make the reported frequency slightly higher than the
-   true one. An offset centre of gravity and a rotary inertia would close
-   that, and CalculiX supports both.
+   **And it now has a size — done.** A carried item used to be treated as
+   flat against the face it bolts to: its middle in that face, and no
+   resistance to being turned. Both made the reported frequency too high.
+   `size` gives it a shape, a height and a middle.
+
+   Measured on the same example, at the section it settles on: **169.8 Hz
+   with the motor flat against its pad, 165.5 Hz with it where it really
+   sits** — across the 170 Hz limit the example holds the arm to. The
+   height accounts for 85% of that and the motor's own bulk the other 15%.
+   The arm then has to grow slightly to earn its frequency back: the search
+   now returns 72.4 g with a 2.69 mm wall, against 70.5 g at 2.5 mm before.
+
+   Two things came out of building it, and the first changes what can be
+   claimed elsewhere. **CalculiX 2.21 has no rotary inertia element** — the
+   roadmap said it supported one, and it does not; `MASS` is the only
+   element of that family in the binary. Resistance to turning therefore has
+   to be built from ordinary point masses at real positions, held rigidly,
+   and seven of them reproduce any real item's mass, middle and turning
+   resistance exactly. And **a distributing coupling silently drops the
+   whole effect**: it is the obvious gentler way to attach a mass without
+   stiffening the face, and measured with the identical item at the
+   identical place it gave 170.293 Hz against 166.572 Hz for a rigid tie —
+   within 0.02 Hz of the answer for an item with no height at all. It
+   carries the force and not the moment arm, with exit code 0.
+
+   Verified as V16 against a two-freedom closed form, to +0.23% at worst,
+   and against the published `m h^2/3` for a rod about its end.
+
+   **Still to do here:** the item is treated as a uniform solid, so its
+   middle sits half way up. That is not guaranteed to be on the safe side —
+   a motor with the propeller on top carries its weight higher, and the real
+   frequency is lower still. `centre_height_mm` covers it when the number is
+   known; nothing measures it for you.
 
 3. **Print rules as a trade-off, not a hard limit — two of three done.**
    Overhang angle and build-volume fit are built; minimum wall thickness

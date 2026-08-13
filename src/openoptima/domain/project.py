@@ -347,9 +347,18 @@ class Project:
             "material": _material_digest(self.material, self.build_direction_variable),
             # A carried mass changes every natural frequency and every
             # acceleration load, so a result computed without one is not a
-            # cache hit for a project that has one.
+            # cache hit for a project that has one. Its size counts for the
+            # same reason: measured on examples/drone_arm, giving the motor
+            # its real height and bulk moves the first mode from 169.8 Hz to
+            # 165.9 Hz, across the 170 Hz limit that example holds it to.
             "point_masses": [
-                {"name": pm.name, "region": pm.region, "mass": pm.mass} for pm in self.point_masses
+                {
+                    "name": pm.name,
+                    "region": pm.region,
+                    "mass": pm.mass,
+                    "size": None if pm.size is None else list(pm.size.digest_fields()),
+                }
+                for pm in self.point_masses
             ],
             "load_cases": [
                 {

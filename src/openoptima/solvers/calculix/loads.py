@@ -93,6 +93,89 @@ def surface_element_faces(
     return faces
 
 
+#: How far the facets of a region may point apart and still have one "up".
+#:
+#: A carried item bolts to a face and stands off it along that face's outward
+#: direction. On a flat face every facet agrees exactly, so this only has to
+#: tolerate the rounding of a nearly-flat one. A curved or folded region has no
+#: single answer, and 5 degrees separates the two cases with room to spare
+#: rather than splitting a fine hair.
+FACE_FLATNESS_LIMIT_DEG = 5.0
+
+
+def face_frame(
+    triangles: np.ndarray,
+    coordinates_by_tag: dict[int, np.ndarray],
+    element_centroid_of: dict[tuple[int, ...], np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Where a region's face is and which way is out of it.
+
+    Returns ``(centroid, outward_normal, worst_deviation_deg)``. The centroid
+    is area-weighted, so a face meshed unevenly still reports its middle.
+
+    **The outward direction is settled against the solid, not against the
+    mesher's own orientation.** Each facet's normal is flipped to point away
+    from the centre of the tetrahedron behind it. Trusting a stored
+    orientation is how trap 2 happened -- gmsh already accounts for face
+    orientation, and applying its sign again turns every normal inward, which
+    would stand a motor off *inside* the part with nothing to say so.
+    """
+    total_area = 0.0
+    weighted_centre = np.zeros(3)
+    weighted_normal = np.zeros(3)
+    normals: list[np.ndarray] = []
+    areas: list[float] = []
+
+    for triangle in triangles:
+        corners = np.array([coordinates_by_tag[int(n)] for n in triangle[:3]])
+        cross = np.cross(corners[1] - corners[0], corners[2] - corners[0])
+        area = 0.5 * float(np.linalg.norm(cross))
+        if area <= 0.0:
+            continue
+        normal = cross / (2.0 * area)
+        centre = corners.mean(axis=0)
+
+        key = tuple(sorted(int(n) for n in triangle[:3]))
+        behind = element_centroid_of.get(key)
+        if behind is not None and float(np.dot(normal, centre - behind)) < 0.0:
+            normal = -normal
+
+        total_area += area
+        weighted_centre += area * centre
+        weighted_normal += area * normal
+        normals.append(normal)
+        areas.append(area)
+
+    if total_area <= 0.0 or not normals:
+        raise ValueError("region has no surface area")
+
+    mean = weighted_normal / float(np.linalg.norm(weighted_normal))
+    worst = max(
+        float(np.degrees(np.arccos(np.clip(float(np.dot(n, mean)), -1.0, 1.0)))) for n in normals
+    )
+    return weighted_centre / total_area, mean, worst
+
+
+def build_element_centroids(
+    connectivity: np.ndarray,
+    coordinates_by_tag: dict[int, np.ndarray],
+) -> dict[tuple[int, ...], np.ndarray]:
+    """Map a sorted corner-node triple to the centroid of the tet behind it.
+
+    Only boundary faces matter here, and those belong to exactly one tet. An
+    interior face is overwritten by whichever tet is visited last, which is
+    harmless because nothing asks about one.
+    """
+    out: dict[tuple[int, ...], np.ndarray] = {}
+    for tet in connectivity[:, :4]:
+        corners = np.array([coordinates_by_tag[int(n)] for n in tet])
+        centroid = corners.mean(axis=0)
+        for indices in _TET_FACES.values():
+            key = tuple(sorted(int(tet[i]) for i in indices))
+            out[key] = centroid
+    return out
+
+
 def consistent_nodal_forces(
     triangles: np.ndarray,
     coordinates_by_tag: dict[int, np.ndarray],

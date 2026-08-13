@@ -327,6 +327,21 @@ def collect_metrics(
 
     if lowest_frequency is not None:
         metrics["natural_frequency_hz"] = lowest_frequency
+        # A carried item with no size is treated as flat in the face it bolts
+        # to: no height above it, no resistance to being turned. Both make this
+        # number too high, never too low. Measured on examples/drone_arm, a
+        # 35 g motor 28 mm across and 32 mm tall reads 169.8 Hz flat and
+        # 165.5 Hz where it really sits. Say so on the result, because the
+        # number itself carries no sign of it.
+        flat = [carried.name for carried in model.point_masses if not carried.has_size]
+        if flat:
+            named = ", ".join(sorted(flat))
+            warnings.append(
+                f"{named} {'has' if len(flat) == 1 else 'have'} no size, so "
+                f"{'it is' if len(flat) == 1 else 'they are'} treated as flat in the "
+                f"mounting face. The {lowest_frequency:.4g} Hz reported here is "
+                f"therefore higher than the real one. Give a size to close that."
+            )
 
     total_load = 0.0
     for case in per_case:

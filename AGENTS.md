@@ -474,6 +474,47 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     equal budget.** An optimiser always returns *a* value, and a run that
     could not tell two options apart still has to print one of them.
 
+21. **A distributing coupling carries the force and not the moment arm, so
+    a carried item attached with one has no height.** Giving a point mass a
+    real position needs it tied to its mounting face, and there are two
+    ways: `*RIGID BODY`, which makes the face rigid, and
+    `*DISTRIBUTING COUPLING`, which does not. The second looks strictly
+    better — same load path, no artificial stiffening — and it is the
+    standard choice for attaching a lumped mass.
+
+    Measured on `examples/drone_arm` with the identical 35 g item at the
+    identical place, 16 mm off the pad:
+
+        rigid tie                       166.572 Hz
+        distributing coupling           170.293 Hz
+        (the same mass flat in the face) 170.312 Hz
+
+    The distributing coupling returns the answer for an item with **no
+    height at all**, to within 0.02 Hz. Exit code 0, nothing in the log, and
+    a frequency that is entirely plausible. The rigid tie is what works, and
+    its cost was measured rather than assumed: +0.29% on the first mode, and
+    **nothing at all on the stress** — 4.4517 against 4.4512 MPa at the 99th
+    percentile, on a face that carries the load as well as the motor.
+
+    Two more things from the same work, both worth keeping.
+
+    **CalculiX 2.21 has no rotary inertia element.** The roadmap said it
+    supported one. `strings` on the binary finds `MASS` and no `ROTARYI`.
+    So "it resists being turned" is built from ordinary point masses at real
+    positions: seven of them reproduce any real item's mass, middle and
+    turning resistance exactly, and only those three reach the solve once
+    the group is rigid. **Check the binary, not the manual, before planning
+    around a solver feature** — the manual describes a family this build
+    does not have.
+
+    **An area-weighted centroid is not a node average, and the difference
+    is a real lever arm.** The drone arm's motor pad centres at exactly
+    x = 134.0 mm. Averaging its node coordinates gives 133.53 — the mesh is
+    denser at the edges — and placing the motor there instead reported
+    165.934 Hz against the correct 165.531. Small, but it is a systematic
+    error in a position, and positions multiply into inertia. Weight by area
+    when asking where a face is.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

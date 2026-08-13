@@ -1189,6 +1189,10 @@ point_masses:
   - name: motor
     region: motor_pad     # the face it is bolted to
     mass_kg: 0.035
+    size:                 # how big it is — see below
+      shape: cylinder
+      across_mm: 28.0
+      height_mm: 32.0
 ```
 
 Measured on the drone arm example — same arm, same everything, the only
@@ -1204,7 +1208,41 @@ you left the motor out and told OpenOptima to keep the arm above the
 propeller's rate, it would happily hand you a design sitting right on top
 of it.
 
-Two things to know about a carried mass:
+### Tell it how big the motor is, not just how heavy
+
+A motor does not sit *in* the pad it bolts to. Its weight is a couple of
+centimetres above it, and it is a solid lump that resists being twisted as
+well as being moved. Leave that out and the arm looks stiffer than it is.
+
+`size` says how big it is. `height_mm` is measured straight up off the
+face; `across_mm` is how wide (the diameter, for a round one). A box needs
+`depth_mm` as well.
+
+Measured on the same arm, at the section the example settles on:
+
+| | first natural frequency |
+|---|---|
+| Motor flat against the pad | 169.8 Hz |
+| Motor where it really sits | **165.5 Hz** |
+
+That is only 2.5%, and it is 2.5% in the direction that flatters the part —
+straight across the 170 Hz limit that example holds the arm to. It matters
+more than the number suggests because **an optimiser stops right on a
+limit**. That is its job. So a small error that always leans one way lands
+exactly where it does harm, on every design it hands you.
+
+Two things about `size`:
+
+- **It is optional, and leaving it out is not silent.** Without a size the
+  item is treated as flat, and both `openoptima doctor` and the result say
+  so in words.
+- **It is treated as a solid lump of even weight**, so its middle sits half
+  way up. That is a guess, and **not necessarily a safe one**: a motor with
+  the propeller on top carries its weight higher than the middle, and the
+  real rate is lower than the reported one. If you know better, say
+  `centre_height_mm` and put the middle where it belongs.
+
+Two things about any carried mass:
 
 - **It is not counted in `mass_kg`.** That figure is the mass of the part
   you print, which is what you are trying to reduce. The motor is not
@@ -1212,12 +1250,6 @@ Two things to know about a carried mass:
 - **It has weight as well as inertia.** If you apply an acceleration load
   — the whole thing pulling *g* in a turn, say — the carried mass pulls
   its share too.
-
-**What it does not model**, and both make the real frequency a little
-**lower** than the reported one, so treat the number as an upper bound:
-the carried thing is treated as having no size, so its centre of gravity
-sits on the mounting face rather than above it, and its resistance to
-being *rotated* is not counted.
 
 **What this does not tell you either**, and none of it is a small print
 detail:
