@@ -313,6 +313,10 @@ Five examples ship with OpenOptima:
   halves the strength — the lightest arm it can find that way is 106 g
   against about 71 — and is indifferent between the other two.
 
+  It also reports what printing the shape would cost: how much surface
+  overhangs too far to print on itself and needs a support scaffold, and
+  whether the part fits your printer at all.
+
   It also carries a motor, and the motor is most of the moving mass. With
   it the arm vibrates at 121.5 Hz and without it at 191.4 Hz, so leaving it
   out reads 58% high in the direction that looks safe. The arm that stress

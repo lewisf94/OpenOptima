@@ -97,7 +97,7 @@ class EvaluationPipeline:
         self,
         design: DesignVector,
         run_id: str | None,
-        stage: Callable[[RunSpace], tuple[MeshData, RegionMap, float, list[str]]],
+        stage: Callable[[RunSpace], tuple[MeshData, RegionMap, float, list[str], dict[str, float]]],
         evaluation_hash: str = "",
     ) -> EvaluationResult:
         """Shared body of :meth:`evaluate` and :meth:`evaluate_surface`."""
@@ -118,8 +118,10 @@ class EvaluationPipeline:
         }
 
         try:
-            mesh, region_map, reference_volume, warnings = stage(run)
-            result = self._analyse(design, run, mesh, region_map, reference_volume, warnings)
+            mesh, region_map, reference_volume, warnings, printability = stage(run)
+            result = self._analyse(
+                design, run, mesh, region_map, reference_volume, warnings, printability
+            )
             result.run_id = run.run_id
             result.run_directory = str(run.directory)
             result.evaluation_hash = evaluation_hash
@@ -175,7 +177,7 @@ class EvaluationPipeline:
     # -- stages --------------------------------------------------------------
     def _geometry_stage(
         self, design: DesignVector, run: RunSpace
-    ) -> tuple[MeshData, RegionMap, float, list[str]]:
+    ) -> tuple[MeshData, RegionMap, float, list[str], dict[str, float]]:
         """Build the parametric solid and mesh it."""
         project = self.project
 
@@ -185,6 +187,8 @@ class EvaluationPipeline:
         geometry = provider.build(design, run.geometry_dir)
         run.manifest["geometry"] = geometry.to_dict()
 
+        printability = self._printability(geometry.brep_path, design, run)
+
         mesher = GmshMesher(project.mesh)
         mesh, region_map = mesher.generate(
             geometry,
@@ -193,13 +197,14 @@ class EvaluationPipeline:
             write_mesh_file=self.keep_artifacts,
         )
         self._record_mesh(run, mesh, region_map)
-        return mesh, region_map, geometry.volume, list(geometry.warnings)
+        return mesh, region_map, geometry.volume, list(geometry.warnings), printability
 
     def _surface_stage(
         self, surface: SurfaceArtifact, run: RunSpace
-    ) -> tuple[MeshData, RegionMap, float, list[str]]:
+    ) -> tuple[MeshData, RegionMap, float, list[str], dict[str, float]]:
         """Mesh a closed triangle surface, working its faces out by measurement."""
         run.manifest["surface"] = surface.to_dict()
+        printability = self._printability(surface.stl_path, NO_DESIGN, run)
         mesher = GmshMesher(self.project.mesh)
         mesh, region_map = mesher.generate_from_surface(
             surface,
@@ -208,7 +213,30 @@ class EvaluationPipeline:
             write_mesh_file=self.keep_artifacts,
         )
         self._record_mesh(run, mesh, region_map)
-        return mesh, region_map, surface.volume, list(surface.warnings)
+        return mesh, region_map, surface.volume, list(surface.warnings), printability
+
+    def _printability(
+        self, stl_path: Path, design: DesignVector, run: RunSpace
+    ) -> dict[str, float]:
+        """How this shape would print, this way up.
+
+        Measured from the shape itself rather than from the finite element
+        mesh, because printability is a property of the part a slicer would be
+        handed. Which way is up comes from the material's build direction,
+        which the optimiser may itself be choosing -- so a design that rotated
+        the part gets its own answer.
+        """
+        printing = self.project.printing
+        if not printing.enabled:
+            return {}
+
+        from ..printing import measure_printability
+
+        material = self.project.material_for(design.as_dict() if design.values else None)
+        direction = getattr(material, "normalised_build_direction", (0.0, 0.0, 1.0))
+        report = measure_printability(stl_path, direction, printing)
+        run.manifest["printability"] = report.as_metrics()
+        return report.as_metrics()
 
     def _record_mesh(self, run: RunSpace, mesh: MeshData, region_map: RegionMap) -> None:
         assert mesh.quality is not None
@@ -224,6 +252,7 @@ class EvaluationPipeline:
         region_map: RegionMap,
         reference_volume: float,
         stage_warnings: list[str],
+        printability: dict[str, float] | None = None,
     ) -> EvaluationResult:
         """Solve, measure and check. Identical whatever produced the mesh."""
         project = self.project
@@ -248,6 +277,9 @@ class EvaluationPipeline:
         metrics, load_cases, metric_warnings = collect_metrics(
             analysis, project.analysis_model(design.as_dict()), mesh, region_map, reference_volume
         )
+        # Printability was measured from the shape, before it was ever meshed,
+        # so it joins the metrics here rather than being computed from a solve.
+        metrics.update(printability or {})
         state = EvaluationState.RESULTS_PARSED
 
         warnings = (

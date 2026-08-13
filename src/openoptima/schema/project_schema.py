@@ -45,6 +45,11 @@ from ..domain.orthotropic import (
     InadmissibleMaterial,
     OrthotropicMaterial,
 )
+from ..domain.printing import (
+    DEFAULT_OVERHANG_ANGLE_DEG,
+    BuildVolume,
+    PrintingSettings,
+)
 from ..domain.project import (
     CURRENT_SCHEMA_VERSION,
     AlgorithmSettings,
@@ -615,6 +620,48 @@ class ModalSchema(Strict):
         return ModalSettings(enabled=self.enabled, modes=self.modes)
 
 
+class BuildVolumeSchema(Strict):
+    """The printer's usable space, in millimetres."""
+
+    width_mm: float
+    depth_mm: float
+    height_mm: float
+
+    def to_domain(self) -> BuildVolume:
+        return BuildVolume(width=self.width_mm, depth=self.depth_mm, height=self.height_mm)
+
+
+class PrintingSchema(Strict):
+    """Whether the part can be printed, and what support it would need.
+
+    Produces metrics you may constrain or trade against, exactly like mass::
+
+        printing:
+          enabled: true
+          overhang_angle_deg: 45.0
+          build_volume: { width_mm: 220, depth_mm: 220, height_mm: 250 }
+
+        constraints:
+          - metric: build_volume_overflow_mm
+            operator: less_than_or_equal
+            value: 0.0
+
+    It is never a gate. A design needing support is more work, not wrong, and
+    how much performance to give up avoiding one is the engineer's call.
+    """
+
+    enabled: bool = False
+    overhang_angle_deg: float = DEFAULT_OVERHANG_ANGLE_DEG
+    build_volume: BuildVolumeSchema | None = None
+
+    def to_domain(self) -> PrintingSettings:
+        return PrintingSettings(
+            enabled=self.enabled,
+            overhang_angle_deg=self.overhang_angle_deg,
+            build_volume=self.build_volume.to_domain() if self.build_volume else None,
+        )
+
+
 class SolverSchema(Strict):
     name: Literal["calculix", "analytic"] = "calculix"
     executable: str | None = None
@@ -760,6 +807,7 @@ class ProjectSchema(Strict):
     stress_evaluation: StressSchema = Field(default_factory=StressSchema)
     buckling: BucklingSchema = Field(default_factory=BucklingSchema)
     modal: ModalSchema = Field(default_factory=ModalSchema)
+    printing: PrintingSchema = Field(default_factory=PrintingSchema)
     solver: SolverSchema = Field(default_factory=SolverSchema)
     preferences: PreferenceSchema = Field(default_factory=PreferenceSchema)
     optimisation: OptimisationSchema = Field(default_factory=OptimisationSchema)
@@ -856,6 +904,7 @@ class ProjectSchema(Strict):
             stress_evaluation=self.stress_evaluation.to_domain(),
             buckling=self.buckling.to_domain(),
             modal=self.modal.to_domain(),
+            printing=self.printing.to_domain(),
             solver=self.solver.to_domain(),
             preferences=self.preferences.to_domain(),
             optimisation=self.optimisation.to_domain(),

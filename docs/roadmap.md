@@ -608,8 +608,38 @@ fatigue.
    true one. An offset centre of gravity and a rotary inertia would close
    that, and CalculiX supports both.
 
-3. **Print rules as a trade-off, not a hard limit.** Overhang angle,
-   minimum wall thickness for the nozzle, and build-volume fit.
+3. **Print rules as a trade-off, not a hard limit — two of three done.**
+   Overhang angle and build-volume fit are built; minimum wall thickness
+   for the nozzle is not.
+
+   `printing.enabled` reports `support_area_mm2` — downward-facing surface
+   too shallow to print on itself — and `build_volume_overflow_mm`, how far
+   the part exceeds the printer. Both are metrics, so a project may
+   constrain them, trade them against mass, or ignore them. Neither ever
+   deletes a design.
+
+   **The term that decides the answer is the build plate.** The face
+   resting on it is downward-facing and perfectly flat, so every angle test
+   calls it the worst possible overhang, and it needs no support at all.
+   Measured on `examples/drone_arm`: counting it makes printing on edge look
+   better than printing flat (5628 against 6192 mm²); removing it makes flat
+   less than half the cost of on edge (2292 against 5500). **The ranking
+   reverses**, so this is not a refinement.
+
+   Verified against a closed form rather than an earlier run: for a
+   horizontal cylinder the supported strip is the bottom quarter-turn either
+   side of bottom dead centre, exactly `R(pi/2)L = 785.40` mm², measured
+   788.44 at 140k triangles. On a flat-faced part the answer is exact and
+   bit-identical from 2010 to 95814 triangles, so optimising it does not
+   mean optimising the tessellation.
+
+   **Still to do: minimum wall thickness.** `trimesh.proximity.thickness`
+   does the geometry, but it needs a ray backend — `rtree`, MIT, obtainable
+   as a prebuilt wheel with no transitive dependencies, and currently not
+   installed, which makes the whole `trimesh.proximity` module unavailable.
+   The work is that dependency plus a sampling strategy: too sparse and it
+   misses a thin sliver the way a region can shrink to 0.6 mm² unnoticed
+   (trap 15).
 
    **These must be adjustable, not absolute.** How much performance
    somebody will give up to avoid support material is a personal call,

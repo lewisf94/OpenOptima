@@ -307,6 +307,26 @@ modal:
   enabled: true
   modes: 6
 
+# Whether a printer can make this shape, and what it would cost in support
+# material. Both are reported as numbers you may constrain or trade against
+# -- never as a gate. A design needing support is more work, not wrong.
+#
+# `support_area_mm2` is downward-facing surface too shallow to print on
+# itself. The face resting on the bed is deliberately not counted: it points
+# straight down and is perfectly flat, so it looks exactly like the worst
+# overhang there is, and the bed is under it. On this part that exclusion
+# reverses which orientation wins.
+#
+# THIS KNOWS NOTHING ABOUT THE PRINT ITSELF. It cannot tell that a short gap
+# would be bridged rather than supported, it does not know whether you could
+# reach a support to break it off -- support sealed inside this arm's hollow
+# section is there for good -- and it says nothing about print time.
+printing:
+  enabled: true
+  overhang_angle_deg: 45.0
+  # A common desktop printer. Change it to yours.
+  build_volume: { width_mm: 220.0, depth_mm: 220.0, height_mm: 250.0 }
+
 solver:
   name: calculix
   timeout_seconds: 900

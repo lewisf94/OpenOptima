@@ -597,6 +597,57 @@ If it tells you to print the part standing on end, that may be a real
 nuisance the analysis never saw. It is answering "which way is strongest",
 not "which way should I print this".
 
+### Will it print, and what will it cost to print?
+
+Two things OpenOptima can now measure about the shape itself:
+
+```yaml
+printing:
+  enabled: true
+  overhang_angle_deg: 45.0
+  build_volume: { width_mm: 220.0, depth_mm: 220.0, height_mm: 250.0 }
+```
+
+**Overhang.** A printer lays down plastic on top of what is already
+there. Where a surface leans out too far, there is nothing underneath it,
+and the slicer has to print a scaffold — "support" — which you then break
+off. `support_area_mm2` is how much surface needs that. The 45 degree
+setting is the usual rule of thumb: a surface leaning less than 45 degrees
+from horizontal needs support. Your printer may manage shallower.
+
+**Whether it fits.** `build_volume_overflow_mm` is how far the part
+sticks out past your printer, and 0 means it fits. It is a distance rather
+than a yes-or-no so you can tell "5 mm too long" from "hopeless", and so
+you can forbid it outright:
+
+```yaml
+constraints:
+  - metric: build_volume_overflow_mm
+    operator: less_than_or_equal
+    value: 0.0
+```
+
+**Support is a cost, not a rule.** A design needing support is more work,
+not wrong, and how much performance you would give up to avoid one is your
+call. So these are numbers you may constrain, trade against mass, or
+ignore. OpenOptima never quietly throws a design away for needing support.
+
+**What is deliberately not counted.** The face resting on the print bed
+looks exactly like the worst possible overhang — it points straight down
+and is perfectly flat — and it needs no support at all, because the bed is
+under it. So it is excluded. That is not tidying: on the drone arm,
+counting it makes printing on edge look better than printing flat, and
+removing it makes flat less than half the cost of on edge. The answer
+reverses.
+
+**What these numbers do not know.** They measure the shape against a
+printer, and nothing about the print itself. They do not know that a short
+gap can be bridged instead of supported. They do not know whether you can
+reach the support to remove it — support sealed inside a hollow part is
+there forever. And they say nothing about print time or surface finish. A
+part needing 500 mm² of support may be easy or impossible depending on
+*where* that 500 mm² is, and only you looking at the shape can tell.
+
 **Read the answer as "not that way" rather than as a recommendation.** On
 the drone arm it firmly rejects one orientation — the lightest arm it can
 find printed upright is 106 g, against about 71 g the other two ways. But
@@ -1001,10 +1052,10 @@ print it. Nothing in the file says so unless you say so.
 
 **Three things are still missing, and two of them matter a lot.**
 
-- **Nothing checks whether your printer can make the shape.** There is no
-  check on overhang angles, no check that a wall is thicker than your
-  nozzle can produce, and no check that the part fits your build volume.
-  Planned — see [`roadmap.md`](roadmap.md).
+- **Wall thickness is still unchecked.** Nothing looks at whether a wall
+  is thinner than your nozzle can produce. Planned — see
+  [`roadmap.md`](roadmap.md). Overhangs and build-volume fit *are* now
+  measured; see below.
 - **Vibration cannot be trusted for a part carrying something heavy.**
   OpenOptima can work out the rates a part likes to vibrate at, but it
   cannot yet put a lump of mass on it — a motor on the end of an arm, a
@@ -1219,6 +1270,8 @@ detail:
 | **Pareto front** | The set of best available deals; no single winner. |
 | **Percentile (99th)** | Ignore the top 1%, take the next value down. Avoids meaningless infinities. |
 | **Printed material** | One that is weaker between its print layers than along them, so it has no single strength. Described under `printed:` rather than with one allowable stress. |
+| **Overhang** | A surface leaning out so far that there is nothing underneath to print it on. Needs a temporary scaffold, called support. |
+| **Support** | Scaffolding a printer builds under an overhang and you break off afterwards. Counted as an area, because it is a cost rather than a fault. |
 | **Poisson contraction** | The material narrowing sideways as it stretches lengthwise. Ordinary beam theory ignores this effect. |
 | **Provenance** | The record of exactly what produced a number. |
 | **Region** | A named face or set of faces you push or hold. |

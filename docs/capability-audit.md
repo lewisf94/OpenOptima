@@ -202,7 +202,7 @@ that does not exist. And an as-printed surface is rougher than a machined one,
 which lowers fatigue strength by more than layer weakness does — leaving it out
 makes the answer optimistic, which is the dangerous direction.
 
-### Printability geometry — Wrap
+### Printability geometry — Wrap ✔ overhang and fit done
 
 Whether a shape can actually be printed: overhang angle, wall thickness, build
 volume.
@@ -234,6 +234,31 @@ enough detail that implementing it does not start by re-deriving this table.
 Building any of the three touches a computed metric the optimiser will trade
 mass against, so it is Opus work under this project's own model-selection
 rule, not "mostly wiring."
+
+**Overhang and build volume are built** (`printing/`, `domain/printing.py`).
+The verdict held exactly: trimesh supplied `face_normals` and `area_faces` and
+nothing else was needed from it, while everything that could produce a wrong
+answer was ours. Two of those, both found by measuring:
+
+- **The build plate had to come out of the overhang area**, and that decides
+  the ranking rather than tidying it — counting it makes printing the drone
+  arm on edge look better than flat, removing it makes flat less than half the
+  cost. A library that measured angles perfectly would still have given the
+  wrong recommendation.
+- **`trimesh.load` needs `process=True`**, which is not optional here: an STL
+  stores every triangle with its own vertices, so nothing is watertight until
+  duplicates are merged, and the closedness check rejected a perfectly good
+  solid until that was fixed.
+
+**One correction to the row above, from trying it rather than reading it.**
+`trimesh.proximity.thickness` exists, but the entire `proximity` module needs
+a ray backend, and with `rtree`, `pyembree` and `embreex` all absent nothing
+in it runs at all — `signed_distance` and `closest_point` included. So wall
+thickness is not merely unwritten, it is currently unreachable. `rtree` 1.4.1
+is **MIT** by its own package metadata (`License-Expression: MIT`), ships as a
+prebuilt wheel with no transitive dependencies, and downloads here. Adding it
+is the first step of that piece. *Checking that a named function imports is
+not the same as checking it runs.*
 
 ### Modal analysis — Build ✔ done
 

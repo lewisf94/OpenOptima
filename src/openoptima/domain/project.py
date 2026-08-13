@@ -23,6 +23,7 @@ from .model import (
 )
 from .objectives import Constraint, Objective, PreferenceModel
 from .orthotropic import BUILD_AXES, OrthotropicMaterial
+from .printing import PrintingSettings
 from .regions import SemanticRegion
 from .units import UnitSystem, get_unit_system
 from .variables import DesignSpace
@@ -142,6 +143,9 @@ class Project:
     stress_evaluation: StressEvaluation = field(default_factory=StressEvaluation)
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
     modal: ModalSettings = field(default_factory=ModalSettings)
+    #: Whether the shape can be printed, and what it would cost in support
+    #: material. Metrics only -- never a gate. See ``domain/printing.py``.
+    printing: PrintingSettings = field(default_factory=PrintingSettings)
     #: Failure criterion for a material with directional strengths. Has no
     #: effect on an isotropic material, which uses its allowable stress.
     failure_criterion: str = "hoffman"
@@ -396,6 +400,22 @@ class Project:
             "modal": {
                 "enabled": self.modal.enabled,
                 "modes": self.modal.modes,
+            },
+            # The overhang limit and the printer's size both change a reported
+            # metric, so a result measured against one printer is not a cache
+            # hit for another.
+            "printing": {
+                "enabled": self.printing.enabled,
+                "overhang_angle_deg": self.printing.overhang_angle_deg,
+                "build_volume": (
+                    None
+                    if self.printing.build_volume is None
+                    else [
+                        self.printing.build_volume.width,
+                        self.printing.build_volume.depth,
+                        self.printing.build_volume.height,
+                    ]
+                ),
             },
             "solver": {"name": self.solver.name},
             # Changing the failure criterion changes the reported factor of
