@@ -39,6 +39,20 @@ _SINGULAR = 1.0e-12
 _RELATIVE_SINGULAR = 1.0e-10
 
 
+#: The three ways a part can be laid on a printer bed, named by the axis the
+#: layers stack along. A part printed flat stacks upward, which is ``z``.
+#:
+#: Only these three, deliberately. They are the orientations a part is actually
+#: printed in without re-fixturing it, and naming them keeps the choice
+#: readable in a result table -- "printed along z" rather than a vector. A part
+#: that genuinely needs an angled orientation states a fixed vector instead.
+BUILD_AXES: dict[str, tuple[float, float, float]] = {
+    "x": (1.0, 0.0, 0.0),
+    "y": (0.0, 1.0, 0.0),
+    "z": (0.0, 0.0, 1.0),
+}
+
+
 class InadmissibleMaterial(ValueError):
     """The constants given do not describe a physically possible material.
 

@@ -236,7 +236,7 @@ class EvaluationPipeline:
         if not available:
             raise EvaluationFailure(FailureCode.SOLVER_NOT_FOUND, message)
         state = EvaluationState.SOLVER_INPUT_WRITTEN
-        analysis = solver.solve(project.analysis_model(), mesh, run.solver_dir)
+        analysis = solver.solve(project.analysis_model(design.as_dict()), mesh, run.solver_dir)
         state = EvaluationState.SOLVED
         run.manifest["solver"] = {
             "name": analysis.solver_name,
@@ -246,7 +246,7 @@ class EvaluationPipeline:
 
         # 4. metrics
         metrics, load_cases, metric_warnings = collect_metrics(
-            analysis, project.analysis_model(), mesh, region_map, reference_volume
+            analysis, project.analysis_model(design.as_dict()), mesh, region_map, reference_volume
         )
         state = EvaluationState.RESULTS_PARSED
 

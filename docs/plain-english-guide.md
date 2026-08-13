@@ -573,6 +573,39 @@ on your printer, your settings, and how warm the part gets in service.
 `build_direction` says which way the layers stack. Laying a part flat on
 the bed stacks them upward, which is `[0, 0, 1]`.
 
+**You can also let OpenOptima decide.** Make it a design variable whose
+choices are the axis the layers stack along, and the search tries each way
+of laying the part on the bed:
+
+```yaml
+geometry:
+  variables:
+    - id: print_direction
+      type: categorical
+      choices: [x, y, z]     # the axis the layers stack along
+      default: z
+
+material:
+  printed:
+    build_direction: print_direction     # names the variable above
+```
+
+**It only ever judges the strength.** OpenOptima has no idea how much
+support material an orientation needs, how long it takes to print, what
+the surface comes out like, or whether the part fits your bed that way up.
+If it tells you to print the part standing on end, that may be a real
+nuisance the analysis never saw. It is answering "which way is strongest",
+not "which way should I print this".
+
+**Read the answer as "not that way" rather than as a recommendation.** On
+the drone arm it firmly rejects one orientation — the lightest arm it can
+find printed upright is 106 g, against about 71 g the other two ways. But
+between the two good orientations it genuinely cannot choose: fix each one
+and run the same search, and both settle on exactly the same part. The
+difference between two runs of the search is bigger than the difference
+between those two orientations. So a result saying "printed on edge" means
+"not upright", and does not mean on edge beats flat.
+
 **Which way up you print it is a structural decision, and OpenOptima can
 now show you what it costs.** The drone arm example is one arm of a
 quadcopter, 150 mm long, bending under the motor. Printed flat, bending

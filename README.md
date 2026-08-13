@@ -308,7 +308,10 @@ Five examples ship with OpenOptima:
   single strength and von Mises stress cannot describe it. Changing only
   the print direction moves the factor of safety from 3.07 to 1.55 — while
   the stress stays at 7.53 against 7.54 MPa. The part is half as strong and
-  the stress does not move.
+  the stress does not move. Which way up to print it is itself one of the
+  things the optimiser decides here. It rules out the orientation that
+  halves the strength — the lightest arm it can find that way is 106 g
+  against about 71 — and is indifferent between the other two.
 
   It also carries a motor, and the motor is most of the moving mass. With
   it the arm vibrates at 121.5 Hz and without it at 191.4 Hz, so leaving it

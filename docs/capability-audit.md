@@ -279,6 +279,14 @@ Measured once it was reachable, on `examples/drone_arm`: changing only the
 print direction moves the factor of safety from 3.07 to 1.55 while the
 99th-percentile stress stays at 7.53 against 7.54 MPa.
 
+**The direction is now a design variable**, so the search chooses it. That
+needed no new calculation at all — the material already accepted any
+direction, so the work was resolving the choice per design and keeping the
+cache able to tell two orientations apart. Worth noting against this audit's
+own framing: this is an entry where the reusable half was *everything*, and
+the part that had to be written was bookkeeping that could still have
+produced a plausible wrong answer if the hash had collided.
+
 One correction to the note above. Hoffman's limit binds on **tension times
 compression** on each axis, not on strength alone — the through-layer product
 must stay above a quarter of the in-plane product. Where both fall together

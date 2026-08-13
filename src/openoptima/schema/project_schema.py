@@ -40,6 +40,7 @@ from ..domain.objectives import (
     TradeRule,
 )
 from ..domain.orthotropic import (
+    BUILD_AXES,
     DirectionalStrength,
     InadmissibleMaterial,
     OrthotropicMaterial,
@@ -285,7 +286,11 @@ class PrintedSchema(Strict):
 
     #: Which way the layers stack, in the model's own coordinates. This is the
     #: weak direction. A part printed flat on the bed stacks upward: (0, 0, 1).
-    build_direction: Vector3 = (0.0, 0.0, 1.0)
+    #:
+    #: May instead name a categorical design variable, in which case the
+    #: optimiser chooses how to print the part. That variable's choices must be
+    #: axis names -- ``x``, ``y`` or ``z``, the axis the layers stack along.
+    build_direction: Vector3 | str = (0.0, 0.0, 1.0)
     along_layers_modulus_mpa: float
     through_layers_modulus_mpa: float
     in_plane_poisson: float
@@ -296,7 +301,13 @@ class PrintedSchema(Strict):
     #: Mises stress, which assumes equal strength in every direction.
     strength: PrintedStrengthSchema | None = None
 
-    def to_domain(self, *, name: str, density_kg_m3: float) -> OrthotropicMaterial:
+    def to_domain(
+        self,
+        *,
+        name: str,
+        density_kg_m3: float,
+        design_space: DesignSpace | None = None,
+    ) -> OrthotropicMaterial:
         return OrthotropicMaterial.transversely_isotropic(
             name=name,
             in_plane_modulus_mpa=self.along_layers_modulus_mpa,
@@ -305,9 +316,35 @@ class PrintedSchema(Strict):
             through_layer_poisson=self.through_layers_poisson,
             through_layer_shear_mpa=self.through_layers_shear_modulus_mpa,
             density_kg_m3=density_kg_m3,
-            build_direction=self.build_direction,
+            # A material must always hold a real direction: `stiffness_matrix`
+            # and `local_axes` need one, and making them cope with a variable
+            # name would spread the idea through arithmetic that has no
+            # business knowing about design variables. Where the optimiser
+            # chooses, this holds the first choice and `Project.material_for`
+            # substitutes what the design actually picked.
+            build_direction=self.resolved_build_direction(design_space),
             strength=self.strength.to_domain() if self.strength else None,
         )
+
+    @property
+    def direction_variable(self) -> str | None:
+        """The design variable choosing the print direction, if any."""
+        return self.build_direction if isinstance(self.build_direction, str) else None
+
+    def resolved_build_direction(self, design_space: DesignSpace | None) -> Vector3:
+        if not isinstance(self.build_direction, str):
+            return self.build_direction
+        variable = next(
+            (v for v in (design_space or ()) if v.id == self.build_direction),
+            None,
+        )
+        if variable is None or not variable.choices:
+            # Project.__post_init__ reports this properly, with the list of
+            # variables that do exist. Fall back to something valid so the
+            # material can be built and that message is the one the user sees.
+            return (0.0, 0.0, 1.0)
+        first = str(variable.effective_default())
+        return BUILD_AXES.get(first, (0.0, 0.0, 1.0))
 
 
 class MaterialSchema(Strict):
@@ -383,9 +420,17 @@ class MaterialSchema(Strict):
                 ) from exc
         return self
 
-    def to_domain(self) -> Material | OrthotropicMaterial:
+    @property
+    def direction_variable(self) -> str | None:
+        return self.printed.direction_variable if self.printed else None
+
+    def to_domain(self, design_space: DesignSpace | None = None) -> Material | OrthotropicMaterial:
         if self.printed is not None:
-            return self.printed.to_domain(name=self.name, density_kg_m3=self.density_kg_m3)
+            return self.printed.to_domain(
+                name=self.name,
+                density_kg_m3=self.density_kg_m3,
+                design_space=design_space,
+            )
         assert self.elastic_modulus_mpa is not None  # narrowed by the validator
         assert self.poisson_ratio is not None
         assert self.allowable_stress_mpa is not None
@@ -783,6 +828,9 @@ class ProjectSchema(Strict):
         return self
 
     def to_domain(self) -> Project:
+        design_space = DesignSpace(
+            tuple(variable.to_domain() for variable in self.geometry.variables)
+        )
         return Project(
             name=self.name,
             description=self.description,
@@ -795,12 +843,11 @@ class ProjectSchema(Strict):
                 parameters=dict(self.geometry.parameters),
                 features=tuple(feature.to_domain() for feature in self.geometry.features),
             ),
-            design_space=DesignSpace(
-                tuple(variable.to_domain() for variable in self.geometry.variables)
-            ),
+            design_space=design_space,
             regions=tuple(region.to_domain() for region in self.regions),
-            material=self.material.to_domain(),
+            material=self.material.to_domain(design_space),
             failure_criterion=self.material.failure_criterion,
+            build_direction_variable=self.material.direction_variable,
             point_masses=tuple(mass.to_domain() for mass in self.point_masses),
             load_cases=tuple(case.to_domain() for case in self.load_cases),
             mesh=self.mesh.to_domain(),

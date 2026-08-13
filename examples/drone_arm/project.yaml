@@ -26,27 +26,46 @@
 #   openoptima optimise examples/drone_arm/project.yaml
 #   openoptima report   examples/drone_arm/project.yaml
 #
-# WHAT IT FINDS. 50 designs, 16 of them usable, no errors, about three
-# minutes. The answer is a 26 x 26 mm box with a 2.2 mm wall: 72.7 g, a
-# factor of safety of 5.2, and vibrating at 177 Hz.
+# WHAT IT FINDS. 106 designs, 45 of them usable, no errors, about seven
+# minutes. The answer is a 25 x 24 mm box with a 2.5 mm wall, printed on
+# edge: 70.5 g, a factor of safety of 8.1, and vibrating at 171 Hz.
 #
 # Sized on strength alone the same arm comes out at 40.7 g. Staying clear of
-# the propeller costs 32 g, nearly doubling it -- and a stress check would
+# the propeller costs 30 g, nearly doubling it -- and a stress check would
 # never have asked. That is the point of the example.
 #
 # Note the shape of the answer: a big section with a thin wall. Stiffness is
 # what matters here, and stiffness comes from how far the material sits from
 # the centre, not from how much of it there is.
 #
-# WHICH WAY UP YOU PRINT IT IS A STRUCTURAL DECISION, NOT A WORKSHOP ONE.
-# `build_direction` below says the layers stack upward, which is what you get
-# by laying the arm flat on the bed. That is the right way round for this
-# part: bending an arm stretches it along its length, and along its length is
-# the strong direction when it is printed flat. Stand the same arm up on its
-# root to print it and the layers stack along the arm instead, so bending
-# pulls them straight apart -- the weak direction. Same shape, same load, same
-# file, much weaker part. Change `build_direction` to [1.0, 0.0, 0.0] and
-# re-run to see it; docs/plain-english-guide.md quotes the measured numbers.
+# WHICH WAY UP YOU PRINT IT IS A STRUCTURAL DECISION, NOT A WORKSHOP ONE, AND
+# HERE THE OPTIMISER MAKES IT. `print_direction` is a design variable, so the
+# search tries all three ways of laying the arm on the bed. Measured on the
+# starting section -- identical shape, identical loads, identical mesh:
+#
+#     printed along z (flat)      stress 7.53 MPa   factor of safety 3.07
+#     printed along y (on edge)   stress 7.56 MPa   factor of safety 3.05
+#     printed along x (upright)   stress 7.54 MPa   factor of safety 1.55
+#
+# The stress does not move. The strength halves. Bending an arm stretches it
+# along its length: printed flat or on edge that runs along the layers, which
+# is strong, and printed upright it pulls the layers apart, which is weak.
+#
+# WHAT THE SEARCH CAN AND CANNOT TELL YOU HERE. It rules out `x` firmly: the
+# lightest arm it can find printed upright is 106 g, against about 71 to 79 g
+# the other two ways. Between `y` and `z` it cannot really choose -- fix each
+# one and run the same search and both settle on the same section at 78.8 g,
+# differing only in a factor of safety that never decides anything, because
+# stiffness and vibration set this design rather than strength. So read the
+# orientation it reports as "not upright" rather than as a recommendation
+# between the other two.
+#
+# WHAT OPENOPTIMA DOES NOT KNOW ABOUT THIS CHOICE. It picks the strongest
+# orientation and nothing else. It has no idea how much support material an
+# orientation needs, how long it takes to print, what the surface finish comes
+# out like, or whether the part even fits your bed that way up. If the answer
+# below tells you to print it in a way that needs a raft of supports, that is
+# a real cost the analysis never saw.
 
 schema_version: 1
 name: 3D-printed drone arm
@@ -91,6 +110,20 @@ geometry:
         Top to bottom. This is the direction the thrust and the landing bend
         it in, so it is the most powerful variable here -- bending stiffness
         grows with the cube of this number.
+
+    - id: print_direction
+      label: Which way it is printed
+      type: categorical
+      # The axis the layers stack along. `z` is the part lying flat on the
+      # bed, which is how you would normally print this. The optimiser is
+      # allowed to try the other two, and it should reject `x` -- see the
+      # note at the top of this file.
+      choices: [x, y, z]
+      default: z
+      description: >
+        Which way up the arm is printed. This is a structural decision, not a
+        workshop one: it changes the factor of safety by a factor of two while
+        the stress does not move.
 
     - id: wall
       label: Wall thickness
@@ -147,7 +180,9 @@ material:
   printed:
     # Which way the layers stack. See the note at the top of this file: this
     # is a structural decision.
-    build_direction: [0.0, 0.0, 1.0]
+    # Names the design variable above, so the optimiser decides. Write a fixed
+    # vector such as [0.0, 0.0, 1.0] instead to make the decision yourself.
+    build_direction: print_direction
 
     # Stiffness. Typical of PLA printed near solid; measure your own prints if
     # the answer matters, because print settings move these a long way.
@@ -322,15 +357,26 @@ constraints:
     value: 170.0
     label: First natural frequency
 
+# A BIGGER SEARCH THAN THE OTHER EXAMPLES, AND THE REASON IS WORTH KNOWING.
+# Letting the optimiser choose the print direction adds a fourth thing to
+# decide, and a choice between three options is harder for a search than a
+# dimension it can slide up and down. Measured here: on a budget of 64 the
+# answer came back at 83.8 g, and on 120 at the figure quoted at the top of
+# this file. Same problem, same code -- the smaller budget simply had not
+# finished looking.
+#
+# The general lesson: giving the optimiser another decision to make is not
+# free. If you add a variable, give it more evaluations, or you may get a
+# worse answer and no hint that you did.
 optimisation:
   initial_sampling:
     method: sobol
-    evaluations: 16
+    evaluations: 24
     seed: 1
   algorithm:
     name: nsga2
-    population_size: 16
-    evaluation_budget: 64
+    population_size: 20
+    evaluation_budget: 120
     seed: 1
   parallel_jobs: 0
   max_retries: 1

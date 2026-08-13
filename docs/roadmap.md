@@ -540,10 +540,42 @@ fatigue.
    in-plane strengths at 22/30 MPa it accepts through-layer tension down to
    6.0 MPa and refuses at 5.0. See `docs/engineering-assumptions.md`.
 
-   **Still to do here:** letting the build direction be a *design
-   variable*, so the optimiser can rotate the part on the bed. Rotating a
-   part can matter more than any dimension on it, and the numbers above are
-   the evidence.
+   **The direction is now a design variable too**, so the optimiser chooses
+   how to lay the part on the bed. `build_direction` may name a categorical
+   variable whose choices are the axis the layers stack along. Measured on
+   the drone arm at its starting section:
+
+       printed along z (flat)      stress 7.53 MPa   factor of safety 3.07
+       printed along y (on edge)   stress 7.56 MPa   factor of safety 3.05
+       printed along x (upright)   stress 7.54 MPa   factor of safety 1.55
+
+   **What the search does with that is worth stating carefully, because the
+   obvious reading is wrong.** It reliably rules out `x`: the lightest
+   feasible arm printed upright is 106.1 g against about 71 to 79 g the other
+   two ways. But `y` and `z` are near enough equivalent that the search
+   cannot separate them — run each on a fixed direction with the same budget
+   and both land on the *identical* section, 28.6 x 26.8 x 2.06 mm at 78.8 g,
+   differing only in a factor of safety (9.68 against 5.72) that never binds
+   because frequency and stiffness decide this design.
+
+   So the honest claim is that this **removes a bad orientation, and is
+   indifferent between the two good ones.** Run-to-run variation is larger
+   than the gap between them: the four-variable search found 70.5 g, better
+   than either fixed-direction run at the same budget, purely because it
+   happened to sample a better section. Reading "it chose `y`" as an
+   engineering finding would be reading noise.
+
+   **It judges strength and nothing else**, which is the caveat that matters:
+   support material, print time, surface finish and build-volume fit are all
+   invisible to it. That is the "Print rules" item below, and until it lands
+   the returned orientation is the strongest one rather than the one to
+   print.
+
+   One process note worth keeping. Adding that fourth decision cost search
+   budget: on the same 64 evaluations the answer went from 72.7 g to 83.8 g,
+   with no hint that anything was wrong. The example now runs a larger
+   budget. **Another variable is not free, and a search that has not
+   finished looking reports its best so far as though it were the answer.**
 
 2. **A lumped mass, so vibration works on a part that carries something —
    done.** Natural frequency comes from stiffness and mass, and OpenOptima

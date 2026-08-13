@@ -386,6 +386,35 @@ identical loads, identical mesh, only the print direction changed:
 The stress is identical to three significant figures while the factor of
 safety halves. Any check based on von Mises stress sees nothing.
 
+**The direction may itself be a design variable**, so the optimiser chooses
+how to lay the part on the bed. Name a categorical variable instead of a
+vector, with its choices being the axis the layers stack along:
+
+```yaml
+    build_direction: print_direction     # a categorical variable, choices [x, y, z]
+```
+
+Only the three axis-aligned orientations are offered. They are the ones a
+part is actually printed in without re-fixturing, and naming them keeps the
+answer readable. A part needing an angled orientation states a fixed vector.
+
+**The search judges strength and nothing else.** Support material, print
+time, surface finish and build-volume fit are all invisible to it, so the
+orientation it returns is the strongest one rather than the one you should
+necessarily print. Those are the "Print rules" roadmap item, and until they
+land the choice needs a human's eye.
+
+**And a returned orientation is only a finding where the alternatives were
+beaten.** Measured on the drone arm: printing upright is firmly rejected,
+the lightest feasible arm that way weighing 106.1 g against about 71 to
+79 g the other two ways. The remaining two are
+indistinguishable — held fixed and searched separately at the same budget
+they produce the identical section, 28.6 x 26.8 x 2.06 mm at 78.8 g,
+because frequency and stiffness bind here while the factor of safety, which
+is what orientation actually moves, does not. Run-to-run variation exceeded
+the gap between them. An optimiser always reports some value for a
+categorical variable, including when it could not tell the options apart.
+
 **Hoffman has a hard limit, and OpenOptima refuses rather than hides it.**
 Past that limit its failure surface stops being closed: it predicts that
 one particular combination of stresses — pulling along the layers while

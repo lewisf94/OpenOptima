@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+from .failures import EvaluationFailure, FailureCode
 from .features import EdgeFeature
 from .model import (
     AnalysisModel,
@@ -20,7 +22,7 @@ from .model import (
     StressEvaluation,
 )
 from .objectives import Constraint, Objective, PreferenceModel
-from .orthotropic import OrthotropicMaterial
+from .orthotropic import BUILD_AXES, OrthotropicMaterial
 from .regions import SemanticRegion
 from .units import UnitSystem, get_unit_system
 from .variables import DesignSpace
@@ -29,7 +31,9 @@ from .variables import DesignSpace
 CURRENT_SCHEMA_VERSION = 1
 
 
-def _material_digest(material: AnyMaterial) -> dict[str, Any]:
+def _material_digest(
+    material: AnyMaterial, direction_variable: str | None = None
+) -> dict[str, Any]:
     """The part of a material that can change a number, for the cache hash.
 
     A printed material and an ordinary one share only a name and a density, so
@@ -47,7 +51,16 @@ def _material_digest(material: AnyMaterial) -> dict[str, Any]:
             "nu": list(material.poisson),
             "G": list(material.shear_modulus),
             "rho": material.density,
-            "build_direction": list(material.normalised_build_direction),
+            # When the optimiser chooses the print direction, this hash must
+            # *not* pin one: the chosen axis rides on the design vector, which
+            # is hashed separately, and baking the default in here would make
+            # every orientation of the same section look like one cached
+            # result. Record which variable decides instead.
+            "build_direction": (
+                f"variable:{direction_variable}"
+                if direction_variable is not None
+                else list(material.normalised_build_direction)
+            ),
             "strength": None
             if strength is None
             else {
@@ -132,6 +145,11 @@ class Project:
     #: Failure criterion for a material with directional strengths. Has no
     #: effect on an isotropic material, which uses its allowable stress.
     failure_criterion: str = "hoffman"
+    #: Name of a categorical design variable that chooses which way the part is
+    #: printed, when that is something the optimiser may decide rather than
+    #: something the engineer fixed. ``None`` means the material's own
+    #: ``build_direction`` stands. See :meth:`analysis_model`.
+    build_direction_variable: str | None = None
     preferences: PreferenceModel = field(default_factory=PreferenceModel)
     optimisation: OptimisationSettings = field(default_factory=OptimisationSettings)
     unit_system_name: str = "mm_N_MPa_t"
@@ -174,6 +192,31 @@ class Project:
         if len(set(case_ids)) != len(case_ids):
             raise ValueError(f"Duplicate load case ids: {case_ids}")
 
+        if self.build_direction_variable is not None:
+            if not isinstance(self.material, OrthotropicMaterial):
+                raise ValueError(
+                    f"{self.build_direction_variable!r} chooses which way the part is "
+                    f"printed, but this project's material is not a printed one. Which "
+                    f"way up an ordinary material is made does not change its strength."
+                )
+            variable = next(
+                (v for v in self.design_space if v.id == self.build_direction_variable), None
+            )
+            if variable is None:
+                raise ValueError(
+                    f"build_direction names {self.build_direction_variable!r}, which is "
+                    f"not a design variable. Defined variables: "
+                    f"{sorted(self.design_space.ids)}"
+                )
+            unknown = [c for c in variable.choices if str(c) not in BUILD_AXES]
+            if unknown:
+                raise ValueError(
+                    f"Variable {variable.id!r} chooses which way the part is printed, so "
+                    f"its choices must name the axis the layers stack along "
+                    f"({', '.join(sorted(BUILD_AXES))}). Not recognised: "
+                    f"{', '.join(repr(c) for c in unknown)}."
+                )
+
         if self.buckling.enabled and isinstance(self.material, OrthotropicMaterial):
             # The buckling result is only reported when it agrees with a beam
             # theory cross-check, and that check needs one stiffness for the
@@ -203,10 +246,39 @@ class Project:
                 return region
         raise KeyError(name)
 
-    def analysis_model(self) -> AnalysisModel:
+    def material_for(self, design: Mapping[str, Any] | None = None) -> AnyMaterial:
+        """The material as this design prints it.
+
+        Which way up a part is printed is a structural decision, not a workshop
+        one -- on ``examples/drone_arm`` it moves the factor of safety from
+        3.07 to 1.55 while the stress does not move at all. So a project may
+        hand that choice to the optimiser, and this resolves what it chose.
+
+        Everything else about the material is fixed. Only the direction the
+        layers run can vary, because that is the only part of it a printer
+        setting decides.
+        """
+        if self.build_direction_variable is None or design is None:
+            return self.material
+        assert isinstance(self.material, OrthotropicMaterial)  # enforced in __post_init__
+        chosen = design.get(self.build_direction_variable)
+        if chosen is None:
+            return self.material
+        try:
+            axis = BUILD_AXES[str(chosen)]
+        except KeyError:
+            raise EvaluationFailure(
+                FailureCode.INVALID_DESIGN_VARIABLES,
+                f"Variable {self.build_direction_variable!r} chooses which way the "
+                f"part is printed, and {chosen!r} is not one of "
+                f"{', '.join(sorted(BUILD_AXES))}.",
+            ) from None
+        return replace(self.material, build_direction=axis)
+
+    def analysis_model(self, design: Mapping[str, Any] | None = None) -> AnalysisModel:
         return AnalysisModel(
             name=self.name,
-            material=self.material,
+            material=self.material_for(design),
             load_cases=self.load_cases,
             point_masses=self.point_masses,
             stress_evaluation=self.stress_evaluation,
@@ -268,7 +340,7 @@ class Project:
                 }
                 for r in self.regions
             ],
-            "material": _material_digest(self.material),
+            "material": _material_digest(self.material, self.build_direction_variable),
             # A carried mass changes every natural frequency and every
             # acceleration load, so a result computed without one is not a
             # cache hit for a project that has one.

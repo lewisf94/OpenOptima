@@ -431,6 +431,49 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     never what was concluded.** A derived judgement has to be re-derived,
     because its inputs are not only the ones that went into the hash.
 
+20. **Giving the optimiser one more decision is not free, and a search that
+    has not finished looking reports its best so far as the answer.** Adding
+    `print_direction` to `examples/drone_arm` — a categorical choice between
+    three orientations, on top of three continuous dimensions — moved the
+    result from **72.7 g to 83.8 g on the same 64-evaluation budget**. Both
+    runs completed, reported no errors, and printed a knee point. Nothing
+    said the second had simply run out of evaluations, and the extra freedom
+    could in principle only have helped.
+
+    The example now runs 120. The wider point is that **an optimisation
+    result is a lower bound on how good the design could be, never a
+    statement that nothing better exists** — and adding a variable without
+    adding budget quietly moves that bound the wrong way. A categorical is
+    worse than a continuous one here: the search slides along a dimension but
+    has to *sample* a choice, and `variables.py` encodes a categorical as a
+    rounded index, so neighbouring values are not neighbouring designs.
+
+    Related, and the reason this stayed correct: when the optimiser chooses
+    the print direction, `setup_digest()` must **not** pin one. The chosen
+    axis rides on the design vector, which is hashed separately; baking the
+    default into the setup hash would make all three orientations of one
+    section collide as a single cached result — the 3.07 answer served for
+    the 1.55 design. `_material_digest` records `variable:<name>` instead.
+    `tests/unit/test_build_direction_variable.py` fails without that.
+
+    **The other half, and it is a reporting trap rather than a code one:
+    which value the search returns for a categorical is not a finding until
+    you have shown it beats the alternatives.** The run picked `y`, and the
+    obvious write-up — "the optimiser chose to print it on edge" — was
+    wrong. Fixing the direction to `y` and to `z` and running each at the
+    same budget produced the *identical* section, 28.6 x 26.8 x 2.06 mm at
+    78.8 g both times: the two are indistinguishable here because frequency
+    and stiffness bind while the factor of safety, which is what the
+    orientation actually moves, never does. Meanwhile the four-variable run
+    reported 70.5 g, better than either — search-path variance larger than
+    the effect being attributed to the choice.
+
+    So: `x` really is ruled out (106.1 g at best against about 71 to 79 g),
+    and the rest was noise. **Before quoting a chosen category as an
+    engineering result, hold it fixed and race it against the others on
+    equal budget.** An optimiser always returns *a* value, and a run that
+    could not tell two options apart still has to print one of them.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:
