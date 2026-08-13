@@ -742,6 +742,54 @@ real motor is not. Assuming uniform puts its middle half way up, which is
 top has its weight higher than that, and the true frequency is lower than
 the reported one. `centre_height_mm` exists for when that is known.
 
+### V17 — How thin the thinnest wall is
+
+`tests/verification/test_wall_thickness.py`
+
+A printer lays plastic in beads of a fixed width. A wall thinner than about
+two of them either does not print or prints as one unfused line, and no
+stress calculation notices — the shape is perfectly sound on paper.
+
+Checked against boxes, fins and tubes whose wall thickness is known by
+construction, never against an earlier run of the same code.
+
+**Flat walls are exact and do not depend on the triangles.** A block
+carrying a 0.6 mm fin, tessellated at 10, 5, 3, 1.5 and 0.8 mm — 576 to
+24 008 triangles — read 0.6000 every time. That is what separates a real
+measurement from one that is really about the mesh.
+
+**Curved walls read low, by an amount the triangle size sets.** A flat
+facet cuts the corner off a curve, so the chord across is shorter than the
+wall. Measured on walls of 0.6, 1.2 and 2.0 mm wrapped round small radii:
+
+| Triangle size | Error |
+|---|---|
+| 5 x the wall | −16% to −34% |
+| 2 x the wall | −8% to −11% |
+| **1 x the wall** | **−1.7% to −3.0%** |
+| 0.5 x the wall | −0.6% to −0.8% |
+
+Every one **low**, which is the safe direction: a coarse measurement
+over-rejects rather than over-accepts. The tessellation is tied to the
+`min_wall_check_mm` the project declares, putting it on the 1x row.
+
+**Two method choices, both settled by measurement rather than by
+argument.** `trimesh` also offers a largest-inscribed-sphere method, which
+reads a third low on a plate of known thickness — 0.5333 for 0.8 mm, and
+the same 33% at 2 mm and 5 mm, where the ray reads 0.8000, 2.0000 and
+5.0000 exactly. And sampling at triangle corners, which sit on the true
+surface rather than inside a curve, looks like the obvious improvement and
+is worse: 0.8567 against 0.9106 on a 1.000 mm tube wall, because a corner's
+direction is averaged from the faces around it and points off the true
+normal.
+
+**What it does not find.** The thin end of a taper. The thinnest point of
+anything that tapers is its edge, where the thickness is zero by
+definition. Measured on a plate running from 6 mm down to 0.5 mm it reads
+0.5502, about 10% **high** — the unsafe direction. Reporting zero for every
+chamfer on every part would make the number useless, so this measures walls,
+and a wall is a run of material of roughly even thickness.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

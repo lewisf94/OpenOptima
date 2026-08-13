@@ -14,6 +14,8 @@ import pytest
 from pydantic import ValidationError
 
 from openoptima.domain.printing import (
+    DEFAULT_TESSELLATION_MM,
+    MINIMUM_WALL_CHECK_MM,
     BuildVolume,
     PrintingSettings,
     build_volume_overflow,
@@ -172,3 +174,60 @@ def test_a_different_printer_changes_the_digest() -> None:
     small = _ON + "  build_volume: { width_mm: 100, depth_mm: 100, height_mm: 100 }\n"
     large = _ON + "  build_volume: { width_mm: 300, depth_mm: 300, height_mm: 300 }\n"
     assert _digest(small) != _digest(large)
+
+
+# -- how thin a wall to look for -----------------------------------------------
+
+
+def test_a_wall_limit_is_optional() -> None:
+    """No default, for the same reason min_area_mm2 has none: how thin is too
+    thin depends on the nozzle and on what the wall is holding."""
+    assert PrintingSettings().min_wall_check_mm is None
+    assert PrintingSettings().tessellation_mm == DEFAULT_TESSELLATION_MM
+
+
+def test_the_wall_limit_sets_how_finely_the_shape_is_chopped_up() -> None:
+    """Measured: at 5x the wall a curved wall reads 16-34% thin, at 1x it
+    reads 1.7-3.0% thin. Tying the two is what puts it on the 1x row."""
+    assert PrintingSettings(min_wall_check_mm=0.8).tessellation_mm == 0.8
+    assert PrintingSettings(min_wall_check_mm=1.5).tessellation_mm == 1.5
+
+
+def test_a_generous_wall_limit_does_not_make_the_chopping_coarser() -> None:
+    """A 10 mm limit must not tessellate at 10 mm: the overhang measurement
+    shares this mesh, and a curve needs following whatever the wall is."""
+    assert PrintingSettings(min_wall_check_mm=10.0).tessellation_mm == DEFAULT_TESSELLATION_MM
+
+
+def test_a_slipped_decimal_point_is_refused() -> None:
+    """0.08 instead of 0.8 is not a thinner check, it is an unusable one: the
+    tessellation it asks for would take hours per design, and no nozzle lays a
+    bead that thin anyway."""
+    with pytest.raises(ValueError, match="thinner than any nozzle"):
+        PrintingSettings(min_wall_check_mm=0.01)
+    assert PrintingSettings(min_wall_check_mm=MINIMUM_WALL_CHECK_MM).min_wall_check_mm
+
+
+def test_a_wall_limit_round_trips() -> None:
+    settings = PrintingSchema(enabled=True, min_wall_check_mm=0.8).to_domain()
+    assert settings.min_wall_check_mm == 0.8
+    assert settings.tessellation_mm == 0.8
+
+
+def test_the_drone_arm_example_deliberately_does_not_check_its_wall() -> None:
+    """It costs 7.02 s per design there against 0.55 s, and the `wall`
+    variable has a 2 mm floor, so the check could only ever report 2.5 mm.
+    Paying 13 minutes a run for a number that cannot change is the mistake the
+    example exists to talk somebody out of."""
+    project = load_project(DRONE_ARM)
+    assert project.printing.enabled, "the other two printability checks stay on"
+    assert project.printing.min_wall_check_mm is None
+
+
+def test_a_wall_limit_changes_the_digest() -> None:
+    """It decides whether the wall is measured at all AND how finely, and a
+    coarser chop reads a curved wall thinner. Two limits, two answers."""
+    assert _digest(_ON) != _digest(_ON + "  min_wall_check_mm: 0.8\n")
+    assert _digest(_ON + "  min_wall_check_mm: 0.8\n") != _digest(
+        _ON + "  min_wall_check_mm: 1.2\n"
+    )

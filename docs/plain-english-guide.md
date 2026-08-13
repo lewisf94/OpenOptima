@@ -599,13 +599,14 @@ not "which way should I print this".
 
 ### Will it print, and what will it cost to print?
 
-Two things OpenOptima can now measure about the shape itself:
+Three things OpenOptima can measure about the shape itself:
 
 ```yaml
 printing:
   enabled: true
   overhang_angle_deg: 45.0
   build_volume: { width_mm: 220.0, depth_mm: 220.0, height_mm: 250.0 }
+  # min_wall_check_mm: 0.8    # optional, and the slow one — see below
 ```
 
 **Overhang.** A printer lays down plastic on top of what is already
@@ -626,6 +627,58 @@ constraints:
     operator: less_than_or_equal
     value: 0.0
 ```
+
+**How thin the thinnest wall is.** A printer lays plastic in beads of a
+fixed width. A wall thinner than about two of them either does not print at
+all or prints as one unfused line, and no stress calculation notices — the
+shape is perfectly sound on paper.
+
+Set `min_wall_check_mm` to the thinnest wall you care about and
+`min_wall_thickness_mm` tells you the thinnest one it found:
+
+```yaml
+printing:
+  enabled: true
+  min_wall_check_mm: 0.8      # two beads from a 0.4 mm nozzle
+
+constraints:
+  - metric: min_wall_thickness_mm
+    operator: greater_than_or_equal
+    value: 0.8
+```
+
+There is **no default**, on purpose. How thin is too thin depends on your
+nozzle, your material and what the wall is holding — that is your decision,
+the same as the allowable stress.
+
+**This is the slow one, and the number you set is what makes it slow.** It
+also decides how finely the shape is chopped up to measure it. Measured on
+the drone arm:
+
+| `min_wall_check_mm` | Time per design |
+|---|---|
+| not set | 0.55 s |
+| 2.0 | 0.91 s |
+| 1.2 | 2.81 s |
+| 0.8 | 7.02 s |
+
+At 0.8 that is about 13 minutes on a 120-design run. **Only turn it on when
+a thin wall is genuinely possible** — a shape imported from CAD that you
+have not measured, or a result from topology optimisation, whose organic
+webs can come out far thinner than anything you asked for. The drone arm
+example leaves it off, because its wall cannot go below 2 mm and the check
+could only ever report the number you already knew.
+
+**What the wall check finds, and what it does not.** It finds a *wall* — a
+run of material of roughly even thickness, which is what a hollow section, a
+rib and a boss all are, and what a printer actually fails to make. It does
+not find the thin end of a taper, because the thinnest point of anything
+that tapers is its edge, where the thickness is zero. Otherwise every
+chamfer on every part would report zero and the number would be useless.
+
+On a curved wall it reads slightly **thin** — about 3% on the settings it
+uses — so it errs towards rejecting a wall rather than passing one. On a
+flat wall it is exact.
 
 **Support is a cost, not a rule.** A design needing support is more work,
 not wrong, and how much performance you would give up to avoid one is your

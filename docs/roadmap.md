@@ -652,15 +652,14 @@ fatigue.
    frequency is lower still. `centre_height_mm` covers it when the number is
    known; nothing measures it for you.
 
-3. **Print rules as a trade-off, not a hard limit — two of three done.**
-   Overhang angle and build-volume fit are built; minimum wall thickness
-   for the nozzle is not.
+3. **Print rules as a trade-off, not a hard limit — done.**
 
    `printing.enabled` reports `support_area_mm2` — downward-facing surface
    too shallow to print on itself — and `build_volume_overflow_mm`, how far
-   the part exceeds the printer. Both are metrics, so a project may
-   constrain them, trade them against mass, or ignore them. Neither ever
-   deletes a design.
+   the part exceeds the printer. `printing.min_wall_check_mm` adds
+   `min_wall_thickness_mm`, the thinnest run of material in the shape. All
+   three are metrics, so a project may constrain them, trade them against
+   mass, or ignore them. None ever deletes a design.
 
    **The term that decides the answer is the build plate.** The face
    resting on it is downward-facing and perfectly flat, so every angle test
@@ -677,13 +676,56 @@ fatigue.
    bit-identical from 2010 to 95814 triangles, so optimising it does not
    mean optimising the tessellation.
 
-   **Still to do: minimum wall thickness.** `trimesh.proximity.thickness`
-   does the geometry, but it needs a ray backend — `rtree`, MIT, obtainable
-   as a prebuilt wheel with no transitive dependencies, and currently not
-   installed, which makes the whole `trimesh.proximity` module unavailable.
-   The work is that dependency plus a sampling strategy: too sparse and it
-   misses a thin sliver the way a region can shrink to 0.6 mm² unnoticed
-   (trap 15).
+   **Minimum wall thickness — done, and it completes the item.**
+   `printing.min_wall_check_mm` reports `min_wall_thickness_mm`: the thinnest
+   run of material in the shape, found by firing a ray into the solid from
+   every triangle and taking the shortest crossing. Verified as V17.
+
+   Three things came out of building it, and the first two changed the design.
+
+   **The sampling worry was real, and the number that controls it is the
+   user's own limit.** Measured on curved walls of 0.6, 1.2 and 2.0 mm, with
+   the triangle size set to a multiple of the wall: 5x reads 16–34% low, 2x
+   reads 8–11% low, 1x reads 1.7–3.0% low, 0.5x reads 0.6–0.8% low. Every one
+   **low**, because a flat facet cuts the corner off a curve — so a coarse
+   measurement over-rejects rather than over-accepts, which is the safe
+   direction. The tessellation is therefore tied to `min_wall_check_mm`,
+   which has no default for the same reason `min_area_mm2` has none. On a
+   flat wall it is exact and independent of the triangles: 576 to 24 008 all
+   read 0.6000 on the same 0.6 mm fin.
+
+   **The obvious refinement makes it worse.** Sampling at triangle corners,
+   which sit on the true surface rather than inside a curve, reads 0.8567 on
+   a 1.000 mm tube wall against 0.9106 from the centres — because a corner's
+   direction has to be averaged from the faces around it, and that average
+   points off the true normal. Measured, not assumed. So does the choice of
+   method: `trimesh`'s inscribed-sphere option reads a third low on a plate
+   of known thickness, at 0.8, 2 and 5 mm alike.
+
+   **It is the expensive check, and the drone arm deliberately does not use
+   it.** 7.02 s per design at a 0.8 mm limit against 0.55 s without, which is
+   about 13 minutes on a 120-design run. That arm's `wall` variable has a
+   2 mm floor, so the check could only ever report a number already known.
+   The example carries the setting commented out with those figures beside
+   it, because when *not* to pay for a check is worth as much as how to
+   switch it on. It earns its cost on an imported shape nobody has measured,
+   and most of all on a topology result, whose organic webs can come out far
+   thinner than anything asked for.
+
+   **What it does not find**, stated in the docs rather than left implied:
+   the thin end of a taper. The thinnest point of anything that tapers is its
+   edge, where thickness is zero by definition — measured at 0.5502 on a
+   plate running 6 mm down to 0.5 mm, about 10% high. Reporting zero for
+   every chamfer would make the number useless.
+
+   `rtree` is now a dependency under the `printing` extra. Worth recording
+   why it is not optional: **every** spatial query in trimesh routes through
+   it, including the pure-Python ray engine, which builds an rtree index of
+   triangle bounds. `import trimesh.proximity` succeeds without it and every
+   call then raises — so checking that a function exists proves nothing about
+   whether it runs. Licences read from package metadata: rtree 1.4.1 declares
+   `License-Expression: MIT`, and the libspatialindex it bundles is MIT in
+   its own COPYING file.
 
    **These must be adjustable, not absolute.** How much performance
    somebody will give up to avoid support material is a personal call,

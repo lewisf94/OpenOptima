@@ -267,6 +267,27 @@ def _self_check_steps() -> list[tuple[str, Any]]:
 
         return (measure_discrete_surface, load_surface)
 
+    def printability() -> object:
+        # Trap 9, and this one is worse than an import. The wall check calls
+        # trimesh, which reaches every spatial query through `rtree` -- a
+        # compiled extension shipping its own libspatialindex. `import trimesh`
+        # succeeds without it and the call then raises, so importing the module
+        # proves nothing. This runs a real measurement on a two-triangle-thick
+        # box, which is the only thing that proves the whole chain is there.
+        import numpy as np
+        import trimesh
+
+        from ..printing.overhang import measure_min_wall
+
+        box = trimesh.creation.box(extents=(20.0, 15.0, 2.0))
+        thickness = measure_min_wall(box)
+        if not np.isclose(thickness, 2.0, rtol=1e-6):
+            raise RuntimeError(
+                f"a 2 mm box measured {thickness:.4f} mm thick, so the wall "
+                f"check is present but wrong."
+            )
+        return thickness
+
     return [
         ("geometry", geometry),
         ("mesher", mesher),
@@ -274,6 +295,7 @@ def _self_check_steps() -> list[tuple[str, Any]]:
         ("optimiser", optimiser),
         ("optimiser problem", problem),
         ("surface route", surface_route),
+        ("printability", printability),
     ]
 
 

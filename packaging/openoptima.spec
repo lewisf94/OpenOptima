@@ -64,6 +64,18 @@ for example_dir in (ROOT / "examples").iterdir():
 
 binaries = collect_dynamic_libs("gmsh")
 
+# rtree ships its own compiled libspatialindex, and the wall-thickness check
+# reaches every spatial query in trimesh through it -- including the
+# pure-Python ray engine, which builds an rtree index of triangle bounds. A
+# build that bundled the Python package and not the native library would import
+# fine and raise on the first measurement, which is trap 9's exact shape.
+# `openoptima-app --self-check` runs a real measurement rather than an import,
+# so a missing library fails the build instead of a user's first run.
+try:
+    binaries += collect_dynamic_libs("rtree")
+except Exception:  # noqa: BLE001 - an optional extra that is not installed
+    pass
+
 # A solver placed here before building is shipped with the app. See
 # packaging/README.md for the licence obligations that come with doing so.
 solver = ROOT / "packaging" / "solver"
@@ -90,6 +102,10 @@ a = Analysis(
         # The optimiser is an optional extra; pymoo pulls these dynamically.
         "pymoo.algorithms.moo.nsga2",
         "pymoo.operators.sampling.lhs",
+        # Printability. trimesh imports its backends lazily by name.
+        "openoptima.printing.overhang",
+        "rtree",
+        "rtree.index",
         "scipy.stats",
         "scipy.special",
     ],

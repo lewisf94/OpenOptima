@@ -92,20 +92,18 @@ def test_the_area_does_not_move_when_the_shape_is_chopped_more_finely(tmp_path) 
     If this drifted, optimising the metric would mean optimising the
     tessellation -- the defect the raw-peak-stress rule exists to prevent.
     """
-    from openoptima.printing import overhang as module
-
-    original = module._TESSELLATION_SIZE_MM
-    seen = []
-    try:
-        for size in (6.0, 3.0, 1.5):
-            module._TESSELLATION_SIZE_MM = size
-            seen.append(
-                measure_printability(
-                    _arm_brep(tmp_path / str(size)), AXES["z"], _settings()
-                ).support_area_mm2
-            )
-    finally:
-        module._TESSELLATION_SIZE_MM = original
+    # How finely the shape is chopped up is set by the wall limit, which is
+    # the only setting that says what size of feature has to be resolved. So
+    # that is the knob here too, rather than a private constant a test could
+    # reach around: this drives exactly the path a project file drives.
+    seen = [
+        measure_printability(
+            _arm_brep(tmp_path / str(size)),
+            AXES["z"],
+            _settings(min_wall_check_mm=size),
+        ).support_area_mm2
+        for size in (6.0, 3.0, 1.5)
+    ]
     assert seen == pytest.approx([ARM_SUPPORT_MM2["z"]] * 3, rel=1e-9)
 
 
@@ -125,14 +123,9 @@ def test_a_curved_surface_matches_the_closed_form(tmp_path) -> None:
         gmsh.model.occ.synchronize()
         gmsh.write(str(path))
 
-    from openoptima.printing import overhang as module
-
-    original = module._TESSELLATION_SIZE_MM
-    try:
-        module._TESSELLATION_SIZE_MM = 0.5
-        report = measure_printability(path, AXES["z"], _settings())
-    finally:
-        module._TESSELLATION_SIZE_MM = original
+    # 0.5 mm triangles, asked for through the wall limit -- see the note in
+    # the flat-face test above.
+    report = measure_printability(path, AXES["z"], _settings(min_wall_check_mm=0.5))
 
     exact = radius * (math.pi / 2.0) * length
     measured = report.support_area_mm2 + report.bed_area_mm2

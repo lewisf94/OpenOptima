@@ -69,15 +69,22 @@ class PrintabilityReport:
     bed_area_mm2: float
     #: How far the part exceeds the printer, in mm. Zero when it fits.
     build_volume_overflow_mm: float
+    #: The thinnest wall found, in mm. ``None`` when the project did not say
+    #: how thin is too thin, because that number also sets the resolution the
+    #: measurement needs.
+    min_wall_thickness_mm: float | None = None
 
     def as_metrics(self) -> dict[str, float]:
-        return {
+        metrics = {
             "support_area_mm2": self.support_area_mm2,
             "support_area_fraction": self.support_area_fraction,
             "worst_overhang_deg": self.worst_overhang_deg,
             "bed_area_mm2": self.bed_area_mm2,
             "build_volume_overflow_mm": self.build_volume_overflow_mm,
         }
+        if self.min_wall_thickness_mm is not None:
+            metrics["min_wall_thickness_mm"] = self.min_wall_thickness_mm
+        return metrics
 
 
 def _trimesh() -> Any:
@@ -93,14 +100,70 @@ def _trimesh() -> Any:
     return trimesh
 
 
-#: How finely the shape is chopped into triangles when it arrives as CAD. The
-#: measurement is exact for flat faces at any setting -- verified bit-identical
-#: from 2010 to 95814 triangles -- so this only affects curved surfaces, where
-#: it trades a few per cent of wobble against time.
-_TESSELLATION_SIZE_MM = 3.0
+#: A ray is started this far below the surface so it does not immediately hit
+#: the triangle it left from. Small enough to be lost in the answer, large
+#: enough to clear floating-point noise in a triangle centroid.
+_RAY_START_OFFSET_MM = 1.0e-5
+
+#: More triangles than this and the wall check is slow enough to be worth
+#: saying so on the result. Measured: 33 548 triangles took 1.96 s and 132 420
+#: took 10.95 s, per design.
+_SLOW_TRIANGLE_COUNT = 60_000
 
 
-def _triangulate_cad(shape_path: Path, into: Path) -> Path:
+def measure_min_wall(mesh: Any) -> float:
+    """The thinnest wall in the shape, in millimetres.
+
+    From each triangle, fire a ray straight into the solid and measure how far
+    it gets before coming out the other side. The smallest such distance is the
+    thinnest wall. ``trimesh`` does the ray work.
+
+    **Why the ray, and not the sphere.** ``trimesh.proximity.thickness`` also
+    offers a largest-inscribed-sphere method, and on a plate of known thickness
+    it reads a third low -- 0.5333 for a 0.8 mm plate, and the same 33% on 2 mm
+    and 5 mm. The ray reads 0.8000, 2.0000 and 5.0000 exactly.
+
+    **Why triangle centres, and not corners.** Corners sit on the true surface
+    and centres sit inside a curve, so sampling at corners looks like the
+    obvious improvement. Measured on a 1.000 mm tube wall it is worse: 0.8567
+    against 0.9106 at the same tessellation, and 0.9650 against 0.9775 at twice
+    the resolution. A corner's direction has to be averaged from the faces
+    around it, and that average points off the true normal.
+
+    **What this finds, and what it does not.** It finds a wall -- a run of
+    material of roughly even thickness, which is what a hollow section, a rib
+    and a boss all are, and what a printer actually fails to make. It does not
+    find the thin end of a taper, because the thinnest point of anything that
+    tapers is its edge, where the thickness is zero by definition; measured on
+    a plate running from 6 mm down to 0.5 mm, this reads 0.5502, about 10%
+    high. Every chamfer on every part would otherwise report zero.
+    """
+    values = _trimesh().proximity.thickness(
+        mesh=mesh,
+        points=np.asarray(mesh.triangles_center, dtype=float)
+        - np.asarray(mesh.face_normals, dtype=float) * _RAY_START_OFFSET_MM,
+        exterior=False,
+        normals=np.asarray(mesh.face_normals, dtype=float),
+        method="ray",
+    )
+    values = np.asarray(values, dtype=float)
+    # A ray that escapes without hitting anything comes back as infinity, and
+    # one that hits its own triangle as zero or below. Neither is a wall.
+    usable = values[np.isfinite(values) & (values > 0.0)]
+    if usable.size == 0:
+        raise EvaluationFailure(
+            FailureCode.INTERNAL_ERROR,
+            "no ray fired into this shape came out the other side, so its wall "
+            "thickness cannot be measured.",
+        )
+    # Put back the distance the ray was started below the surface. It is a
+    # hundredth of a micron and changes no decision, but it is a known constant
+    # bias rather than noise, and leaving it in made a 3.000 mm wall report
+    # 2.99999 -- a number that reads as measurement error when it is not.
+    return float(usable.min()) + _RAY_START_OFFSET_MM
+
+
+def _triangulate_cad(shape_path: Path, into: Path, size_mm: float) -> Path:
     """Chop a CAD shape into triangles, the way a slicer would be given it."""
     from ..geometry.gmsh_session import gmsh_session, suppress_native_output
 
@@ -108,15 +171,15 @@ def _triangulate_cad(shape_path: Path, into: Path) -> Path:
     with gmsh_session() as gmsh, suppress_native_output():
         gmsh.model.add("printability")
         gmsh.merge(str(shape_path))
-        gmsh.option.setNumber("Mesh.MeshSizeMax", _TESSELLATION_SIZE_MM)
+        gmsh.option.setNumber("Mesh.MeshSizeMax", size_mm)
         gmsh.model.mesh.generate(2)
         gmsh.write(str(stl_path))
     return stl_path
 
 
-def _load_closed_surface(shape_path: Path, scratch: Path) -> Any:
+def _load_closed_surface(shape_path: Path, scratch: Path, size_mm: float) -> Any:
     if shape_path.suffix.lower() != ".stl":
-        shape_path = _triangulate_cad(shape_path, scratch)
+        shape_path = _triangulate_cad(shape_path, scratch, size_mm)
 
     # `process=True` is required, not incidental. An STL stores every triangle
     # with its own three vertices, so nothing is shared and the surface is
@@ -158,7 +221,11 @@ def measure_printability(
     first, because an overhang is a property of the surface a slicer sees.
     """
     shape_path = Path(shape_path)
-    mesh = _load_closed_surface(shape_path, Path(scratch) if scratch else shape_path.parent)
+    mesh = _load_closed_surface(
+        shape_path,
+        Path(scratch) if scratch else shape_path.parent,
+        settings.tessellation_mm,
+    )
 
     axis = np.asarray(build_direction, dtype=float)
     length = float(np.linalg.norm(axis))
@@ -209,4 +276,10 @@ def measure_printability(
         worst_overhang_deg=float(tilt_deg[faces_down].min()) if faces_down.any() else 90.0,
         bed_area_mm2=float(areas[on_bed].sum()),
         build_volume_overflow_mm=build_volume_overflow(extents, settings.build_volume),
+        # Only when the project said how thin is too thin: that number is what
+        # decides the resolution this needs, so without it there is no
+        # defensible tessellation to measure at.
+        min_wall_thickness_mm=(
+            measure_min_wall(mesh) if settings.min_wall_check_mm is not None else None
+        ),
     )

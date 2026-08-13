@@ -44,6 +44,20 @@ cadquery = ["cadquery>=2.4"]
 # fetched at a pinned commit by openoptima.topology.fetch. matplotlib is not
 # our choice either -- beso imports it at module scope.
 topology = ["trimesh>=4.0", "matplotlib>=3.7"]
+# Printability: overhang, build-volume fit and wall thickness.
+#
+# `rtree` is not optional for the wall check and is easy to underestimate.
+# Every spatial query in trimesh routes through it -- not only
+# `trimesh.proximity`, but the pure-Python ray engine too, which builds an
+# rtree index of triangle bounds. Without it `import trimesh.proximity`
+# succeeds and every call raises ModuleNotFoundError, so checking that the
+# function exists proves nothing about whether it runs.
+#
+# Licences read from package metadata, not from a README badge: rtree 1.4.1
+# declares `License-Expression: MIT`, and the libspatialindex it bundles is
+# MIT in its own COPYING file. Both are compatible with GPL-3.0. It ships as
+# a prebuilt wheel and pulls in nothing else.
+printing = ["trimesh>=4.0", "rtree>=1.0"]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",

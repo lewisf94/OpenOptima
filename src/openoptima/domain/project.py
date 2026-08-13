@@ -425,6 +425,12 @@ class Project:
                         self.printing.build_volume.height,
                     ]
                 ),
+                # Not only because it decides whether the wall is measured at
+                # all: it also sets how finely the shape is chopped up, and a
+                # coarser chop reads a curved wall thinner than it is. Two
+                # limits therefore give two different numbers for the same
+                # shape, and neither is a cache hit for the other.
+                "min_wall_check_mm": self.printing.min_wall_check_mm,
             },
             "solver": {"name": self.solver.name},
             # Changing the failure criterion changes the reported factor of

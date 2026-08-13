@@ -225,7 +225,7 @@ judgement sits on top of the library call.
 | Sub-capability | trimesh gives you | What OpenOptima still has to decide |
 |---|---|---|
 | Overhang | `mesh.face_normals`, `mesh.area_faces` — direct arrays | The critical angle (a manufacturing setting, not a material constant), and how to turn per-face angles into one number: worst angle, or area beyond the threshold |
-| Wall thickness | `trimesh.proximity.thickness(mesh, points, method='max_sphere'\|'ray')` — confirmed present | Which points to sample. Too sparse and it can miss a genuinely thin sliver the same way `min_area_mm2` exists because a region can shrink to 0.6 mm² with no selector noticing — trap 15 in `AGENTS.md`. The library computes an established primitive; sampling density is still ours to get right and verify |
+| Wall thickness | `trimesh.proximity.thickness(mesh, points, method='max_sphere'\|'ray')` — present, but see the correction below: it needs `rtree`, and only the `ray` method is accurate | Which points to sample. Too sparse and it can miss a genuinely thin sliver the same way `min_area_mm2` exists because a region can shrink to 0.6 mm² with no selector noticing — trap 15 in `AGENTS.md`. The library computes an established primitive; sampling density is still ours to get right and verify |
 | Build volume | None needed — a bounding-box comparison | Which model axis is "up" depends on `build_direction`, which may itself be a design variable (`examples/drone_arm`). Mapping the wrong axis to the bed's height is the same shape of mistake as trap 2: a sign applied where it should not be, plausible and silently wrong |
 
 So: **use the library for the geometry query, own the threshold and the
@@ -250,15 +250,35 @@ answer was ours. Two of those, both found by measuring:
   duplicates are merged, and the closedness check rejected a perfectly good
   solid until that was fixed.
 
-**One correction to the row above, from trying it rather than reading it.**
-`trimesh.proximity.thickness` exists, but the entire `proximity` module needs
-a ray backend, and with `rtree`, `pyembree` and `embreex` all absent nothing
-in it runs at all — `signed_distance` and `closest_point` included. So wall
-thickness is not merely unwritten, it is currently unreachable. `rtree` 1.4.1
-is **MIT** by its own package metadata (`License-Expression: MIT`), ships as a
-prebuilt wheel with no transitive dependencies, and downloads here. Adding it
-is the first step of that piece. *Checking that a named function imports is
-not the same as checking it runs.*
+**Wall thickness is built too** (`printing/overhang.py::measure_min_wall`,
+verified as V17), and the row above needed two corrections, both from running
+the code rather than reading about it.
+
+**`rtree` is not an optional accelerator.** `trimesh.proximity.thickness`
+exists without it and every call raises `ModuleNotFoundError` — and so does
+the pure-Python ray engine, which builds an rtree index of triangle bounds.
+The whole `proximity` module is unreachable, `signed_distance` and
+`closest_point` included. *Checking that a named function imports is not the
+same as checking it runs.* `rtree` 1.4.1 is **MIT** by its own package
+metadata (`License-Expression: MIT`), the libspatialindex it bundles is MIT
+in its own COPYING file upstream, and it ships as a prebuilt wheel with no
+transitive dependencies. It is now in the `printing` extra.
+
+**The library offers two methods and one of them is wrong here**, which the
+row above did not anticipate. On a plate of known thickness the
+inscribed-sphere method reads a third low — 0.5333 for 0.8 mm, and the same
+33% at 2 mm and 5 mm — where the ray method reads 0.8000, 2.0000 and 5.0000
+exactly. A verdict of "use the library" does not settle which call to make,
+and the answer was not in the documentation.
+
+**The sampling judgement the row predicted was the real work, and it landed
+where predicted.** The controlling number turned out to be the ratio of
+triangle size to wall: 5x reads 16–34% low, 1x reads 1.7–3.0% low, always
+low. So the tessellation is tied to `min_wall_check_mm`, the user's own
+limit, which has no default for the same reason `min_area_mm2` has none. The
+obvious refinement — sampling at triangle corners, which sit on the true
+surface — measured *worse*, 0.8567 against 0.9106 on a 1.000 mm tube wall.
+Reuse saved writing the ray tracer. It saved none of the verification.
 
 ### Modal analysis — Build ✔ done
 

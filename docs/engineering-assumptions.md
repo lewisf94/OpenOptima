@@ -398,11 +398,35 @@ Only the three axis-aligned orientations are offered. They are the ones a
 part is actually printed in without re-fixturing, and naming them keeps the
 answer readable. A part needing an angled orientation states a fixed vector.
 
-**The search judges strength and nothing else.** Support material, print
-time, surface finish and build-volume fit are all invisible to it, so the
-orientation it returns is the strongest one rather than the one you should
-necessarily print. Those are the "Print rules" roadmap item, and until they
-land the choice needs a human's eye.
+**The search judges strength and nothing else.** Support material, build
+volume fit and wall thickness are all *measured* under `printing:`, but they
+are reported rather than optimised unless a project names them as an
+objective or a constraint. Print time and surface finish are not measured at
+all. So the orientation the search returns is the strongest one rather than
+the one to print, and the choice still needs a human's eye.
+
+**How thin the thinnest wall is** comes from `printing.min_wall_check_mm`,
+which has no default and is off unless set. From each triangle a ray is
+fired into the solid and the distance to the far side measured; the smallest
+is the answer. Three things about it are worth stating.
+
+It measures a *wall* — a run of material of roughly even thickness. It does
+**not** find the thin end of a taper, whose true minimum is its edge, where
+the thickness is zero by definition; measured on a plate running 6 mm down
+to 0.5 mm it reads 0.5502, about 10% high. Reporting zero for every chamfer
+would make the number useless.
+
+The limit also sets the tessellation, and therefore the accuracy. Measured
+on curved walls of 0.6, 1.2 and 2.0 mm with the triangle size as a multiple
+of the wall: 5x reads 16-34% low, 2x reads 8-11% low, 1x reads 1.7-3.0% low,
+0.5x reads 0.6-0.8% low. Every one **low**, because a flat facet cuts the
+corner off a curve, so a coarse measurement over-rejects rather than
+over-accepts. The tessellation is tied to the declared limit, putting it on
+the 1x row. On a flat wall it is exact and independent of the triangles:
+576 to 24 008 triangles all read 0.6000 on the same fin.
+
+And it is the expensive one — 7.02 s per design at a 0.8 mm limit on the
+drone arm, against 0.55 s with it off. Verified as V17.
 
 **And a returned orientation is only a finding where the alternatives were
 beaten.** Measured on the drone arm: printing upright is firmly rejected,

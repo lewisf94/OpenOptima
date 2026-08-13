@@ -356,6 +356,34 @@ printing:
   # A common desktop printer. Change it to yours.
   build_volume: { width_mm: 220.0, depth_mm: 220.0, height_mm: 250.0 }
 
+  # HOW THIN THE THINNEST WALL IS. Deliberately switched OFF here, and the
+  # reason is worth more than the setting.
+  #
+  #   min_wall_check_mm: 0.8
+  #
+  # 0.8 mm is two beads from a 0.4 mm nozzle, which is the usual floor for a
+  # wall that carries anything: a single bead prints, but it is one unfused
+  # line of plastic. There is no default, because how thin is too thin depends
+  # on your nozzle, your material and what the wall is holding.
+  #
+  # That number also sets how finely the shape is chopped up to measure it, so
+  # it decides what the check costs. Measured on this arm:
+  #
+  #     no wall check          0.55 s per design
+  #     min_wall_check_mm 2.0  0.91 s
+  #     min_wall_check_mm 1.2  2.81 s
+  #     min_wall_check_mm 0.8  7.02 s
+  #
+  # At 0.8 that is about 13 minutes added to a 120-design run, roughly
+  # trebling it -- to measure something that cannot happen. The `wall`
+  # variable above has a floor of 2 mm, so this arm can never have a wall a
+  # nozzle would struggle with, and the check would report 2.5 mm every time.
+  #
+  # Switch it on when a thin wall is genuinely reachable: a shape imported
+  # from CAD that you have not measured, or a topology result, whose organic
+  # webs can come out far thinner than anything you asked for. Then add a
+  # constraint on `min_wall_thickness_mm` to act on it.
+
 solver:
   name: calculix
   timeout_seconds: 900

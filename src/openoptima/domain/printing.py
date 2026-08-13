@@ -56,6 +56,17 @@ class BuildVolume:
         return (min(self.width, self.depth), max(self.width, self.depth))
 
 
+#: Triangle size used when nothing asks for anything finer. Measured on a real
+#: part: the support area is bit-identical from 2 010 to 95 814 triangles on
+#: flat faces, so this only has to be fine enough to follow a curve.
+DEFAULT_TESSELLATION_MM = 3.0
+
+#: Below this, a wall limit is far more likely to be a slipped decimal point
+#: than a real intention -- no nozzle lays a bead this thin -- and the
+#: tessellation it would ask for could take hours per design.
+MINIMUM_WALL_CHECK_MM = 0.05
+
+
 @dataclass(frozen=True)
 class PrintingSettings:
     """What to measure about printing this part, and against which printer."""
@@ -64,6 +75,13 @@ class PrintingSettings:
     overhang_angle_deg: float = DEFAULT_OVERHANG_ANGLE_DEG
     #: ``None`` means do not check whether the part fits.
     build_volume: BuildVolume | None = None
+    #: The thinnest wall worth measuring, in mm. ``None`` means do not measure
+    #: wall thickness at all. **There is deliberately no default**: how thin is
+    #: too thin depends on the nozzle, the material and what the wall is for,
+    #: which makes it the engineer's number and not the software's -- the same
+    #: rule as ``SemanticRegion.min_area_mm2``. It also sets how finely the
+    #: shape is chopped up, so it decides what the check costs.
+    min_wall_check_mm: float | None = None
 
     def __post_init__(self) -> None:
         if not 0.0 < self.overhang_angle_deg < 90.0:
@@ -73,6 +91,38 @@ class PrintingSettings:
                 f"A vertical wall is 90 degrees and never needs support; a flat "
                 f"ceiling is 0 and always does."
             )
+        if self.min_wall_check_mm is not None and self.min_wall_check_mm < MINIMUM_WALL_CHECK_MM:
+            raise ValueError(
+                f"min_wall_check_mm is {self.min_wall_check_mm:g} mm, which is "
+                f"thinner than any nozzle lays. A wall limit also sets how "
+                f"finely the shape is chopped up to measure it, so a slipped "
+                f"decimal point here costs hours per design rather than seconds. "
+                f"The smallest accepted is {MINIMUM_WALL_CHECK_MM:g} mm."
+            )
+
+    @property
+    def tessellation_mm(self) -> float:
+        """How finely to chop the shape up before measuring anything.
+
+        Tied to the wall limit, because that is the only setting that says how
+        small a feature has to be resolved. **Measured**, on a curved wall
+        wrapped round a small radius -- the case where flat facets hurt most --
+        with the triangle size set to a multiple of the wall::
+
+            5 x the wall    -16% to -34%
+            2 x the wall     -8% to -11%
+            1 x the wall   -1.7% to -3.0%
+            0.5 x the wall  -0.6% to -0.8%
+
+        consistently across walls of 0.6, 1.2 and 2.0 mm. Every one reads
+        *low*, because a flat facet cuts the corner off a curve, so a coarse
+        measurement over-reports how thin a wall is rather than under-reporting
+        it. One times the wall costs a few percent in the safe direction and a
+        fraction of the time that half would.
+        """
+        if self.min_wall_check_mm is None:
+            return DEFAULT_TESSELLATION_MM
+        return min(DEFAULT_TESSELLATION_MM, self.min_wall_check_mm)
 
 
 def build_volume_overflow(extents: tuple[float, float, float], volume: BuildVolume | None) -> float:

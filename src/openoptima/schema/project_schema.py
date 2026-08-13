@@ -687,25 +687,38 @@ class PrintingSchema(Strict):
           enabled: true
           overhang_angle_deg: 45.0
           build_volume: { width_mm: 220, depth_mm: 220, height_mm: 250 }
+          min_wall_check_mm: 0.8
 
         constraints:
           - metric: build_volume_overflow_mm
             operator: less_than_or_equal
             value: 0.0
+          - metric: min_wall_thickness_mm
+            operator: greater_than_or_equal
+            value: 0.8
 
     It is never a gate. A design needing support is more work, not wrong, and
     how much performance to give up avoiding one is the engineer's call.
+
+    ``min_wall_check_mm`` has **no default**, and setting it is what switches
+    the wall measurement on. How thin is too thin depends on the nozzle, the
+    material and what the wall is holding, which makes it the engineer's number
+    rather than the software's. It also sets how finely the shape is chopped
+    up, so it decides what the check costs: measured on a 150 mm arm, 0.24 s
+    per design at 3 mm against about 3 s at 0.8 mm.
     """
 
     enabled: bool = False
     overhang_angle_deg: float = DEFAULT_OVERHANG_ANGLE_DEG
     build_volume: BuildVolumeSchema | None = None
+    min_wall_check_mm: float | None = None
 
     def to_domain(self) -> PrintingSettings:
         return PrintingSettings(
             enabled=self.enabled,
             overhang_angle_deg=self.overhang_angle_deg,
             build_volume=self.build_volume.to_domain() if self.build_volume else None,
+            min_wall_check_mm=self.min_wall_check_mm,
         )
 
 
