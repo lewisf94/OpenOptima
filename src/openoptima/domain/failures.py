@@ -107,6 +107,11 @@ class FailureCode(str, Enum):
     #: design in a study -- so it must never be fed back to the optimiser as a
     #: poor result, and retrying it cannot help.
     MODEL_NOT_HELD = "model_not_held"
+    #: The machine ran out of memory and the operating system killed the solve
+    #: outright. Never retried: the same design meshes to the same size and
+    #: runs beside the same number of sibling workers, so a second attempt
+    #: meets the same wall and costs another evaluation to find out.
+    OUT_OF_MEMORY = "out_of_memory"
     #: A carried item was given a size, so it has to stand off its mounting
     #: face in some direction -- but that face is curved or folded, and there
     #: is no single direction that is "up" off it. Picking one would put the
@@ -135,6 +140,10 @@ INFEASIBLE_CODES: frozenset[FailureCode] = frozenset(
 )
 
 #: Errors worth retrying: transient, resource-related, or environment-related.
+#:
+#: ``OUT_OF_MEMORY`` is deliberately absent. A retry re-meshes the same design
+#: to the same size and runs it beside the same sibling workers, so it meets
+#: the same wall -- it costs an evaluation to learn nothing.
 RETRYABLE_CODES: frozenset[FailureCode] = frozenset(
     {
         FailureCode.SOLVER_TIMEOUT,
@@ -153,6 +162,60 @@ def outcome_for(code: FailureCode | None) -> Outcome:
 
 def is_retryable(code: FailureCode | None) -> bool:
     return code is not None and code in RETRYABLE_CODES
+
+
+#: A process killed by this signal was stopped by the operating system rather
+#: than exiting on its own. On a machine running a solve, the overwhelming
+#: cause is the kernel reclaiming memory.
+_SIGKILL = 9
+
+#: Signals worth naming rather than printing as a bare negative number. The
+#: numbers are POSIX and identical on Linux and macOS.
+_SIGNAL_NAMES = {
+    2: "interrupted (Ctrl-C)",
+    6: "aborted",
+    11: "a segmentation fault",
+    15: "asked to stop",
+}
+
+
+def classify_exit_code(tool: str, return_code: int) -> tuple[FailureCode, str]:
+    """Turn a process exit code into a failure and a sentence a human can use.
+
+    A negative code means the process was killed by a signal rather than
+    returning one. ``-9`` is the one that matters: nothing inside the program
+    chose it, so the message must not say the solver "crashed" -- it was
+    stopped from outside, and on a machine running several solves at once that
+    means memory.
+
+    **This cannot prove it was memory**, because ``kill -9`` looks identical,
+    and the message says so rather than asserting a cause. What it can say for
+    certain is that the program did not decide to stop, which is the part a
+    bare "exited with code -9" hides.
+    """
+    if return_code >= 0:
+        return (
+            FailureCode.SOLVER_CRASH,
+            f"{tool} stopped early and reported code {return_code}",
+        )
+
+    signal_number = -return_code
+    if signal_number == _SIGKILL:
+        return (
+            FailureCode.OUT_OF_MEMORY,
+            f"The operating system stopped {tool} outright, part way through. "
+            f"Nothing in {tool} chose to stop, so this is almost always the "
+            f"machine running out of memory: several designs are solved at "
+            f"once and each holds a whole meshed model. Run fewer at a time "
+            f"with optimisation.parallel_jobs, or use a coarser mesh. This "
+            f"design is not at fault and has not been judged.",
+        )
+
+    named = _SIGNAL_NAMES.get(signal_number, f"signal {signal_number}")
+    return (
+        FailureCode.SOLVER_CRASH,
+        f"{tool} was stopped by the operating system: {named}",
+    )
 
 
 #: Codes that mean "we cannot trust this number", as distinct from "the design

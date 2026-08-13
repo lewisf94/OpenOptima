@@ -31,7 +31,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..domain.failures import EvaluationFailure, FailureCode
+from ..domain.failures import EvaluationFailure, FailureCode, classify_exit_code
 from ..domain.model import AnyMaterial
 from ..domain.topology import TopologySettings
 from .config import render_config
@@ -158,11 +158,8 @@ def _classify(returncode: int, log: str, meshes: tuple[Path, ...]) -> None:
         raise EvaluationFailure(FailureCode.SOLVER_NOT_FOUND, missing)
 
     if returncode != 0:
-        raise EvaluationFailure(
-            FailureCode.SOLVER_CRASH,
-            f"the topology optimiser stopped with exit code {returncode}. Its log "
-            f"is in the run directory.",
-        )
+        code, message = classify_exit_code("the topology optimiser", returncode)
+        raise EvaluationFailure(code, f"{message}. Its log is in the run directory.")
     if not meshes:
         raise EvaluationFailure(
             FailureCode.RESULT_PARSE_FAILED,

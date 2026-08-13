@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config import remembered_solver
-from ...domain.failures import EvaluationFailure, FailureCode
+from ...domain.failures import EvaluationFailure, FailureCode, classify_exit_code
 from ...domain.model import SolverSpecification
 
 #: Strings CalculiX prints when it gives up.
@@ -333,10 +333,15 @@ def run_calculix(
             )
 
     if return_code != 0:
+        code, message = classify_exit_code("CalculiX", return_code)
         raise EvaluationFailure(
-            FailureCode.SOLVER_CRASH,
-            f"CalculiX exited with code {return_code}",
-            detail={"log_tail": log_text[-2000:], "command": command},
+            code,
+            message,
+            detail={
+                "log_tail": log_text[-2000:],
+                "command": command,
+                "return_code": return_code,
+            },
         )
 
     if not frd_path.exists() or frd_path.stat().st_size == 0:

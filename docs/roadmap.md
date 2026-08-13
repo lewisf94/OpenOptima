@@ -419,11 +419,27 @@ the queue.
   study, rather than choosing a safe worker count up front. Worth building —
   Sonnet for the scheduling logic, but the memory-per-mesh-size figures it
   budgets against must be **measured** on real runs, not guessed.
-- **A related defect, found while thinking about the above.** If a worker is
-  killed for running out of memory, it is currently classified the same as
-  any other crash and retried — which fails the same way again. This is a
-  small, precise fix, and because it touches failure classification it is
-  **Opus**, not Sonnet.
+- **A related defect — fixed.** A design killed for running out of memory was
+  classified as an ordinary crash and retried, which failed the same way and
+  cost an evaluation to learn nothing. It is now `OUT_OF_MEMORY`, which is
+  never retried, and it says what to do: run fewer designs at once.
+
+  What made this worth care rather than a one-line change is that **the two
+  routes to it look completely different, and only one of them can be
+  identified for certain.** A solver the kernel stops returns `-9` from the
+  operating system, which is measurably SIGKILL and not any other signal —
+  `-2`, `-6`, `-11` and `-15` are still ordinary crashes and are now named in
+  words rather than printed as negative numbers. A *worker* process stopped
+  the same way surfaces only as a `BrokenProcessPool` with no exit code
+  attached at all, so the cause genuinely cannot be read off it; the wording
+  says memory is the likely reason without asserting it.
+
+  Two things the old message hid. "CalculiX exited with code -9" reads as
+  though the solver decided to stop, when nothing inside it chose anything.
+  And one killed worker takes the **whole pool** down, so every design being
+  solved beside it fails too — a run showing twelve errors may be one event,
+  and the report now says so rather than leaving somebody to conclude they
+  have twelve bad designs.
 - **GPU: a real path exists, corrected from what was said in chat.** CalculiX
   can use an Nvidia GPU via CUDA through its PaStiX solver option, with
   published figures up to 4x from PaStiX alone and up to 8x with a GPU

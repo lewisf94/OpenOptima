@@ -10,10 +10,11 @@ import multiprocessing
 import os
 from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..domain.failures import Outcome, is_retryable
+from ..domain.failures import FailureCode, Outcome, is_retryable
 from ..domain.project import Project
 from ..domain.results import EvaluationResult
 from ..domain.variables import DesignVector
@@ -198,12 +199,9 @@ class Evaluator:
                     try:
                         result = future.result()
                     except Exception as exc:
-                        from ..domain.failures import FailureCode
-
                         result = EvaluationResult.failed(
                             design,
-                            FailureCode.WORKER_CRASH,
-                            f"evaluation worker died: {type(exc).__name__}: {exc}",
+                            *_worker_failure(exc),
                             evaluation_hash=digest,
                         )
                     result.design = design
@@ -213,6 +211,37 @@ class Evaluator:
                         on_result(result)
 
         return [r for r in results if r is not None]
+
+
+def _worker_failure(exc: BaseException) -> tuple[FailureCode, str]:
+    """Classify a worker that did not return a result.
+
+    ``BrokenProcessPool`` is the one worth naming. It means a worker process
+    vanished rather than raising -- the operating system stopped it, and on a
+    machine solving several designs at once that is almost always memory.
+    Measured: a worker killed with SIGKILL, which is what the kernel sends,
+    surfaces here as exactly this exception with no exit code attached, so the
+    cause cannot be read off it. The message therefore says what is certain
+    and names the likely reason without asserting it.
+
+    It also takes the **whole pool** down, so every other design still running
+    fails with it. Those are not bad designs and none of them was judged.
+    """
+    if isinstance(exc, BrokenProcessPool):
+        return (
+            FailureCode.OUT_OF_MEMORY,
+            "A worker process was stopped by the operating system part way "
+            "through, which takes down every design being solved alongside it. "
+            "Nothing in OpenOptima chose to stop, so this is almost always the "
+            "machine running out of memory: each worker holds a whole meshed "
+            "model. Run fewer at a time with optimisation.parallel_jobs, or use "
+            "a coarser mesh. These designs are not at fault and have not been "
+            "judged.",
+        )
+    return (
+        FailureCode.WORKER_CRASH,
+        f"evaluation worker died: {type(exc).__name__}: {exc}",
+    )
 
 
 def _evaluate_in_worker(

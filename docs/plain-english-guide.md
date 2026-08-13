@@ -969,6 +969,24 @@ correctly the whole time.
 Your run summary shows both counts. If the **errors** count is not zero,
 something is wrong with your setup — not with the design itself.
 
+**Not every error is worth a second try, and one is worth reading
+carefully.** If the machine runs out of memory, the operating system stops
+a solve outright, part way through. OpenOptima reports that as *out of
+memory* rather than as a crash, and it does not retry it — the same design
+meshes to the same size and runs beside the same number of other designs,
+so a second attempt hits the same wall and costs another evaluation to
+find out.
+
+The fix is to run fewer designs at once. Set `parallel_jobs` in the
+`optimisation:` block to something below your core count, or use a coarser
+mesh. Each design being solved holds a whole meshed model in memory, so
+halving the number of workers roughly halves the memory needed.
+
+One more thing about it: **a run can show a dozen memory errors from a
+single event.** When one worker is stopped, every design being solved
+alongside it goes down with it. Twelve errors does not mean twelve bad
+designs.
+
 ### The "cache" and why changing the material invalidates it
 
 Analysing one design takes only seconds. So OpenOptima saves each result,
