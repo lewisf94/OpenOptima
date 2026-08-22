@@ -175,6 +175,20 @@ def command_doctor(args: argparse.Namespace) -> int:
             else "overhang and printer fit only; no wall check"
         )
         print(f"Printing     : {detail}")
+    if project.fatigue.enabled:
+        # Say which cases each swing runs between, because naming the wrong
+        # pair is the easy mistake here and the resulting number is perfectly
+        # plausible. A cycle whose ends barely differ reports a small swing,
+        # which reads as good news.
+        swings = "; ".join(
+            f"{cycle.name} between {cycle.between[0]} and {cycle.between[1]}"
+            for cycle in project.fatigue.cycles
+        )
+        print(f"Stress swing : {swings}")
+        print(
+            "               reports how far the stress swings, not a life in "
+            "cycles -- that needs a fatigue curve for your material."
+        )
     print(f"Parallel jobs: {default_job_count(project.optimisation.parallel_jobs)}")
     print()
 

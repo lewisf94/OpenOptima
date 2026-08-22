@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ..domain.carried import CarriedShape, CarriedSize
 from ..domain.failure_criteria import criterion_for
+from ..domain.fatigue import EquivalentStress, FatigueSettings, LoadCycle
 from ..domain.features import EdgeFeature, FeatureKind
 from ..domain.model import (
     BoundaryCondition,
@@ -722,6 +723,72 @@ class PrintingSchema(Strict):
         )
 
 
+class LoadCycleSchema(Strict):
+    """One repeating swing, named by the two load cases at its ends."""
+
+    name: str
+    between: list[str]
+
+    def to_domain(self) -> LoadCycle:
+        return LoadCycle(name=self.name, between=(self.between[0], self.between[1]))
+
+    @model_validator(mode="after")
+    def _exactly_two_ends(self) -> LoadCycleSchema:
+        if len(self.between) != 2:
+            raise ValueError(
+                f"load cycle {self.name!r}: 'between' names the two load cases at the "
+                f"ends of the swing, so it needs exactly two; got {len(self.between)}"
+            )
+        return self
+
+
+class FatigueSchema(Strict):
+    """How far the stress swings each cycle, which is what fatigue is driven by.
+
+    A part can fail after millions of cycles at a stress it would survive if
+    applied once. What decides that is the *swing*, not the peak. Describe a
+    swing by naming two load cases you have already defined -- one at each end
+    of it::
+
+        fatigue:
+          enabled: true
+          cycles:
+            - name: each propeller turn
+              between: [thrust_up, thrust_down]
+
+    That reports ``fatigue_amplitude_mpa`` (half the swing, reduced by the same
+    stress measure the static check uses), ``fatigue_amplitude_max_mpa`` (the
+    largest swing anywhere), and ``fatigue_mean_mpa`` (the middle of the swing
+    at that same worst point, positive when the material is being pulled
+    apart). Constrain them or trade them against mass like any other metric.
+
+    **This does not yet report a life in cycles.** It reports the swing that a
+    life would be computed from. Turning that into "survives ten million
+    cycles" needs a published fatigue curve for your material, which is a
+    number OpenOptima will ask you for rather than assume.
+
+    ``equivalent_stress`` decides only how the *mean* gets its sign -- whether
+    the material is being pulled apart or pressed together. Two conventions
+    are offered because both are in use, and on the example L-bracket they
+    disagree on 137 of 19 787 points. Every disagreement there was in a
+    lightly loaded corner and the governing point agreed either way, but that
+    is a fact about that part rather than a general one.
+    """
+
+    enabled: bool = False
+    cycles: list[LoadCycleSchema] = Field(default_factory=list)
+    equivalent_stress: Literal["signed_mises_trace", "signed_mises_abs_max_principal"] = (
+        "signed_mises_trace"
+    )
+
+    def to_domain(self) -> FatigueSettings:
+        return FatigueSettings(
+            enabled=self.enabled,
+            cycles=tuple(cycle.to_domain() for cycle in self.cycles),
+            equivalent_stress=EquivalentStress(self.equivalent_stress),
+        )
+
+
 class SolverSchema(Strict):
     name: Literal["calculix", "analytic"] = "calculix"
     executable: str | None = None
@@ -868,6 +935,7 @@ class ProjectSchema(Strict):
     buckling: BucklingSchema = Field(default_factory=BucklingSchema)
     modal: ModalSchema = Field(default_factory=ModalSchema)
     printing: PrintingSchema = Field(default_factory=PrintingSchema)
+    fatigue: FatigueSchema = Field(default_factory=FatigueSchema)
     solver: SolverSchema = Field(default_factory=SolverSchema)
     preferences: PreferenceSchema = Field(default_factory=PreferenceSchema)
     optimisation: OptimisationSchema = Field(default_factory=OptimisationSchema)
@@ -965,6 +1033,7 @@ class ProjectSchema(Strict):
             buckling=self.buckling.to_domain(),
             modal=self.modal.to_domain(),
             printing=self.printing.to_domain(),
+            fatigue=self.fatigue.to_domain(),
             solver=self.solver.to_domain(),
             preferences=self.preferences.to_domain(),
             optimisation=self.optimisation.to_domain(),

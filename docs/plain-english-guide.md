@@ -1330,12 +1330,78 @@ detail:
   — how quickly a part bleeds off energy as it vibrates — which OpenOptima
   does not model.
 - **How long it lasts.** Vibration is what causes the repeated load cycles
-  that break parts by fatigue. Fatigue is not built yet.
+  that break parts by fatigue. Half of that is now built — see the next
+  section — and it stops short of telling you a lifetime.
 - **The effect of a heavy load on the frequency.** Tightening a guitar
   string raises its pitch, and a part under heavy tension or compression
   shifts the same way. That needs a different calculation and is not done
   here. For most parts the shift is small; for a slender part close to
   buckling it is not.
+
+### How far the stress swings, and why that is a different question
+
+Bend a paperclip once and nothing happens. Bend it back and forth fifty
+times and it snaps. Nothing about it got weaker in between, and no
+single-load stress check would ever have predicted it. That is **fatigue**:
+failing after many load cycles, at a stress the part would easily survive
+if you applied it once.
+
+What drives it is not how high the stress gets. It is how far the stress
+**swings** each cycle. A part going from nothing to 100 and back, over and
+over, is in a much worse position than one sitting between 45 and 55 — even
+though the highest number is nearly the same.
+
+**How to ask for it.** You already describe load cases. A cycle is just two
+of them, named as the two ends of one swing:
+
+```yaml
+load_cases:
+  - id: thrust_up
+    # ... 40 N pushing up
+  - id: thrust_down
+    # ... 40 N pushing down
+
+fatigue:
+  enabled: true
+  cycles:
+    - name: each propeller turn
+      between: [thrust_up, thrust_down]
+```
+
+You get three numbers back:
+
+| Number | What it means |
+|---|---|
+| `fatigue_amplitude_mpa` | Half the swing — how far the stress moves either side of the middle |
+| `fatigue_amplitude_max_mpa` | The largest swing anywhere in the part |
+| `fatigue_mean_mpa` | The middle of that swing, at the same place. **Positive means the material is being pulled apart** |
+
+That last sign matters more than its size. A part being pulled apart on
+average holds any crack open, which makes the same swing far more damaging.
+A part being squeezed holds a crack shut.
+
+**What this does not do, stated plainly: it does not tell you how long the
+part lasts.** It gives you the swing that a lifetime would be calculated
+from. Turning "swings by 35 MPa" into "survives ten million cycles" needs a
+published fatigue curve for your exact material — a table of how many cycles
+it survives at each stress level — and OpenOptima will ask you for that
+rather than guess it. Guessing would look authoritative and be wrong for
+most materials.
+
+**One thing worth knowing about why this exists at all.** There was an
+obvious shortcut here, and it was wrong in the worst possible way. The
+software already reports a single stress number per load case, so the
+obvious way to get a swing is to subtract one from the other. That number
+has no direction in it — it says how hard the material is being worked, not
+which way. So for a part pushed exactly as hard one way as the other, the
+two ends come out **identical**, the swing comes out as zero, and the part
+appears to last for ever.
+
+Measured on the example bracket, the real swing in that case is 71.7 and the
+shortcut gives 0.0. And that case — pushed equally both ways — is exactly
+what a vibrating part experiences, which is the usual reason anyone asks
+about fatigue in the first place. OpenOptima works from the full stress
+state instead, which keeps the direction.
 
 ---
 
@@ -1359,19 +1425,23 @@ detail:
 | **Edge feature** | A rounded or cut-back corner OpenOptima adds on top of a shape. It is named by the two faces it lies between, never by an edge number. |
 | **Element** | One small piece the part is chopped into. |
 | **Factor of safety** | How much margin you have. 2.0 = stress is half the allowable. |
+| **Fatigue** | Failing after many load cycles, at a stress the part would easily survive if applied once. Bend a paperclip back and forth. |
 | **Fillet** | A rounded corner. OpenOptima can add one to an imported shape and vary its radius. |
 | **Gmsh** | The free program that builds the shape and chops it into pieces. |
 | **Hoffman criterion** | The sum used to judge a printed part, where one allowable stress will not do. It accounts for the material being stronger along its layers than through them, and stronger in compression than in tension. |
 | **Infeasible** | The design itself is no good. |
 | **Knee point** | Where you stop getting good value for what you pay. |
 | **Load case** | One scenario the part must survive. |
+| **Load cycle** | One repeating swing, described by naming the two load cases at its ends. |
 | **Mesh** | The part chopped into thousands of small pieces. |
+| **Mean stress** | The middle of a stress swing. Positive means the material is being pulled apart on average, which makes the same swing more damaging. |
 | **Mode** | One of the shapes a part waves in when it vibrates. Each mode has its own frequency. |
 | **Natural frequency** | A rate the part likes to vibrate at, in cycles per second. Shake it at that rate and small pushes build into big movements. |
 | **NSGA-II** | The search method used. Keeps a population of designs and improves them, like breeding. |
 | **Objective** | Something to push as far as you can. |
 | **Pareto front** | The set of best available deals; no single winner. |
 | **Percentile (99th)** | Ignore the top 1%, take the next value down. Avoids meaningless infinities. |
+| **Stress amplitude** | Half a stress swing: how far the stress moves either side of its middle. Always positive. |
 | **Printed material** | One that is weaker between its print layers than along them, so it has no single strength. Described under `printed:` rather than with one allowable stress. |
 | **Overhang** | A surface leaning out so far that there is nothing underneath to print it on. Needs a temporary scaffold, called support. |
 | **Support** | Scaffolding a printer builds under an overhang and you break off afterwards. Counted as an area, because it is a cost rather than a fault. |

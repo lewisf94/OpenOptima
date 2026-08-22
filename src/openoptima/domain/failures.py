@@ -119,6 +119,13 @@ class FailureCode(str, Enum):
     #: entirely plausible. A setup mistake rather than a bad design, and one
     #: retrying cannot change.
     CARRIED_MASS_UNPLACEABLE = "carried_mass_unplaceable"
+    #: A load cycle could not be measured: one of the two load cases at the
+    #: ends of its swing was not solved, produced no stress state, or came
+    #: back numbered differently from the other. All three are setup mistakes
+    #: -- the same cycle is declared for every design in a study -- so this
+    #: must never reach the optimiser as a poor design, and retrying it cannot
+    #: change the answer.
+    FATIGUE_CYCLE_INCOMPLETE = "fatigue_cycle_incomplete"
     WORKER_CRASH = "worker_crash"
     CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"

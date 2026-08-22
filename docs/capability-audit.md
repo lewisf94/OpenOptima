@@ -178,7 +178,7 @@ profile of constant section.
 **Verdict: build, and only after 3D topology is integrated and verified.**
 Doing 2D first would mean two unproven things at once.
 
-### Fatigue — Wrap
+### Fatigue — Wrap ✔ the stress swing done, the life not yet
 
 Failing after many load cycles, at a stress the part would survive if applied
 once.
@@ -201,6 +201,31 @@ of three, so a life quoted to three significant figures implies a precision
 that does not exist. And an as-printed surface is rougher than a machined one,
 which lowers fatigue strength by more than layer weakness does — leaving it out
 makes the answer optimistic, which is the dangerous direction.
+
+**Done so far: the stress swing.** `fatigue.cycles` names two existing load
+cases as the two ends of one swing and reports how far the stress moves and
+where the middle of that movement sits. pyLife's `stress.equistress` does the
+equivalent-stress arithmetic. Verified as V18.
+
+**Reuse saved the code and not the verification, and this is what that looked
+like in practice.** pyLife's von Mises was checked against the von Mises this
+project already computes, on 19 787 real nodes from an L-bracket solve: the
+largest node-wise difference was **1.4e-14 MPa**. That is arithmetic noise, and
+it is evidence rather than an assumption — the same check would have caught a
+shear component read into the wrong slot, which rotates every answer instead of
+breaking it.
+
+**One choice was left to the engineer rather than made here**, because
+measurement showed it is a real choice. A mean stress needs a sign to say
+whether the material is being pulled apart or pressed together, and pyLife
+offers two conventions for it. On the same L-bracket they give **opposite signs
+at 137 of 19 787 nodes**. Every disagreement there was below 5.70 MPa against a
+35.84 MPa peak, and the governing node agreed either way — but that is a fact
+about that part, not a general one, so both are offered and neither is silent.
+
+**Still to come:** the S-N curve, damage summation, and the refusal rule for a
+peak stress that has not been shown to settle. Those are the parts where
+pyLife does the real work.
 
 ### Printability geometry — Wrap ✔ overhang and fit done
 

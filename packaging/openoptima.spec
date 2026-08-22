@@ -38,7 +38,7 @@ datas += collect_data_files("gmsh")
 # packaging/build_windows.ps1.
 #
 # recursive=True because a dependency of a dependency can do the same thing.
-for package in ("moocore", "pymoo"):
+for package in ("moocore", "pymoo", "pylife"):
     try:
         datas += copy_metadata(package, recursive=True)
     except Exception:  # noqa: BLE001 - an optional extra that is not installed
@@ -106,6 +106,13 @@ a = Analysis(
         "openoptima.printing.overhang",
         "rtree",
         "rtree.index",
+        # The stress swing a fatigue check is built from. Reached only when a
+        # project describes a load cycle, so nothing in the import graph leads
+        # PyInstaller here. pyLife also imports pandas at module scope, which
+        # is why `openoptima-app --self-check` measures a real reversed cycle
+        # rather than only importing the module.
+        "openoptima.results.fatigue",
+        "pylife.stress.equistress",
         "scipy.stats",
         "scipy.special",
     ],

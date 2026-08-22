@@ -349,6 +349,25 @@ def collect_metrics(
     if worst_displacement > 0 and total_load > 0:
         metrics["stiffness_n_per_mm"] = total_load / worst_displacement
 
+    # How far the stress swings between two named load cases, which is what
+    # fatigue is driven by. Computed from the stress tensors rather than from
+    # the von Mises numbers above: see ``domain/fatigue.py`` for the measured
+    # reason that distinction is not a refinement.
+    if model.fatigue.enabled:
+        from .fatigue import fatigue_metrics
+
+        fatigue_values, per_cycle, fatigue_warnings = fatigue_metrics(
+            model.fatigue,
+            {fields.load_case_id: fields for fields in results.load_cases},
+            mesh,
+            regions,
+            model.stress_evaluation,
+        )
+        metrics.update(fatigue_values)
+        warnings.extend(fatigue_warnings)
+        for cycle in per_cycle:
+            metrics.update(cycle.as_metrics(cycle.name))
+
     for case in per_case:
         metrics[f"displacement_max_mm.{case.load_case_id}"] = case.displacement_max
         metrics[f"stress_max_mpa.{case.load_case_id}"] = case.stress_measure

@@ -790,6 +790,64 @@ definition. Measured on a plate running from 6 mm down to 0.5 mm it reads
 chamfer on every part would make the number useless, so this measures walls,
 and a wall is a run of material of roughly even thickness.
 
+### V18 — How far the stress swings
+
+`tests/verification/test_stress_range.py`
+
+A part can fail after millions of load cycles at a stress it would shrug off
+if applied once. What decides that is not how high the stress gets but how
+far it **swings**. This checks the swing against a case whose answer is
+exact.
+
+**The case.** A straight 100 x 10 x 5 mm steel bar pulled and pushed along
+its own axis: no bending, no stress concentration, and no singularity to
+argue about. A 5000 N pull over 50 mm² is exactly 100.00 MPa away from the
+ends.
+
+**Two independent checks, deliberately not the same check twice.** Against
+bar theory, for the stress itself. And against **superposition**, which is a
+property of linear elasticity rather than of this software: with the two
+ends of a cycle at *a* and *b* times a reference load, the swing must be
+`|a − b| / 2` of the reference field and its middle `(a + b) / 2` of it, at
+every point in the part.
+
+**The defect it exists to catch.** Taking the swing as the difference of two
+von Mises values. Measured on `examples/l_bracket`, top of the cycle at full
+load:
+
+| Bottom of cycle | From von Mises | From the tensors | Error |
+|---|---|---|---|
+| +0.5 × load | 17.9189 | 17.9189 | 0.0% |
+| 0 (off load) | 35.8378 | 35.8378 | 0.0% |
+| −0.25 × load | 26.8783 | 44.7972 | **−40.0%** |
+| −0.5 × load | 17.9189 | 53.7567 | **−66.7%** |
+| −1.0 × load | 0.0000 | 71.6756 | **−100.0%** |
+
+Exact until the load reverses, then it collapses, and every error says the
+part is safe. At the bottom row the two ends have identical von Mises stress
+to every digit, so the swing reads as zero and the part appears to last for
+ever — and that row is fully reversed loading, which is what a vibrating
+part actually lives in.
+
+**The sign of the mean stress is checked too**, because it decides how
+damaging a given swing is: a mean that pulls the material apart holds a
+crack open and one that presses it together holds it shut. Two cycles with
+the identical swing and opposite middles must not report the same number.
+
+**On the tolerance, because it is not a physics tolerance.** CalculiX writes
+its results file in `E12.5` — six significant figures — so two solves of the
+same part at different load levels are not exactly proportional. Measured
+against the full-load case, the *negated* load departs by `0.000e+00`
+(negating a value leaves its mantissa alone) and half the load by
+`2.620e-06`. A difference of two nearly equal load cases magnifies that by
+`(|a| + |b|) / |a − b|`, and the benchmark's tolerance is derived from that
+rather than chosen. Measured residuals sit well inside it: 1.03e-6 against a
+7.9e-6 bound for the closest pair, 3.42e-7 against 2.6e-6 for the widest.
+
+**What this does not yet do.** It reports the swing, not a life in cycles.
+Turning a swing into "survives ten million cycles" needs a published fatigue
+curve for the material, which is the engineer's to supply.
+
 ### V8 — NAFEMS benchmarks
 
 NAFEMS publishes standard linear-elastic benchmarks, with agreed reference

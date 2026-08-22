@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .carried import CarriedSize
+from .fatigue import FatigueSettings
 from .orthotropic import OrthotropicMaterial
 from .units import density_kg_m3_to_internal
 
@@ -438,6 +439,9 @@ class AnalysisModel:
     element_order: int = 2
     buckling: BucklingSettings = field(default_factory=BucklingSettings)
     modal: ModalSettings = field(default_factory=ModalSettings)
+    #: Repeating load swings the part has to survive. Each names two of the
+    #: load cases above as its two ends. See ``domain/fatigue.py``.
+    fatigue: FatigueSettings = field(default_factory=FatigueSettings)
     #: Which failure criterion to use for a material with directional
     #: strengths: ``hoffman`` or ``max_stress``. Ignored for an isotropic
     #: material, which uses its single allowable stress instead. Hoffman is

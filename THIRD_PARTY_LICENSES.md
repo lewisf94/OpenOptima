@@ -21,7 +21,20 @@ advice; if you plan to redistribute a bundled build, get the packaging reviewed.
 |---|---|---|
 | [pymoo](https://pymoo.org/) | Apache-2.0 | `[optimise]` — NSGA-II |
 | [CadQuery](https://cadquery.readthedocs.io/) | Apache-2.0 | `[cadquery]` — alternative geometry provider |
+| [trimesh](https://github.com/mikedh/trimesh) | MIT | `[printing]`, `[topology]` — overhang, build-volume fit, wall thickness, and sealing a topology result |
+| [rtree](https://github.com/Toblerity/rtree) | MIT | `[printing]` — every spatial query in trimesh routes through it, including the ray engine the wall check uses |
+| [libspatialindex](https://libspatialindex.org/) | MIT | Ships inside the rtree wheel |
+| [pyLife](https://github.com/boschresearch/pylife) | Apache-2.0 | `[fatigue]` — equivalent stress for a load cycle, from Bosch Research |
+| [pandas](https://pandas.pydata.org/) | BSD-3-Clause | Pulled in by pyLife |
+| [h5py](https://www.h5py.org/) | BSD-3-Clause | Pulled in by pyLife |
+| [Matplotlib](https://matplotlib.org/) | PSF-based (Matplotlib licence) | `[topology]` — not our choice; beso imports it at module scope |
+| [beso](https://github.com/calculix/beso) | GPL-3.0 | Fetched at a pinned commit at run time, never redistributed. See `openoptima.topology.fetch` |
 | [OpenCASCADE](https://dev.opencascade.org/) | LGPL-2.1 with exception | Ships inside the gmsh and CadQuery wheels |
+
+Licences above are read from each package's own metadata rather than from a
+README badge. That is not pedantry: one surrogate-optimisation library
+advertises Apache-2.0 and ships PolyForm Noncommercial, and depending on it
+would have made this project non-commercial. See `docs/capability-audit.md`.
 
 ## Why GPL-3.0-or-later
 

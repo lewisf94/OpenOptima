@@ -592,6 +592,63 @@ reports each load case's own value alongside it, as `metric.load_case_id`.
 Averaging a failing case together with a passing one would hide the
 failure.
 
+## How far the stress swings
+
+A part can fail after many load cycles at a stress it would survive if
+applied once. What drives that is not the height of the stress but its
+**swing**. `fatigue.cycles` names two existing load cases as the two ends of
+one swing and reports three numbers: `fatigue_amplitude_mpa` (half the
+swing, reduced by the same stress measure as the static check),
+`fatigue_amplitude_max_mpa` (the largest swing anywhere), and
+`fatigue_mean_mpa` (the middle of that swing at the same point). Verified as
+V18.
+
+**This is not a fatigue life, and the difference is the whole caveat.** It
+reports the swing a life would be calculated *from*. Turning that into "this
+survives ten million cycles" needs a published fatigue curve for the exact
+material and a duty cycle, both of which are the engineer's to supply. No
+default is offered, because a default would look authoritative and be wrong
+for most materials.
+
+**The swing comes from the stress tensor, never from a difference of von
+Mises values.** Von Mises stress states how hard the material is worked and
+discards which way. Measured on `examples/l_bracket`, a load reversed
+exactly gives identical von Mises stress at both ends of the cycle — max
+difference 0.000000 MPa over 19 787 nodes — so a swing taken that way reads
+zero and the part appears to last for ever, against a true swing of 71.6756
+MPa. The error is exactly zero for a load that never reverses and reaches
+−100% for one that fully reverses, always in the direction that says the
+part is safe. Trap 22 in `AGENTS.md`.
+
+**The amplitude has no sign and the mean must have one.** How far the stress
+moved has no direction. The middle of the swing does, and it decides how
+damaging that swing is: a mean that pulls the material apart holds a crack
+open, one that presses it together holds it shut. `equivalent_stress`
+chooses where that sign comes from — the average pull-or-squeeze over all
+directions (`signed_mises_trace`, the default) or the single strongest
+direction (`signed_mises_abs_max_principal`). **This is an engineering
+choice, not a detail.** On the example L-bracket the two give opposite signs
+at 137 of 19 787 points. On that part every disagreement sat below 5.70 MPa
+against a 35.84 MPa peak and the governing point agreed either way, but
+there is no guarantee of that on another part.
+
+**Amplitude and mean are always reported at the same point.** An amplitude
+from one place in the part paired with a mean from another describes nowhere
+real, so the mean is the mean at the point with the worst swing.
+
+**Several cycles are enveloped, never averaged**, like load cases. The
+reported numbers belong to the cycle that swings furthest. Note that once a
+life is computed that definition changes: the most damaging cycle is then
+the one that uses up the most life, which is not always the one that swings
+furthest, because a mean stress that pulls the material apart makes a
+smaller swing more damaging.
+
+**What is not covered.** No crack growth, no surface finish effect, no size
+effect, no notch sensitivity, and no counting of variable-amplitude
+histories. An as-printed surface is rougher than a machined one and lowers
+fatigue strength by more than layer weakness does, so a printed part
+assessed from these numbers alone is being flattered.
+
 ## What the optimiser will and will not do
 
 OpenOptima searches only the design space you defined — the dimensions you

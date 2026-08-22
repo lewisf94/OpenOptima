@@ -764,14 +764,50 @@ fatigue.
    how many cycles per second the part actually sees. Doing fatigue first
    means guessing a number modal would have given you.
 
-   **What it needs.** Three things, none of which exist yet:
+   **What it needs.** Three things. The first is now done.
 
-   - **A stress range, not a stress.** Today's analysis gives one steady
-     answer. Fatigue is driven by how far stress *swings* each cycle: a
-     part going from 0 to 100 MPa and back is in a different situation
-     from one hovering between 45 and 55, even though the peak is
-     similar. This fits the load cases that already exist — name two of
-     them as the ends of a cycle.
+   - ~~**A stress range, not a stress.**~~ **Done.** `fatigue.cycles` names
+     two of the existing load cases as the two ends of one swing, and
+     reports `fatigue_amplitude_mpa` (half the swing), its raw peak, and
+     `fatigue_mean_mpa` — the middle of the swing at the same point,
+     positive when the material is being pulled apart. Metrics like any
+     other, so a project may constrain them or trade them against mass.
+     Verified as V18 against bar theory and against superposition.
+
+     **This piece was worth doing carefully, and the reason is a measured
+     defect rather than a design preference.** The obvious way to get a
+     swing out of what OpenOptima already reported is to subtract one load
+     case's von Mises stress from another's. Von Mises keeps the size of a
+     stress state and throws away its direction. Measured on the L-bracket,
+     top of the cycle at full load:
+
+         bottom of cycle   from von Mises   from the tensors     error
+           +0.5 x load          17.9189           17.9189         0.0%
+            0   (off load)      35.8378           35.8378         0.0%
+           -0.25 x load         26.8783           44.7972       -40.0%
+           -0.5  x load         17.9189           53.7567       -66.7%
+           -1.0  x load          0.0000           71.6756      -100.0%
+
+     Exact until the load reverses, then it collapses, and every error in
+     the direction that says the part is safe. The bottom row is fully
+     reversed loading — pushed as hard one way as the other — where the two
+     ends have **identical** von Mises stress to every digit, so the swing
+     reads as zero and the part appears to last for ever. That row is
+     exactly what a vibrating part lives in, which is the usual reason
+     anybody asks about fatigue at all. It is also invisible to casual
+     testing, because the method is right for an on-off load. Trap 22 in
+     `AGENTS.md`.
+
+     Two smaller things settled in the doing. A **mean stress keeps its
+     sign and an amplitude does not** — how far the stress moved has no
+     direction, but the middle of the swing decides how damaging it is, and
+     pyLife's two conventions for that sign disagree at 137 of 19 787 nodes
+     on the same part, so which to use is the engineer's choice rather than
+     a default. And **CalculiX writes six significant figures**, so two
+     solves at different load levels are not exactly proportional: a
+     negated load departs by 0.000e+00 and a halved one by 2.620e-06, which
+     is what sets the tolerance V18 can hold to.
+
    - **An S-N curve** — a published table of how many cycles a material
      survives at a given stress.
    - **A way to add up damage** when more than one kind of cycle applies.

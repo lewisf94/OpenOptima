@@ -515,6 +515,62 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     error in a position, and positions multiply into inertia. Weight by area
     when asking where a face is.
 
+22. **Von Mises stress cannot see a load reverse, so a stress range taken
+    from it reports the most damaging cycle there is as no cycle at all.**
+    Fatigue is driven by how far stress *swings* each cycle. The obvious way
+    to get that swing out of what this software already reports is to
+    subtract one load case's von Mises stress from another's. Von Mises keeps
+    the size of a stress state and throws away its direction. Measured on
+    `examples/l_bracket`, top of the cycle at full load:
+
+        bottom of cycle   from von Mises   from the tensors     error
+          +0.5 x load          17.9189           17.9189         0.0%
+           0   (off load)      35.8378           35.8378         0.0%
+          -0.25 x load         26.8783           44.7972       -40.0%
+          -0.5  x load         17.9189           53.7567       -66.7%
+          -1.0  x load          0.0000           71.6756      -100.0%
+
+    **Exact until the load reverses, then it collapses, and every error is in
+    the direction that says the part is safe.** At the bottom of that table
+    the load is fully reversed and the two ends have identical von Mises
+    stress to every digit — measured `max|vm_up − vm_down| = 0.000000` over
+    19 787 nodes — so the swing reads as zero and the part appears immortal.
+
+    Three things make this the worst shape of defect this project has found.
+    The failing case is *fully reversed loading*, which is exactly what a
+    vibrating part lives in and the usual reason anybody asks about fatigue.
+    The method is exactly right for an on-off load, which is what anybody
+    would test first, so casual testing passes. And there is no signature in
+    the output: an infinite life is a plausible number.
+
+    The fix is to subtract the six-component stress **tensors** and only then
+    reduce to one number. `results/fatigue.py` does that;
+    `tests/unit/test_fatigue_stress_range.py` fails with exactly 0.0 without
+    it, and V18 covers it against a closed form.
+
+    **A mean stress must keep its sign and an amplitude must not.** How far
+    the stress moved has no direction. The middle of the swing does, and it
+    decides how damaging that swing is — pulling the material apart holds a
+    crack open, pressing it together holds it shut. Measured at the same
+    node: a cycle from zero to +2500 N reads a mean of −35.8378 MPa and one
+    to −2500 N reads +35.8378, while unsigned von Mises reports 35.8378 for
+    both. pyLife offers two conventions for that sign and **they are not
+    interchangeable**: on the same part they disagree at 137 of 19 787 nodes.
+    Every disagreement there was below 5.70 MPa against a 35.84 MPa peak and
+    the governing node agreed either way, but that is a fact about that part.
+    It is the engineer's choice, so both are offered and neither is silent.
+
+    One measurement worth keeping for any future work on load cases.
+    **CalculiX writes its results in `E12.5` — six significant figures — so
+    two solves of the same part at different load levels are not exactly
+    proportional.** Measured against the full-load case: the *negated* load
+    departs by `0.000e+00`, because negating a value leaves its mantissa
+    alone, while half the load departs by `2.620e-06`. A quantity built from
+    the difference of two nearly equal load cases magnifies that by
+    `(|a| + |b|) / |a − b|`. That is the results file, not the physics, and a
+    tolerance covering it must be derived from it rather than tuned until a
+    build passes.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

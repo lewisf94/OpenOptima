@@ -22,7 +22,7 @@ jobs:
       - run: pip install ruff mypy types-PyYAML
       - run: ruff check .
       - run: ruff format --check .
-      - run: pip install -e ".[optimise,printing]"
+      - run: pip install -e ".[optimise,printing,fatigue]"
       - run: mypy src
         continue-on-error: true
 
@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libglu1-mesa
-          pip install -e ".[dev,optimise,printing]"
+          pip install -e ".[dev,optimise,printing,fatigue]"
       - name: Unit tests
         run: pytest tests/unit -v
 
@@ -55,7 +55,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install
-        run: pip install -e ".[dev,optimise,printing]"
+        run: pip install -e ".[dev,optimise,printing,fatigue]"
       - name: Unit tests
         run: pytest tests/unit -v
       - name: Geometry and meshing work on Windows
@@ -83,7 +83,7 @@ jobs:
           sudo apt-get install -y calculix-ccx libglu1-mesa
           ccx -v || true
       - name: Install
-        run: pip install -e ".[dev,optimise,printing]"
+        run: pip install -e ".[dev,optimise,printing,fatigue]"
       - name: Check the example project
         run: openoptima doctor examples/l_bracket/project.yaml
       - name: Integration tests
@@ -113,7 +113,7 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: |
-          pip install -e ".[optimise,printing]"
+          pip install -e ".[optimise,printing,fatigue]"
           pip install pyinstaller
       - name: Freeze
         run: pyinstaller packaging\openoptima.spec --noconfirm --clean

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .failures import EvaluationFailure, FailureCode
+from .fatigue import FatigueSettings
 from .features import EdgeFeature
 from .model import (
     AnalysisModel,
@@ -146,6 +147,9 @@ class Project:
     #: Whether the shape can be printed, and what it would cost in support
     #: material. Metrics only -- never a gate. See ``domain/printing.py``.
     printing: PrintingSettings = field(default_factory=PrintingSettings)
+    #: Repeating load swings the part has to survive. Each one names two of
+    #: the load cases above as its two ends. See ``domain/fatigue.py``.
+    fatigue: FatigueSettings = field(default_factory=FatigueSettings)
     #: Failure criterion for a material with directional strengths. Has no
     #: effect on an isotropic material, which uses its allowable stress.
     failure_criterion: str = "hoffman"
@@ -191,6 +195,18 @@ class Project:
         for refinement in self.mesh.local_refinements:
             if refinement.region not in known_regions:
                 raise ValueError(f"Mesh refinement references unknown region {refinement.region!r}")
+        # A cycle names two load cases as the two ends of one swing. A typo
+        # here would otherwise surface as a failed evaluation on every design
+        # in a study; caught at load time it is a one-line message instead.
+        known_cases = {load_case.id for load_case in self.load_cases}
+        for cycle in self.fatigue.cycles:
+            for case_id in cycle.between:
+                if case_id not in known_cases:
+                    raise ValueError(
+                        f"Load cycle {cycle.name!r} names load case {case_id!r} at one "
+                        f"end of its swing, and no such load case is defined. Defined "
+                        f"load cases: {sorted(known_cases)}"
+                    )
 
         case_ids = [lc.id for lc in self.load_cases]
         if len(set(case_ids)) != len(case_ids):
@@ -289,6 +305,7 @@ class Project:
             element_order=self.mesh.element_order,
             buckling=self.buckling,
             modal=self.modal,
+            fatigue=self.fatigue,
             failure_criterion=self.failure_criterion,
         )
 
@@ -432,6 +449,10 @@ class Project:
                 # shape, and neither is a cache hit for the other.
                 "min_wall_check_mm": self.printing.min_wall_check_mm,
             },
+            # Which load cases are paired into a cycle decides the reported
+            # stress swing, and so does the convention used to give a mean
+            # stress its sign. Both change a number, so both are hashed.
+            "fatigue": self.fatigue.digest_fields(),
             "solver": {"name": self.solver.name},
             # Changing the failure criterion changes the reported factor of
             # safety, so a result computed under the old one is not a cache

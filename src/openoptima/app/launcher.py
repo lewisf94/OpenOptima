@@ -288,6 +288,49 @@ def _self_check_steps() -> list[tuple[str, Any]]:
             )
         return thickness
 
+    def stress_range() -> object:
+        # Trap 9 again, and like the wall check this runs the arithmetic
+        # rather than only importing it. pyLife imports pandas at module
+        # scope, and a frozen build that missed pandas would import
+        # `openoptima.results.fatigue` perfectly well and then fail on the
+        # first project that mentions a load cycle.
+        #
+        # The number checked is the one the whole capability exists for: a
+        # fully reversed cycle must swing by the whole stress, not by nothing.
+        import numpy as np
+
+        from ..domain.fatigue import FatigueSettings, LoadCycle
+        from ..domain.model import StressEvaluation
+        from ..results.fatigue import cycle_stress
+        from ..solvers.base import LoadCaseFields
+
+        pull = np.array([[100.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+
+        def side(name: str, tensor: np.ndarray) -> LoadCaseFields:
+            return LoadCaseFields(
+                load_case_id=name,
+                node_tags=np.array([1]),
+                displacement=np.zeros((1, 3)),
+                von_mises=np.zeros(1),
+                reaction_force=(0.0, 0.0, 0.0),
+                stress_tensor=tensor,
+            )
+
+        cycle = LoadCycle(name="check", between=("up", "down"))
+        measured = cycle_stress(
+            cycle,
+            {"up": side("up", pull), "down": side("down", -pull)},
+            FatigueSettings(enabled=True, cycles=(cycle,)),
+            StressEvaluation(measure="raw_max"),
+        )
+        if not np.isclose(measured.amplitude_max, 100.0, rtol=1e-9):
+            raise RuntimeError(
+                f"a fully reversed 100 MPa cycle measured a swing of "
+                f"{measured.amplitude_max:.4f} MPa, so the stress range is "
+                f"present but wrong."
+            )
+        return measured.amplitude_max
+
     return [
         ("geometry", geometry),
         ("mesher", mesher),
@@ -296,6 +339,7 @@ def _self_check_steps() -> list[tuple[str, Any]]:
         ("optimiser problem", problem),
         ("surface route", surface_route),
         ("printability", printability),
+        ("stress range", stress_range),
     ]
 
 

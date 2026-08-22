@@ -58,6 +58,20 @@ topology = ["trimesh>=4.0", "matplotlib>=3.7"]
 # MIT in its own COPYING file. Both are compatible with GPL-3.0. It ships as
 # a prebuilt wheel and pulls in nothing else.
 printing = ["trimesh>=4.0", "rtree>=1.0"]
+# Fatigue: how far the stress swings each cycle, and later the life that
+# follows from it.
+#
+# pyLife is Bosch Research's fatigue library and is the audited choice for
+# this capability -- see docs/capability-audit.md. Licence read from package
+# metadata rather than a README badge: pylife 2.3.1 declares
+# `License: Apache-2` with the Apache Software License classifier, which is
+# compatible with GPL-3.0.
+#
+# It pulls in pandas, which is why this is an extra rather than a core
+# dependency: a project that never mentions a load cycle should not pay for
+# it. Its equivalent-stress arithmetic was checked against this project's own
+# von Mises on 19 787 real nodes and agreed to 1.4e-14 MPa.
+fatigue = ["pylife>=2.3"]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",
