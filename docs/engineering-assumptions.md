@@ -125,6 +125,55 @@ stress concentration that matters (a real feature, not a modelling
 singularity), model that fillet accurately, and refine the mesh there. Do
 not rely on the percentile to hide a real stress concentration.
 
+### The percentile depends on how you meshed, and this is a real limitation
+
+**Read this before comparing two numbers that came from different meshes.**
+A percentile over nodes asks what stress the worst 1% of *nodes* see, and
+which nodes exist is a meshing decision rather than a fact about the part.
+Refine everywhere except the hot spot and the highly stressed nodes become a
+smaller share of the population, so the reported stress falls on unchanged
+physics.
+
+Measured on `examples/l_bracket`, which refines its fillet at a fixed 2.0 mm
+while the global size shrinks. Same design, same loads, only the mesh
+changed:
+
+| Mesh size | Nodes | Raw peak | `stress_max_mpa` | Factor of safety |
+|---|---|---|---|---|
+| 8.0 mm | 14 123 | 71.4534 | 69.6897 | 2.2959 |
+| 4.5 mm | 30 543 | 71.7266 | 67.8165 | 2.3593 |
+| 2.8 mm | 78 836 | 71.4716 | 58.9137 | **2.7158** |
+
+The raw peak is settled to ±0.2%. The percentile falls **15.5%** and is
+still moving, and the factor of safety rises **18%** — in the direction that
+looks safe. That example holds the factor of safety at 2 or above, so the
+mesh you chose can move a design across its own acceptance line.
+
+The mechanism, measured: the share of nodes above 60 MPa falls from 4.895%
+to 0.908% over that refinement. Refining the same part **uniformly**, with
+the local refinement removed, moves the percentile only **2.2%**. So the
+cause is the *ratio* between finely and coarsely meshed regions changing —
+which is exactly what a local refinement does, and what this document
+recommends doing at a fillet.
+
+**What to do about it, today:**
+
+- **Do not compare stress numbers across different meshes.** Compare designs
+  at one mesh setting, which is what a study does.
+- **Run `openoptima converge` on the design you intend to use.** It already
+  tracks `stress_max_mpa` and will show you whether it has settled.
+- **Read `stress_raw_max_mpa` beside it.** On a part whose hot spot is a real
+  feature rather than a singularity, the peak is the steadier number — as
+  the table above shows.
+
+**Nothing has been changed about the measure.** Weighting the percentile by
+material volume instead of node count would make it a statement about the
+part: measured on the same sweep it lands within 0.6% whether the part was
+refined uniformly or locally, where the node-based figure differs by 8%.
+That change would move every number this project has reported, so it is an
+open decision rather than a pending fix. `AGENTS.md` trap 23 and
+`tests/unit/test_stress_measure_mesh_dependence.py` carry the evidence.
+
 ## Buckling
 
 OpenOptima can perform linear buckling analysis — a fast, approximate

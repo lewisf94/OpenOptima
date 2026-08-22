@@ -571,6 +571,54 @@ by review. They are documented in `docs/adr/` and guarded by tests.
     tolerance covering it must be derived from it rather than tuned until a
     build passes.
 
+23. **The percentile that exists to stop us optimising the mesh is itself a
+    statistic about the mesh.** Raw peak stress is refused as an objective
+    because it grows without limit at a singularity — V6 measured 19.8% and
+    accelerating. The replacement is a high percentile of the nodal field.
+    That fixes the singularity and introduces a quieter problem: **a
+    percentile over nodes asks what the worst 1% of *nodes* see, and which
+    nodes exist is a meshing decision.**
+
+    Measured on `examples/l_bracket`, which pins its fillet refinement at
+    2.0 mm while the global size shrinks — the identical design, identical
+    loads, changing only the mesh:
+
+        mesh size   nodes    raw peak   stress_max_mpa   factor of safety
+            8.0     14 123    71.4534       69.6897           2.2959
+            4.5     30 543    71.7266       67.8165           2.3593
+            2.8     78 836    71.4716       58.9137           2.7158
+
+    The raw peak is settled to ±0.2%. The percentile falls **15.5%** and is
+    still moving, and **the factor of safety rises 18% — the reassuring
+    direction.** The example constrains that factor to be at least 2, so
+    which mesh you happened to choose moves a design across its own
+    acceptance line.
+
+    The mechanism, measured directly: the share of nodes above 60 MPa falls
+    from **4.895% to 0.908%** over that refinement. The hot region keeps
+    roughly its node count because its size is pinned; everything else gains
+    nodes; so the hot nodes are diluted out of the top percentile. Refining
+    the same part *uniformly* moves the percentile only **2.2%**. So this is
+    not a property of percentiles in general — it is what happens when part
+    of the mesh refines and part of it does not, which is precisely what a
+    local refinement is for and what the docs recommend at a fillet.
+
+    **Where the safety net had a hole.** `openoptima converge` already tracks
+    `stress_max_mpa`, so the tool would have shown this. V6, the benchmark
+    that proves the tool works, runs a cantilever with a **uniform** mesh —
+    so the one configuration that breaks the percentile was never exercised.
+    A tool that watches the right number is worth nothing if no benchmark
+    ever puts it in front of the failing case.
+
+    `tests/unit/test_stress_measure_mesh_dependence.py` holds the mechanism
+    in place without a solver. **Nothing has been changed about the stress
+    measure.** Weighting the percentile by material volume rather than by
+    node count would make it a statement about the part — measured on the
+    same sweep, the volume-weighted figure lands within 0.6% whether the part
+    was refined uniformly or locally, where the node-based one differs by 8%.
+    But changing it moves every number this project has ever reported, so it
+    is the project owner's decision and not a tidy-up.
+
 ## What an agent must not decide alone
 
 Raise these with a human rather than choosing:

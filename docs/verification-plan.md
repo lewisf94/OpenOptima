@@ -234,6 +234,30 @@ arithmetic and does not depend on the mesh); and the extrapolated
 deflection still lands on the stiff side of beam theory, because refining
 cannot remove a physical difference between the two models.
 
+**A gap in this benchmark, found later and recorded here.** V6 refines a
+cantilever **uniformly**. It therefore never exercises the case that breaks
+the percentile stress measure: a mesh where one region is refined locally
+and the rest is not. Measured on `examples/l_bracket`, which pins its
+fillet refinement at 2.0 mm while the global size shrinks:
+
+| Mesh size | Nodes | Raw peak | `stress_max_mpa` | Factor of safety |
+|---|---|---|---|---|
+| 8.0 mm | 14 123 | 71.4534 | 69.6897 | 2.2959 |
+| 4.5 mm | 30 543 | 71.7266 | 67.8165 | 2.3593 |
+| 2.8 mm | 78 836 | 71.4716 | 58.9137 | **2.7158** |
+
+The raw peak is settled to ±0.2% — the opposite of what it does on the
+cantilever, because this part's hot spot is a real fillet rather than a
+singularity. The percentile falls 15.5% and the factor of safety rises 18%,
+in the reassuring direction. Refining uniformly instead moves it 2.2%.
+
+`openoptima converge` already tracks `stress_max_mpa` and would have shown
+this. **A tool that watches the right number proves nothing unless a
+benchmark puts it in front of the failing case.** The mechanism is held in
+place by `tests/unit/test_stress_measure_mesh_dependence.py`, which needs no
+solver; extending V6 itself to a locally refined part is worth doing and is
+not done yet. See `AGENTS.md` trap 23.
+
 ### V7 — Load cases are independent, and enveloped
 
 `tests/verification/test_load_case_independence.py`, plus

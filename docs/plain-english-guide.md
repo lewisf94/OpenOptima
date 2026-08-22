@@ -991,8 +991,8 @@ part. OpenOptima would spend its whole budget of evaluations pursuing a
 number that means nothing.
 
 So, by default, OpenOptima ignores the worst 1% of the stress values, and
-uses the next value down instead — the **99th percentile**. This number is
-real and stable.
+uses the next value down instead — the **99th percentile**. That sidesteps
+the infinity.
 
 OpenOptima still reports the true peak stress on every result, in
 `stress_raw_max_mpa`. Nothing is hidden from you. OpenOptima simply does
@@ -1002,6 +1002,48 @@ Your part might have a *genuine* stress concentration: a real fillet, with
 a real radius, not an idealised sharp corner. If so, model that fillet
 accurately. Refine the mesh there as well. Do not rely on the percentile
 to hide a real stress concentration.
+
+**But that 99th percentile has a weakness of its own, and you should know
+about it.** "The worst 1% of the values" means the worst 1% of the *points
+the software calculated at*. How many points there are, and where they sit,
+is something you chose when you set the mesh up — it is not a fact about
+your part.
+
+Here is what that does in practice. The example bracket refines the mesh
+finely around its fillet, at a fixed size, while the rest of the part
+follows the general setting. Chop the rest more finely and you add lots of
+new low-stress points, while the fillet keeps roughly the points it had. The
+highly stressed points are now a smaller slice of the total — so "the worst
+1%" reaches further down, and the reported stress falls. Identical part,
+identical load:
+
+| Mesh setting | Points calculated | True peak | Reported stress | Factor of safety |
+|---|---|---|---|---|
+| 8.0 mm | 14 123 | 71.45 | 69.69 | 2.30 |
+| 4.5 mm | 30 543 | 71.73 | 67.82 | 2.36 |
+| 2.8 mm | 78 836 | 71.47 | 58.91 | **2.72** |
+
+The true peak barely moves. The reported stress drops 15%, and the factor of
+safety **rises 18% — the direction that looks like good news**. That example
+requires a factor of safety of at least 2, so the mesh you happened to pick
+can push a design over its own line.
+
+**What to do about it:**
+
+- **Do not compare stress numbers from two different mesh settings.** Inside
+  one study every design uses the same setting, so comparing designs against
+  each other is fine. It is comparing across settings that misleads.
+- **Run `openoptima converge` on the design you actually intend to use.** It
+  chops the part at several densities and tells you whether the number has
+  stopped moving. This is what it is for.
+- **Look at `stress_raw_max_mpa` too.** If your hot spot is a real fillet
+  rather than a sharp corner, the true peak is the steadier of the two, as
+  the table shows.
+
+This is a known limitation, written down rather than quietly lived with.
+Changing how the percentile is worked out would move every number the
+software has ever reported, so it is a decision for the project owner rather
+than something to slip in.
 
 ### "Infeasible" versus "error" — a distinction that matters more than it sounds
 
