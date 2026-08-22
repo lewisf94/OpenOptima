@@ -33,11 +33,16 @@ from typing import Any
 import numpy as np
 
 from ..domain.failures import EvaluationFailure, FailureCode
-from ..domain.fatigue import EquivalentStress, FatigueSettings, LoadCycle
+from ..domain.fatigue import EquivalentStress, FatigueCurve, FatigueSettings, LoadCycle
 from ..domain.model import StressEvaluation
 from ..domain.regions import RegionMap
 from ..meshing.base import MeshData
 from ..solvers.base import LoadCaseFields
+
+#: The state a published fatigue curve is normally measured in: pushed as
+#: hard one way as the other, so the mean stress is nothing. A measured swing
+#: is corrected to this before the curve is read.
+_FULLY_REVERSED = -1.0
 
 
 def _equistress() -> Any:
@@ -188,6 +193,73 @@ def cycle_stress(
     )
 
 
+def cycle_life(cycle: CycleStress, curve: FatigueCurve) -> float:
+    """How many of this swing the material survives, from the supplied curve.
+
+    Two steps, both pyLife's. The swing is first corrected for its mean
+    stress -- a swing about a mean that pulls the material apart is more
+    damaging than the same swing about nothing -- and the corrected swing is
+    then looked up on the curve.
+
+    **Computed at the point with the worst swing, not at a percentile.** A
+    fatigue crack starts at the hottest point, so a life computed from a
+    percentile would be a life for somewhere the part will not crack. That is
+    a departure from how the static stress measure works, and it is a
+    measured one rather than a preference: on ``examples/l_bracket`` the peak
+    swing held to within 0.2% across 14 123 to 78 836 nodes while the 99th
+    percentile fell 15.5% over the same refinement. Here the peak is the
+    steadier number. See ``AGENTS.md`` trap 23.
+
+    **That only holds where the hottest point is a real feature.** At a sharp
+    inside corner or a fully fixed face the peak grows without limit however
+    fine the mesh, and a life computed there is a statement about the mesh.
+    OpenOptima cannot tell the difference from a single mesh, so it says so
+    on every result and leaves the judgement where it belongs.
+
+    Returns ``inf`` when the swing is below the curve's endurance limit. That
+    means "below the limit of the curve you supplied", never "this part will
+    not break".
+    """
+    if curve.mean_stress_sensitivity is None:
+        raise EvaluationFailure(
+            FailureCode.FATIGUE_CURVE_INCOMPLETE,
+            f"a fatigue life for cycle {cycle.name!r} needs to know how much a mean "
+            f"stress matters for this material, and no mean_stress_sensitivity was "
+            f"given. The swing here sits about a mean of {cycle.mean_at_worst:.4g} MPa, "
+            f"and a swing about a mean that pulls the material apart is more damaging "
+            f"than the same swing about nothing -- assuming otherwise is wrong in the "
+            f"unsafe direction. State it on the fatigue curve; if your cycle is fully "
+            f"reversed it changes nothing.",
+        )
+
+    import pandas as pd
+    from pylife.strength.meanstress import fkm_goodman
+
+    # Correct the swing to its fully reversed equivalent, which is the state
+    # a published curve is normally measured in.
+    corrected = float(
+        np.asarray(
+            fkm_goodman(
+                np.array([cycle.amplitude_max]),
+                np.array([cycle.mean_at_worst]),
+                curve.mean_stress_sensitivity,
+                curve.second_sensitivity,
+                _FULLY_REVERSED,
+            )
+        )[0]
+    )
+
+    fields = {
+        "SD": curve.endurance_stress,
+        "ND": curve.endurance_cycles,
+        "k_1": curve.slope,
+    }
+    if curve.slope_beyond is not None:
+        fields["k_2"] = curve.slope_beyond
+    woehler = pd.Series(fields).woehler
+    return float(np.asarray(woehler.cycles(corrected)).reshape(-1)[0])
+
+
 def _reduce(field: np.ndarray, evaluation: StressEvaluation) -> float:
     """Reduce the amplitude field the same way the static stress field is.
 
@@ -265,4 +337,67 @@ def fatigue_metrics(
             f"{len(measured)} load cycles measured; the reported swing is the worst "
             f"of them, {governing.name!r} at {governing.amplitude_max:.4g} MPa"
         )
+
+    if settings.curve is not None:
+        metrics.update(_life_metrics(settings, measured, warnings))
+
     return (metrics, measured, warnings)
+
+
+def _life_metrics(
+    settings: FatigueSettings,
+    measured: list[CycleStress],
+    warnings: list[str],
+) -> dict[str, float]:
+    """Life in cycles, and the damage several cycles do between them.
+
+    **Which cycle governs changes once a curve is involved.** Without one the
+    worst cycle is simply the one that swings furthest. With one it is the one
+    that uses up the most life, and that is not always the same cycle: a
+    smaller swing about a mean that pulls the material apart can be more
+    damaging than a larger swing about nothing.
+    """
+    curve = settings.curve
+    assert curve is not None
+    lives = {cycle.name: cycle_life(cycle, curve) for cycle in measured}
+
+    shortest = min(lives.values())
+    metrics: dict[str, float] = {"fatigue_life_cycles": shortest}
+    for name, life in lives.items():
+        metrics[f"fatigue_life_cycles.{name}"] = life
+
+    # Miner's rule: each cycle uses up a share of the life, and the shares add
+    # up. At 1.0 the part is used up. Only computed when every cycle says how
+    # many times it happens -- a total built from some of the cycles is not a
+    # smaller total, it is a wrong one.
+    counts = {cycle.name: cycle.repeats for cycle in settings.cycles}
+    if all(count is not None for count in counts.values()):
+        metrics["fatigue_damage"] = sum(
+            (counts[name] or 0.0) / life for name, life in lives.items() if life > 0.0
+        )
+    elif any(count is not None for count in counts.values()):
+        named = sorted(name for name, count in counts.items() if count is None)
+        warnings.append(
+            f"no damage total was added up because {', '.join(named)} "
+            f"{'does' if len(named) == 1 else 'do'} not say how many times "
+            f"{'it happens' if len(named) == 1 else 'they happen'}. A total built "
+            f"from only some of the cycles would understate the damage."
+        )
+
+    # Said on every result, because the software cannot check it from one mesh.
+    finite = [name for name, life in lives.items() if life != float("inf")]
+    if finite:
+        warnings.append(
+            "fatigue life is computed at the point with the worst swing, which is "
+            "where a crack starts. That number is only meaningful if the stress "
+            "there has settled: run 'openoptima converge' on the design you intend "
+            "to use. A life from a fatigue curve is commonly out by a factor of "
+            "three even when everything is done properly."
+        )
+    else:
+        warnings.append(
+            "every cycle swings less than the endurance limit of the fatigue curve "
+            "supplied, so the life is reported as unlimited. That means below the "
+            "limit of that curve, never that the part cannot break."
+        )
+    return metrics

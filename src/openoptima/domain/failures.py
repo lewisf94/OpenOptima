@@ -126,6 +126,12 @@ class FailureCode(str, Enum):
     #: must never reach the optimiser as a poor design, and retrying it cannot
     #: change the answer.
     FATIGUE_CYCLE_INCOMPLETE = "fatigue_cycle_incomplete"
+    #: A fatigue life was asked for and the curve cannot answer: no mean
+    #: stress sensitivity was given, so there is no way to say how much a
+    #: swing about a tensile mean is worsened by it. Assuming it does not
+    #: matter is wrong in the unsafe direction, so this refuses instead. A
+    #: setup mistake, identical for every design, and retrying cannot help.
+    FATIGUE_CURVE_INCOMPLETE = "fatigue_curve_incomplete"
     WORKER_CRASH = "worker_crash"
     CANCELLED = "cancelled"
     INTERNAL_ERROR = "internal_error"

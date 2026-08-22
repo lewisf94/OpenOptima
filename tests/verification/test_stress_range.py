@@ -357,3 +357,93 @@ def test_both_sign_conventions_agree_on_a_plain_pull(solved) -> None:
         fields, (_name(0.5), _name(1.0)), EquivalentStress.SIGNED_MISES_MAX_PRINCIPAL
     )
     assert by_trace.mean_at_worst == pytest.approx(by_principal.mean_at_worst, rel=1.0e-9)
+
+
+# --- V19: turning that swing into a life -----------------------------------
+#
+# The swing above is measured. This turns it into a number of cycles against a
+# supplied fatigue curve, and checks two things that carry engineering weight.
+#
+# **The life must follow the curve**, against the closed form
+# ``N = ND * (SD / S) ** k`` rather than against a recorded run.
+#
+# **The same swing must last longer pressed together than pulled apart.** This
+# rig gives that comparison on real solved fields rather than on synthetic
+# numbers: the pair (+0.5, +1.0) and the pair (-1.0, -0.5) have the identical
+# swing and exactly opposite middles, because the load levels are mirrored.
+# A crack held open by a tensile mean grows under a swing that a compressive
+# mean holds shut, so the first must be the shorter life. Getting that
+# backwards gives a perfectly plausible number.
+
+#: Endurance limit 40 MPa at ten million cycles, slope 5. Chosen so the swings
+#: this rig produces land above the limit, where the curve has a closed form.
+LIFE_CURVE_SD = 40.0
+LIFE_CURVE_ND = 1.0e7
+LIFE_CURVE_SLOPE = 5.0
+
+
+def _curve(sensitivity: float = 0.3):
+    from openoptima.domain.fatigue import FatigueCurve
+
+    return FatigueCurve(
+        endurance_stress=LIFE_CURVE_SD,
+        endurance_cycles=LIFE_CURVE_ND,
+        slope=LIFE_CURVE_SLOPE,
+        mean_stress_sensitivity=sensitivity,
+    )
+
+
+def test_a_life_follows_the_curve_from_the_measured_swing(solved) -> None:
+    """Closed form, using the swing this rig actually measured.
+
+    The cycle is fully reversed, so its mean is nothing and the mean-stress
+    correction is a no-op -- which isolates the curve itself.
+    """
+    from openoptima.results.fatigue import cycle_life
+
+    _mesh, fields = solved
+    measured = _measure(fields, (_name(1.0), _name(-1.0)))
+    assert measured.mean_at_worst == pytest.approx(0.0, abs=1.0e-6)
+
+    expected = LIFE_CURVE_ND * (LIFE_CURVE_SD / measured.amplitude_max) ** LIFE_CURVE_SLOPE
+    assert cycle_life(measured, _curve()) == pytest.approx(expected, rel=1.0e-9)
+
+
+def test_the_same_swing_lasts_longer_pressed_than_pulled(solved) -> None:
+    """On real fields, not synthetic ones.
+
+    Both cycles swing by a quarter of the reference stress. One sits about a
+    mean that pulls the material apart, the other about a mean of the same
+    size that presses it together. The lives must differ, and in the
+    direction that makes the pulled one shorter.
+    """
+    from openoptima.results.fatigue import cycle_life
+
+    _mesh, fields = solved
+    pulled = _measure(fields, (_name(0.5), _name(1.0)))
+    pressed = _measure(fields, (_name(-1.0), _name(-0.5)))
+
+    # Same swing, opposite middles -- that is what makes this a fair test.
+    assert pulled.amplitude_max == pytest.approx(pressed.amplitude_max, rel=1.0e-6)
+    assert pulled.mean_at_worst == pytest.approx(-pressed.mean_at_worst, rel=1.0e-6)
+    assert pulled.mean_at_worst > 0.0
+
+    curve = _curve()
+    assert cycle_life(pulled, curve) < cycle_life(pressed, curve)
+
+
+def test_ignoring_the_mean_stress_would_overstate_the_life(solved) -> None:
+    """Which is why a mean stress sensitivity is required rather than assumed.
+
+    Setting it to zero is what "ignore the mean stress" means, and on the
+    pulled cycle above that reports a longer life than accounting for it does
+    -- the direction that says the part survives.
+    """
+    from openoptima.results.fatigue import cycle_life
+
+    _mesh, fields = solved
+    pulled = _measure(fields, (_name(0.5), _name(1.0)))
+
+    ignored = cycle_life(pulled, _curve(sensitivity=0.0))
+    accounted = cycle_life(pulled, _curve(sensitivity=0.3))
+    assert accounted < ignored

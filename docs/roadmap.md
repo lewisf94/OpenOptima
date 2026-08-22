@@ -808,11 +808,38 @@ fatigue.
      negated load departs by 0.000e+00 and a halved one by 2.620e-06, which
      is what sets the tolerance V18 can hold to.
 
-   - **An S-N curve** — a published table of how many cycles a material
-     survives at a given stress.
-   - **A way to add up damage** when more than one kind of cycle applies.
+   - ~~**An S-N curve**~~ **Done.** `fatigue.curve` takes the four numbers
+     that describe one: the swing the material survives indefinitely, the
+     cycle count that limit is quoted at, how fast life falls away above it,
+     and optionally how the curve continues below. **No defaults**, because
+     a curve belongs to a material, a surface finish, a temperature and a
+     failure probability all at once.
 
-   The last two are standard, published methods, and a maintained library
+     A mean stress sensitivity is **required rather than defaulted**, and
+     that is the one refusal worth explaining. A swing about a mean that
+     pulls the material apart is more damaging than the same swing about
+     nothing, and assuming otherwise overstates the life. Measured as V19 on
+     a real solve: two cycles with the identical swing and opposite middles
+     give different lives, and ignoring the mean reports the longer one.
+     If a cycle is fully reversed the number changes nothing, so requiring
+     it costs a vibrating part's project one line.
+   - ~~**A way to add up damage**~~ **Done.** Give each cycle a `repeats`
+     count and Miner's rule adds the shares up as `fatigue_damage`; at 1.0
+     the part is used up. A total is only produced when **every** cycle says
+     how often it happens — a total built from some of them is not a smaller
+     total, it is a wrong one, in the direction that says the part lasts.
+
+   **What is still open is the awkward part below: which stress a life may
+   be computed from.** Today it is the point with the worst swing, because
+   that is where a crack starts, and every result says in words that the
+   number rests on the stress there having settled. Measured while building
+   it, and it cuts the way the roadmap did not expect: on the L-bracket the
+   peak swing held to ±0.2% across 14 123 to 78 836 nodes while the 99th
+   percentile fell 15.5%. On a part whose hot spot is a real fillet the peak
+   is the **steadier** number. On a part with a sharp corner it is not, and
+   OpenOptima cannot tell which from one mesh — see trap 23.
+
+   These are standard, published methods, and a maintained library
    already implements them:
    [`pylife`](https://github.com/boschresearch/pylife), from Bosch
    Research, under a licence this project can use. It handles S-N curves

@@ -77,6 +77,86 @@ class EquivalentStress(str, Enum):
 
 
 @dataclass(frozen=True)
+class FatigueCurve:
+    """How many cycles the material survives at a given swing.
+
+    This is an **S-N curve**, also called a Wöhler curve: a published table,
+    measured on test pieces, of how long a material lasts at each stress
+    swing. Four numbers describe the usual shape.
+
+    **OpenOptima has no default for any of them, and will not invent one.**
+    A fatigue curve belongs to a material, a surface finish, a temperature
+    and a failure probability all at once. A default would look
+    authoritative and be wrong for almost every real material.
+
+    Two honesty notes that are part of the answer rather than small print.
+    Fatigue life from a curve like this is commonly out by a **factor of
+    three** even when everything is done properly, so a life quoted to three
+    significant figures implies a precision that does not exist. And an
+    as-printed surface is rougher than a machined one, which lowers fatigue
+    strength by more than layer weakness does -- a curve measured on polished
+    test pieces flatters a printed part.
+    """
+
+    #: The swing the material survives indefinitely, in MPa. ``SD`` in the
+    #: usual notation.
+    endurance_stress: float
+    #: The number of cycles at which that limit is quoted. ``ND``.
+    endurance_cycles: float
+    #: How fast life falls away above that limit. ``k_1``. Life goes as
+    #: ``endurance_cycles * (endurance_stress / swing) ** slope``, so a
+    #: **larger** value punishes an overload harder -- at twice the endurance
+    #: stress, a slope of 3 leaves an eighth of the cycles and a slope of 10
+    #: leaves about a thousandth.
+    slope: float
+    #: How the curve continues *below* the endurance limit. ``None`` means it
+    #: goes flat -- the classic endurance limit, where a small enough swing
+    #: never breaks the part. Give a number for a curve that keeps falling,
+    #: which is what steels do in a corrosive setting and what aluminium does
+    #: always.
+    slope_beyond: float | None = None
+    #: How much a mean stress that pulls the material apart matters, on the
+    #: FKM scale. Required whenever a life is asked for: a swing about a
+    #: tensile mean is more damaging than the same swing about zero, and
+    #: assuming otherwise is wrong in the unsafe direction. If your cycle is
+    #: fully reversed this has no effect, so stating it costs nothing.
+    mean_stress_sensitivity: float | None = None
+    #: The second FKM segment. Defaults to a third of the first, which is the
+    #: FKM guideline's own convention rather than a guess by this project.
+    mean_stress_sensitivity_2: float | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("endurance_stress", self.endurance_stress),
+            ("endurance_cycles", self.endurance_cycles),
+            ("slope", self.slope),
+        ):
+            if value <= 0.0:
+                raise ValueError(f"fatigue curve {name} must be above zero, got {value!r}")
+        if self.slope_beyond is not None and self.slope_beyond <= 0.0:
+            raise ValueError("fatigue curve slope_beyond must be above zero when given")
+        if self.mean_stress_sensitivity is not None and self.mean_stress_sensitivity < 0.0:
+            raise ValueError("mean_stress_sensitivity cannot be negative")
+
+    @property
+    def second_sensitivity(self) -> float:
+        """The FKM second segment, defaulted the way the guideline does."""
+        if self.mean_stress_sensitivity_2 is not None:
+            return self.mean_stress_sensitivity_2
+        return (self.mean_stress_sensitivity or 0.0) / 3.0
+
+    def digest_fields(self) -> dict[str, object]:
+        return {
+            "SD": self.endurance_stress,
+            "ND": self.endurance_cycles,
+            "k1": self.slope,
+            "k2": self.slope_beyond,
+            "M": self.mean_stress_sensitivity,
+            "M2": self.mean_stress_sensitivity_2,
+        }
+
+
+@dataclass(frozen=True)
 class LoadCycle:
     """One repeating swing, described by the two load cases at its ends.
 
@@ -87,6 +167,10 @@ class LoadCycle:
     name: str
     #: The ids of the two load cases at the ends of the swing.
     between: tuple[str, str]
+    #: How many of this swing the part has to survive. Only needed to add up
+    #: damage across several different cycles; a single cycle's life is
+    #: reported in cycles regardless.
+    repeats: float | None = None
 
     def __post_init__(self) -> None:
         if len(self.between) != 2:
@@ -101,8 +185,15 @@ class LoadCycle:
                 f"changes. Name the two ends of the cycle."
             )
 
+        if self.repeats is not None and self.repeats <= 0.0:
+            raise ValueError(
+                f"Load cycle {self.name!r} repeats {self.repeats!r} times, which is not "
+                f"a number of cycles. Leave it out if the part only has to survive one "
+                f"kind of swing."
+            )
+
     def digest_fields(self) -> dict[str, object]:
-        return {"name": self.name, "between": list(self.between)}
+        return {"name": self.name, "between": list(self.between), "repeats": self.repeats}
 
 
 @dataclass(frozen=True)
@@ -112,6 +203,10 @@ class FatigueSettings:
     enabled: bool = False
     cycles: tuple[LoadCycle, ...] = field(default_factory=tuple)
     equivalent_stress: EquivalentStress = EquivalentStress.SIGNED_MISES_TRACE
+    #: The material's S-N curve. Without one OpenOptima reports how far the
+    #: stress swings and stops there, which is a real and useful number. With
+    #: one it goes on to a life in cycles.
+    curve: FatigueCurve | None = None
 
     def __post_init__(self) -> None:
         if self.enabled and not self.cycles:
@@ -140,4 +235,5 @@ class FatigueSettings:
             "enabled": True,
             "equivalent_stress": self.equivalent_stress.value,
             "cycles": [cycle.digest_fields() for cycle in self.cycles],
+            "curve": None if self.curve is None else self.curve.digest_fields(),
         }

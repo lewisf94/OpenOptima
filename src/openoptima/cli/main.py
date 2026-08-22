@@ -185,10 +185,26 @@ def command_doctor(args: argparse.Namespace) -> int:
             for cycle in project.fatigue.cycles
         )
         print(f"Stress swing : {swings}")
-        print(
-            "               reports how far the stress swings, not a life in "
-            "cycles -- that needs a fatigue curve for your material."
-        )
+        curve = project.fatigue.curve
+        if curve is None:
+            print(
+                "               reports how far the stress swings, not a life in "
+                "cycles -- that needs a fatigue curve for your material."
+            )
+        else:
+            # Say the curve back, because a fatigue life is only as good as it
+            # and nothing downstream can check whether it is the right curve.
+            beyond = (
+                "flat below it" if curve.slope_beyond is None else f"slope {curve.slope_beyond:g}"
+            )
+            print(
+                f"Fatigue curve: {curve.endurance_stress:g} MPa at "
+                f"{curve.endurance_cycles:.3g} cycles, slope {curve.slope:g}, {beyond}"
+            )
+            print(
+                "               a life from a curve is commonly out by a factor of "
+                "three, and rests on the stress at the hottest point having settled."
+            )
     print(f"Parallel jobs: {default_job_count(project.optimisation.parallel_jobs)}")
     print()
 

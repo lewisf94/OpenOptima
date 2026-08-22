@@ -692,11 +692,58 @@ the one that uses up the most life, which is not always the one that swings
 furthest, because a mean stress that pulls the material apart makes a
 smaller swing more damaging.
 
+### From a swing to a life
+
+Give `fatigue.curve` an S-N curve for the material and OpenOptima reports
+`fatigue_life_cycles`. Give each cycle a `repeats` count as well and it adds
+the damage up with Miner's rule as `fatigue_damage`, where 1.0 means the part
+is used up. A damage total is produced only when **every** cycle says how
+often it happens: a total from some of them is not a smaller total, it is a
+wrong one, in the direction that says the part lasts.
+
+**The life is computed at the point with the worst swing**, because that is
+where a fatigue crack starts. This is a deliberate departure from the static
+stress measure, which uses a percentile, and it rests on a measurement rather
+than a preference: on `examples/l_bracket` the peak swing held to ±0.2%
+across 14 123 to 78 836 nodes while the 99th percentile fell 15.5% over the
+same refinement. On a part whose hot spot is a real fillet, the peak is the
+steadier number.
+
+**That only holds where the hot spot is a real feature.** At a sharp inside
+corner or a fully fixed face the peak grows without limit however fine the
+mesh, and a life computed there is a statement about the mesh. OpenOptima
+cannot tell the difference from a single mesh, so **every life carries that
+caveat in words** and points at `openoptima converge`, which is the tool for
+answering it. Exclude a genuinely singular region through
+`stress_evaluation.excluded_regions` as you would for static stress.
+
+**A mean stress sensitivity is required, not defaulted.** A swing about a
+mean that pulls the material apart is more damaging than the same swing about
+nothing, and treating a mean stress as harmless overstates the life. Measured
+as V19 on a real solve, two cycles with the identical swing and opposite
+means give different lives, and setting the sensitivity to zero reports the
+longer one. Where a cycle is fully reversed the value changes nothing, so
+stating it costs such a project nothing.
+
+**Precision that does not exist.** A fatigue life from a curve like this is
+commonly out by a **factor of three** even when everything is done properly.
+Read `fatigue_life_cycles` as an order of magnitude, never as three
+significant figures.
+
+**Infinite is not infinite.** A swing below the curve's endurance limit
+reports an unlimited life. That means below the limit of the curve *you*
+supplied, never that the part cannot break.
+
 **What is not covered.** No crack growth, no surface finish effect, no size
 effect, no notch sensitivity, and no counting of variable-amplitude
 histories. An as-printed surface is rougher than a machined one and lowers
 fatigue strength by more than layer weakness does, so a printed part
 assessed from these numbers alone is being flattered.
+
+**And the curve itself is yours.** OpenOptima has no material database and
+will not invent a curve. A curve belongs to a material, a surface finish, a
+temperature and a failure probability at once, and a default would look
+authoritative while being wrong for almost every real material.
 
 ## What the optimiser will and will not do
 

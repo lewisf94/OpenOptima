@@ -1422,13 +1422,55 @@ That last sign matters more than its size. A part being pulled apart on
 average holds any crack open, which makes the same swing far more damaging.
 A part being squeezed holds a crack shut.
 
-**What this does not do, stated plainly: it does not tell you how long the
-part lasts.** It gives you the swing that a lifetime would be calculated
-from. Turning "swings by 35 MPa" into "survives ten million cycles" needs a
-published fatigue curve for your exact material — a table of how many cycles
-it survives at each stress level — and OpenOptima will ask you for that
-rather than guess it. Guessing would look authoritative and be wrong for
-most materials.
+### Getting an actual lifetime out of it
+
+If you have a **fatigue curve** for your material — a published table of how
+many cycles it survives at each stress level — OpenOptima will turn the swing
+into a number of cycles:
+
+```yaml
+fatigue:
+  enabled: true
+  cycles:
+    - name: each propeller turn
+      between: [thrust_up, thrust_down]
+      repeats: 1.0e7           # how many you need it to survive
+  curve:
+    endurance_stress_mpa: 60.0   # a swing below this never breaks it
+    endurance_cycles: 1.0e7      # the cycle count that limit is quoted at
+    slope: 7.0                   # how fast life drops above that limit
+    mean_stress_sensitivity: 0.3 # how much a pulling-apart mean matters
+```
+
+You get `fatigue_life_cycles` — how many of that swing the part survives —
+and, if every cycle has a `repeats` count, `fatigue_damage`, where **1.0
+means used up**.
+
+**OpenOptima has no material database and will not invent a curve.** A
+fatigue curve belongs to a material, a surface finish, a temperature and a
+chosen failure probability all at once. A built-in default would look
+authoritative and be wrong for almost every real material, so you supply it.
+
+**It also insists you say how much a mean stress matters.** Recall that a
+part being pulled apart on average holds cracks open. If you leave that
+number out, OpenOptima refuses to give you a life rather than quietly
+assuming it does not matter — because assuming that always makes the part
+look longer-lived than it is. If your cycle is fully reversed the number has
+no effect, so filling it in costs you nothing.
+
+**Three things to hold on to about the answer:**
+
+- **Treat it as an order of magnitude, not a precise figure.** Fatigue life
+  from a curve is commonly out by a **factor of three** even when everything
+  is done properly. "About three million cycles" is the honest reading of
+  2 880 450.
+- **"Unlimited" means below the limit of the curve you gave.** It does not
+  mean the part cannot break.
+- **It is worked out at the single hottest point**, because that is where a
+  crack starts. That is only meaningful if the stress there has settled —
+  see the warning about sharp corners above — so run `openoptima converge`
+  on the design you actually intend to use. OpenOptima says this on every
+  result, because it cannot check it for you from one run.
 
 **One thing worth knowing about why this exists at all.** There was an
 obvious shortcut here, and it was wrong in the worst possible way. The
@@ -1468,6 +1510,7 @@ state instead, which keeps the direction.
 | **Element** | One small piece the part is chopped into. |
 | **Factor of safety** | How much margin you have. 2.0 = stress is half the allowable. |
 | **Fatigue** | Failing after many load cycles, at a stress the part would easily survive if applied once. Bend a paperclip back and forth. |
+| **Fatigue curve** (S-N curve) | A published table of how many cycles a material survives at each stress swing. You supply it; OpenOptima has no material database. |
 | **Fillet** | A rounded corner. OpenOptima can add one to an imported shape and vary its radius. |
 | **Gmsh** | The free program that builds the shape and chops it into pieces. |
 | **Hoffman criterion** | The sum used to judge a printed part, where one allowable stress will not do. It accounts for the material being stronger along its layers than through them, and stronger in compression than in tension. |
@@ -1477,6 +1520,7 @@ state instead, which keeps the direction.
 | **Load cycle** | One repeating swing, described by naming the two load cases at its ends. |
 | **Mesh** | The part chopped into thousands of small pieces. |
 | **Mean stress** | The middle of a stress swing. Positive means the material is being pulled apart on average, which makes the same swing more damaging. |
+| **Miner's rule** | Adding up the share of life each kind of cycle uses. At 1.0 the part is used up. |
 | **Mode** | One of the shapes a part waves in when it vibrates. Each mode has its own frequency. |
 | **Natural frequency** | A rate the part likes to vibrate at, in cycles per second. Shake it at that rate and small pushes build into big movements. |
 | **NSGA-II** | The search method used. Keeps a population of designs and improves them, like breeding. |

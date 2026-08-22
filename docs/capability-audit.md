@@ -178,7 +178,7 @@ profile of constant section.
 **Verdict: build, and only after 3D topology is integrated and verified.**
 Doing 2D first would mean two unproven things at once.
 
-### Fatigue — Wrap ✔ the stress swing done, the life not yet
+### Fatigue — Wrap ✔ swing and life done, crack growth not planned
 
 Failing after many load cycles, at a stress the part would survive if applied
 once.
@@ -223,9 +223,33 @@ at 137 of 19 787 nodes**. Every disagreement there was below 5.70 MPa against a
 35.84 MPa peak, and the governing node agreed either way — but that is a fact
 about that part, not a general one, so both are offered and neither is silent.
 
-**Still to come:** the S-N curve, damage summation, and the refusal rule for a
-peak stress that has not been shown to settle. Those are the parts where
-pyLife does the real work.
+**Also done: the life.** `fatigue.curve` describes an S-N curve and
+`fatigue.cycles[].repeats` how often each swing happens, giving
+`fatigue_life_cycles` and `fatigue_damage`. pyLife's Wöhler curve and FKM
+mean-stress correction do the work. Verified as V19 against the closed form
+`N = ND × (SD / S)^k`, and against the physics running the right way on real
+solved fields: two cycles with the identical swing and opposite mean stress
+give different lives, with the pulled one shorter.
+
+**One refusal, and it is the interesting design decision here.** A mean
+stress sensitivity is **required**, not defaulted to zero. Ignoring a mean
+stress overstates the life, which is the unsafe direction, and it is exactly
+the kind of number this project will not invent. Where a cycle is fully
+reversed the value changes nothing, so requiring it costs a vibrating part's
+project one line and removes a whole class of silent error.
+
+**Which stress a life may be computed from is the part still open**, and the
+measurement inverted the expectation. The life is taken at the point with the
+worst swing, because that is where a crack starts. On `examples/l_bracket`
+that peak held to ±0.2% across 14 123 to 78 836 nodes while the 99th
+percentile fell 15.5% — so on a part whose hot spot is a real fillet the peak
+is the **steadier** number, not the wilder one. On a part with a sharp corner
+it is not, and OpenOptima cannot tell which from a single mesh. So every life
+carries, in words, that it rests on the stress there having settled and that
+`openoptima converge` is the tool to check. See `AGENTS.md` trap 23.
+
+**Still not planned:** crack growth, surface finish, size and notch effects,
+and counting variable-amplitude histories.
 
 ### Printability geometry — Wrap ✔ overhang and fit done
 

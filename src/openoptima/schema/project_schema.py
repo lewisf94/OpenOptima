@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ..domain.carried import CarriedShape, CarriedSize
 from ..domain.failure_criteria import criterion_for
-from ..domain.fatigue import EquivalentStress, FatigueSettings, LoadCycle
+from ..domain.fatigue import EquivalentStress, FatigueCurve, FatigueSettings, LoadCycle
 from ..domain.features import EdgeFeature, FeatureKind
 from ..domain.model import (
     BoundaryCondition,
@@ -723,14 +723,59 @@ class PrintingSchema(Strict):
         )
 
 
+class FatigueCurveSchema(Strict):
+    """How many cycles the material survives at a given swing (an S-N curve).
+
+    Every number here is the engineer's to supply, read off a published curve
+    for the exact material, surface finish and failure probability wanted.
+    **OpenOptima has no defaults and will not invent one**, because a default
+    would look authoritative and be wrong for almost every real material.
+    """
+
+    #: The swing the material survives indefinitely, in MPa (``SD``).
+    endurance_stress_mpa: float
+    #: The cycle count at which that limit is quoted (``ND``).
+    endurance_cycles: float
+    #: How steeply life falls off above the limit (``k_1``).
+    slope: float
+    #: How the curve continues below the limit (``k_2``). Leave it out for a
+    #: flat endurance limit; give it for a curve that keeps falling, which is
+    #: what aluminium does.
+    slope_beyond: float | None = None
+    #: How much a mean stress that pulls the material apart matters, on the
+    #: FKM scale. **Required for a life.** If the cycle is fully reversed it
+    #: changes nothing, so stating it costs nothing.
+    mean_stress_sensitivity: float | None = None
+    #: The second FKM segment. Defaults to a third of the first, which is the
+    #: FKM guideline's own convention.
+    mean_stress_sensitivity_2: float | None = None
+
+    def to_domain(self) -> FatigueCurve:
+        return FatigueCurve(
+            endurance_stress=self.endurance_stress_mpa,
+            endurance_cycles=self.endurance_cycles,
+            slope=self.slope,
+            slope_beyond=self.slope_beyond,
+            mean_stress_sensitivity=self.mean_stress_sensitivity,
+            mean_stress_sensitivity_2=self.mean_stress_sensitivity_2,
+        )
+
+
 class LoadCycleSchema(Strict):
     """One repeating swing, named by the two load cases at its ends."""
 
     name: str
     between: list[str]
+    #: How many of this swing the part has to survive. Only needed to add up
+    #: damage across several different cycles.
+    repeats: float | None = None
 
     def to_domain(self) -> LoadCycle:
-        return LoadCycle(name=self.name, between=(self.between[0], self.between[1]))
+        return LoadCycle(
+            name=self.name,
+            between=(self.between[0], self.between[1]),
+            repeats=self.repeats,
+        )
 
     @model_validator(mode="after")
     def _exactly_two_ends(self) -> LoadCycleSchema:
@@ -780,12 +825,14 @@ class FatigueSchema(Strict):
     equivalent_stress: Literal["signed_mises_trace", "signed_mises_abs_max_principal"] = (
         "signed_mises_trace"
     )
+    curve: FatigueCurveSchema | None = None
 
     def to_domain(self) -> FatigueSettings:
         return FatigueSettings(
             enabled=self.enabled,
             cycles=tuple(cycle.to_domain() for cycle in self.cycles),
             equivalent_stress=EquivalentStress(self.equivalent_stress),
+            curve=self.curve.to_domain() if self.curve else None,
         )
 
 

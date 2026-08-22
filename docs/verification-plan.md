@@ -868,9 +868,40 @@ against the full-load case, the *negated* load departs by `0.000e+00`
 rather than chosen. Measured residuals sit well inside it: 1.03e-6 against a
 7.9e-6 bound for the closest pair, 3.42e-7 against 2.6e-6 for the widest.
 
-**What this does not yet do.** It reports the swing, not a life in cycles.
-Turning a swing into "survives ten million cycles" needs a published fatigue
-curve for the material, which is the engineer's to supply.
+### V19 — Turning that swing into a life
+
+`tests/verification/test_stress_range.py` (same rig as V18)
+
+Once a swing is measured, a published fatigue curve turns it into a number
+of cycles. Three checks, on the same solved axial bar.
+
+**Against the closed form.** Above the endurance limit a Basquin curve gives
+`N = ND × (SD / S)^k`. Checked using the swing V18 actually measured, on a
+fully reversed cycle so the mean-stress correction is a no-op and the curve
+itself is isolated.
+
+**The same swing must last longer pressed together than pulled apart.** This
+is the check that needs real solved fields rather than synthetic numbers.
+The rig solves the bar at ±1.0 and ±0.5 of a reference load, so the pair
+(+0.5, +1.0) and the pair (−1.0, −0.5) have the **identical** swing and
+exactly opposite middles. A crack held open by a mean stress that pulls the
+material apart grows under a swing that a compressive mean holds shut, so the
+first must give the shorter life. Getting that backwards produces a perfectly
+plausible number.
+
+**Ignoring the mean stress overstates the life.** Setting the mean stress
+sensitivity to zero is what "ignore it" means, and on the pulled cycle it
+reports a longer life than accounting for it does — the direction that says
+the part survives. That is why OpenOptima **refuses** to compute a life
+without a mean stress sensitivity rather than defaulting it to zero.
+
+**What is deliberately not claimed.** A fatigue life from a curve like this
+is commonly out by a **factor of three** even when everything is done
+properly, so these tests check that the arithmetic follows the curve and the
+physics runs the right way — not that the number predicts a real part's life.
+The life is also computed at the point with the worst swing, which is only
+meaningful where the stress there has settled; OpenOptima cannot check that
+from one mesh and says so on every result.
 
 ### V8 — NAFEMS benchmarks
 

@@ -329,6 +329,28 @@ def _self_check_steps() -> list[tuple[str, Any]]:
                 f"{measured.amplitude_max:.4f} MPa, so the stress range is "
                 f"present but wrong."
             )
+
+        # The life reaches different pyLife submodules again -- the Woehler
+        # curve and the mean-stress correction -- so importing the first one
+        # proves nothing about these. Checked against the closed form
+        # N = ND * (SD / S) ** k, which for 100 MPa on this curve is 312 500.
+        from ..domain.fatigue import FatigueCurve
+        from ..results.fatigue import cycle_life
+
+        life = cycle_life(
+            measured,
+            FatigueCurve(
+                endurance_stress=50.0,
+                endurance_cycles=1.0e7,
+                slope=5.0,
+                mean_stress_sensitivity=0.3,
+            ),
+        )
+        if not np.isclose(life, 1.0e7 * (50.0 / 100.0) ** 5.0, rtol=1e-9):
+            raise RuntimeError(
+                f"a 100 MPa swing on a curve that should give 312 500 cycles "
+                f"reported {life:.4g}, so the fatigue life is present but wrong."
+            )
         return measured.amplitude_max
 
     return [

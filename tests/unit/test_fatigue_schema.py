@@ -166,3 +166,69 @@ def test_the_documented_example_is_valid_yaml_and_loads() -> None:
     loaded = FatigueSchema.model_validate(parsed)
     assert loaded.enabled
     assert loaded.cycles[0].between == ["thrust_up", "thrust_down"]
+
+
+def test_a_project_file_can_supply_a_fatigue_curve() -> None:
+    """The trap-17 check again: a curve nobody can reach is not a feature."""
+    project = _project(
+        enabled=True,
+        cycles=[{"name": "reversal", "between": ["push", "pull"], "repeats": 1.0e6}],
+        curve={
+            "endurance_stress_mpa": 100.0,
+            "endurance_cycles": 1.0e7,
+            "slope": 5.0,
+            "mean_stress_sensitivity": 0.3,
+        },
+    )
+    curve = project.fatigue.curve
+    assert curve is not None
+    assert curve.endurance_stress == 100.0
+    assert curve.slope == 5.0
+    assert curve.mean_stress_sensitivity == 0.3
+    assert project.fatigue.cycles[0].repeats == 1.0e6
+
+
+def test_a_swing_without_a_curve_is_a_complete_answer_on_its_own() -> None:
+    """Reporting how far the stress swings is useful without a life, and is
+    what a project gets when it has no curve for its material."""
+    project = _project(enabled=True, cycles=[{"name": "c", "between": ["push", "pull"]}])
+    assert project.fatigue.curve is None
+    assert project.fatigue.cycles[0].repeats is None
+
+
+def test_changing_the_curve_changes_the_hash() -> None:
+    """A different curve is a different life, so an old answer is not a cache
+    hit for it."""
+    cycles = [{"name": "c", "between": ["push", "pull"]}]
+    base = {"endurance_stress_mpa": 100.0, "endurance_cycles": 1.0e7, "slope": 5.0}
+    first = _digest(enabled=True, cycles=cycles, curve=base)
+    for change in (
+        {"slope": 6.0},
+        {"endurance_stress_mpa": 90.0},
+        {"mean_stress_sensitivity": 0.3},
+    ):
+        assert _digest(enabled=True, cycles=cycles, curve=base | change) != first
+
+
+def test_changing_how_often_a_cycle_repeats_changes_the_hash() -> None:
+    """It changes the damage total, which is a reported number."""
+    curve = {"endurance_stress_mpa": 100.0, "endurance_cycles": 1.0e7, "slope": 5.0}
+    once = _digest(
+        enabled=True,
+        cycles=[{"name": "c", "between": ["push", "pull"], "repeats": 1e5}],
+        curve=curve,
+    )
+    twice = _digest(
+        enabled=True,
+        cycles=[{"name": "c", "between": ["push", "pull"], "repeats": 2e5}],
+        curve=curve,
+    )
+    assert once != twice
+
+
+def test_a_cycle_that_never_happens_is_refused() -> None:
+    with pytest.raises(ValueError, match="not a number of cycles"):
+        _project(
+            enabled=True,
+            cycles=[{"name": "c", "between": ["push", "pull"], "repeats": 0.0}],
+        )

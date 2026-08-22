@@ -113,6 +113,8 @@ a = Analysis(
         # rather than only importing the module.
         "openoptima.results.fatigue",
         "pylife.stress.equistress",
+        "pylife.materiallaws.woehlercurve",
+        "pylife.strength.meanstress",
         "scipy.stats",
         "scipy.special",
     ],
