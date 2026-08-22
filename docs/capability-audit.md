@@ -518,6 +518,54 @@ No library models this, because no library owns the optimisation loop. A design
 that fails is information the optimiser can use. A solver that crashes is not,
 and feeding it back as a poor result teaches the optimiser something false.
 
+### Reading how much memory a machine has free — Use, with a correction
+
+Several designs are solved at once, each holding a whole meshed model. To
+choose how many is safe, OpenOptima has to know how much memory there is. It
+does not have to know anything else about the machine.
+
+| Candidate | Notes |
+|---|---|
+| [`psutil`](https://github.com/giampaolo/psutil) 7.2.2 | Metadata says `License: BSD-3-Clause` — compatible with GPL-3.0. Actively maintained, the standard answer, and one call covers Windows, Linux and macOS |
+| Write it per platform | `/proc/meminfo` on Linux is three lines. Windows needs `ctypes` into `GlobalMemoryStatusEx`, about twenty more. macOS is the awkward one: *total* is easy, *free-and-reclaimable* is not |
+| Use the core count only, as today | Free. Also the reason a long study can be stopped part way through by the operating system |
+
+**Verdict: use psutil — and do not stop there, because on its own it is
+wrong in the unsafe direction.**
+
+**The correction, measured on the machine this was written on.** psutil
+reports what the *host* has. It does not read a container's memory limit,
+and this was checked rather than assumed: its source contains no reference
+to `cgroup`, `memory.max` or `memory.limit_in_bytes`. On this box psutil
+reports **16 075 MB** of memory, while the limit actually applied to this
+process is **13 664 MB** — an 18% overstatement. Believing the larger figure
+would start more workers than the machine can hold, which is precisely the
+failure being prevented. Reading the limit needs the process's *own* cgroup
+path out of `/proc/self/cgroup`; the file at the root of the cgroup tree
+reads as unlimited even here, where a real limit is in force.
+
+So the rule is **the smaller of what psutil reports and what the container
+allows**, and neither alone.
+
+**How this would be verified.** Not against a published reference — there is
+none, and this computes no engineering quantity. Two checks instead. The cost
+of one design must be a *measurement* taken on the machine the study is
+running on, never a constant written into the source: measured on the
+L-bracket, one design costs about 400 MB at its default 6 mm mesh and over
+8 GB at 1.6 mm, so no single figure could serve both. And the choice itself
+must be conservative in the one direction that matters — never more workers
+than the memory allows, never zero, and the container limit preferred over
+the host figure whenever both are known.
+
+**Not built yet.** This entry is the audit, written before the code as this
+document requires. The roadmap item it belongs to is "memory is not accounted
+for", under "Using the whole machine".
+
+**What stays ours.** How much one design costs. psutil reports what the
+machine has; nothing outside this project knows that a worker holds a mesh
+in memory while CalculiX runs beside it, which is the number the decision
+actually turns on.
+
 ### Mesh convergence arithmetic — Build ✔ done
 
 Richardson extrapolation and the Grid Convergence Index are published, standard
